@@ -1,0 +1,340 @@
+[
+  {
+    "path": "go.mod",
+    "content": "The MongoDB driver (`go.mongodb.org/mongo-driver/v2 v2.5.0`) is listed as an indirect dependency, but no code in this repository imports or uses MongoDB — the project persists data via MySQL (`github.com/go-sql-driver/mysql`), and none of the direct dependencies (gin, mysql driver, jwt, uuid) transitively require mongo-driver. This looks like a leftover from `go get` experimentation. Removing this line and running `go mod tidy` will keep the module graph minimal and avoid bloating builds/go.sum with an unused database driver.",
+    "existing_code": "\tgo.mongodb.org/mongo-driver/v2 v2.5.0 // indirect",
+    "start_line": 36,
+    "end_line": 36,
+    "category": "maintainability",
+    "severity": "medium"
+  },
+  {
+    "path": "cmd/app-server/main.go",
+    "content": "The http.Server only sets ReadHeaderTimeout. ReadTimeout, WriteTimeout and IdleTimeout stay at zero, so a client can send headers quickly and then stall the request body (or never read a response / hold keep-alive connections open) indefinitely, tying up handler goroutines and connections. Set explicit deadlines to bound resource usage; tune the values to the API's expected latency.",
+    "suggestion_code": "\thttpServer := \u0026http.Server{\n\t\tAddr:              cfg.HTTPAddr,\n\t\tHandler:           server.Handler(),\n\t\tReadHeaderTimeout: 5 * time.Second,\n\t\tReadTimeout:       15 * time.Second,\n\t\tWriteTimeout:      15 * time.Second,\n\t\tIdleTimeout:       60 * time.Second,\n\t}",
+    "existing_code": "\thttpServer := \u0026http.Server{\n\t\tAddr:              cfg.HTTPAddr,\n\t\tHandler:           server.Handler(),\n\t\tReadHeaderTimeout: 5 * time.Second,\n\t}",
+    "start_line": 49,
+    "end_line": 53,
+    "category": "security",
+    "severity": "medium"
+  },
+  {
+    "path": "cmd/app-server/main.go",
+    "content": "If Shutdown exceeds the 10s deadline it returns context.DeadlineExceeded, and this error is returned directly without calling httpServer.Close(). That turns a graceful-shutdown timeout into a non-zero exit while leaving connections to be torn down only by process termination. Add a forced-close fallback so shutdown completes deterministically.",
+    "suggestion_code": "\tcase \u003c-ctx.Done():\n\t\tshutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\tif err := httpServer.Shutdown(shutdownCtx); err != nil {\n\t\t\t_ = httpServer.Close()\n\t\t\treturn fmt.Errorf(\"graceful shutdown: %w\", err)\n\t\t}\n\t\treturn nil",
+    "existing_code": "\tcase \u003c-ctx.Done():\n\t\tshutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n\t\tdefer cancel()\n\t\treturn httpServer.Shutdown(shutdownCtx)",
+    "start_line": 69,
+    "end_line": 72,
+    "category": "bug",
+    "severity": "low"
+  },
+  {
+    "path": "cmd/app-server/main.go",
+    "content": "The closer returned by account.OpenStore (db.Close for MySQL) has its error silently discarded. A close failure can hide leaked connections and remove diagnostic information during shutdown. Log the error instead of ignoring it.",
+    "suggestion_code": "\tdefer func() {\n\t\tif err := closer(); err != nil {\n\t\t\tlogger.Error(\"closing account store\", \"err\", err)\n\t\t}\n\t}()",
+    "existing_code": "\tdefer func() { _ = closer() }()",
+    "start_line": 44,
+    "end_line": 44,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/http.go",
+    "content": "The `ok` values from both `c.Get` and the type assertion are discarded. If the `RequireRegistered` middleware is ever not applied to this route, or the value stored under `ContextUserIDKey` is not a string, `actorID` silently becomes `\"\"` and the request still proceeds to `Merge` with an empty actor id (only to be rejected later as \"invalid access token\"). Relying on the implicit middleware side effect makes the failure mode non-obvious. Consider checking the `ok` values and returning an explicit unauthenticated error instead of silently continuing.",
+    "suggestion_code": "\tuserID, ok := c.Get(ContextUserIDKey)\n\tif !ok {\n\t\thttpjson.Error(c, apierr.Unauthenticated(\"missing authenticated user\"))\n\t\treturn\n\t}\n\tactorID, ok := userID.(string)\n\tif !ok || actorID == \"\" {\n\t\thttpjson.Error(c, apierr.Unauthenticated(\"invalid authenticated user\"))\n\t\treturn\n\t}",
+    "existing_code": "\tuserID, _ := c.Get(ContextUserIDKey)\n\tactorID, _ := userID.(string)",
+    "start_line": 72,
+    "end_line": 73,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/http.go",
+    "content": "`strings.CutPrefix(header, \"Bearer \")` is case-sensitive, but RFC 7235 defines the auth-scheme token as case-insensitive. Clients that send `bearer` or `BEARER` (which are valid per spec) will be rejected as unauthenticated. Consider parsing the scheme case-insensitively (e.g., split on the first space and compare with `strings.EqualFold`).",
+    "suggestion_code": "\t\tparts := strings.SplitN(header, \" \", 2)\n\t\tif len(parts) != 2 || !strings.EqualFold(parts[0], \"Bearer\") {\n\t\t\thttpjson.Error(c, apierr.Unauthenticated(\"missing bearer token\"))\n\t\t\treturn\n\t\t}\n\t\ttoken := strings.TrimSpace(parts[1])\n\t\tif token == \"\" {\n\t\t\thttpjson.Error(c, apierr.Unauthenticated(\"missing bearer token\"))\n\t\t\treturn\n\t\t}",
+    "existing_code": "\t\ttoken, ok := strings.CutPrefix(header, \"Bearer \")\n\t\ttoken = strings.TrimSpace(token)",
+    "start_line": 35,
+    "end_line": 36,
+    "category": "bug",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/mysql_store.go",
+    "content": "The second UPDATE ignores RowsAffected and unconditionally overwrites the target's device_id. If targetID is missing or no longer UserStatusActive (e.g. a concurrent status change after the service-level check), the guest row is still archived and its device_id cleared, yet the device binding is never created — and the transaction commits this partial merge. It also silently drops any device_id already bound to the target. Check RowsAffected and abort (return ErrNotFound) when it is not 1, and consider guarding the target row's existing device_id state before overwriting.",
+    "suggestion_code": "\tresult, err := tx.ExecContext(ctx, `\n\t\tUPDATE users SET device_id = ?, updated_at = ? WHERE id = ? AND status = ?\n\t`, deviceID, at, targetID, UserStatusActive)\n\tif err != nil {\n\t\treturn err\n\t}\n\tn, err := result.RowsAffected()\n\tif err != nil {\n\t\treturn err\n\t}\n\tif n != 1 {\n\t\treturn ErrNotFound\n\t}",
+    "existing_code": "\tif _, err := tx.ExecContext(ctx, `\n\t\tUPDATE users SET device_id = ?, updated_at = ? WHERE id = ? AND status = ?\n\t`, deviceID, at, targetID, UserStatusActive); err != nil {\n\t\treturn err\n\t}",
+    "start_line": 84,
+    "end_line": 88,
+    "category": "bug",
+    "severity": "high"
+  },
+  {
+    "path": "internal/account/mysql_store.go",
+    "content": "isMySQLDuplicate maps every 1062 duplicate-key error to ErrDuplicateDeviceID. The users table also has UNIQUE keys on email and phone (uk_users_email, uk_users_phone), so once email/phone registration is added, a duplicate email/phone will be misreported as a duplicate device_id and hide the real conflict. Narrow the mapping to the device_id unique key, e.g. by inspecting the key name in the MySQL error message.",
+    "existing_code": "\tif err != nil {\n\t\tif isMySQLDuplicate(err) {\n\t\t\treturn ErrDuplicateDeviceID\n\t\t}\n\t\treturn err\n\t}",
+    "start_line": 37,
+    "end_line": 42,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/account/mysql_store.go",
+    "content": "scanUser scans DATETIME(3) columns directly into time.Time. go-sql-driver/mysql only returns time.Time when parseTime=true is set in the DSN; otherwise it returns []byte and every read fails at Scan with an unsupported-conversion error. The DSN is passed through unchanged from MYSQL_DSN and nothing validates parseTime, so a misconfigured DSN makes all user queries fail. Validate/enforce parseTime=true (and a fixed loc) when opening the connection, or parse the columns explicitly.",
+    "existing_code": "\t\t\u0026user.Status,\n\t\t\u0026mergedInto,\n\t\t\u0026user.CreatedAt,\n\t\t\u0026user.UpdatedAt,\n\t)",
+    "start_line": 142,
+    "end_line": 146,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/account/mysql_store.go",
+    "content": "ReplaceRefreshToken deletes and re-inserts without locking the user row, and auth_tokens has no unique constraint on user_id (only on refresh_token_hash). Two concurrent token issues for the same user can interleave DELETE/INSERT and both commit, leaving multiple valid refresh tokens and violating the documented 'drops existing tokens and stores one' behavior. Serialize via SELECT ... FOR UPDATE on the user row, or add a UNIQUE KEY on user_id.",
+    "existing_code": "\tif _, err := tx.ExecContext(ctx, `DELETE FROM auth_tokens WHERE user_id = ?`, token.UserID); err != nil {\n\t\treturn err\n\t}",
+    "start_line": 110,
+    "end_line": 112,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/account/types.go",
+    "content": "`MergedFromUserID` is a nullable pointer without `omitempty`, so every response will include `\"merged_from_user_id\": null` when no guest was merged (e.g. the already-merged path where `mergedFrom` returns nil). If the intent is to omit the field when absent, add `omitempty`; otherwise clients must treat the field as always-present-and-nullable, which should be a deliberate API contract decision.",
+    "suggestion_code": "\tMergedFromUserID *string `json:\"merged_from_user_id,omitempty\"`",
+    "existing_code": "\tMergedFromUserID *string `json:\"merged_from_user_id\"`",
+    "start_line": 55,
+    "end_line": 55,
+    "category": "style",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/types.go",
+    "content": "`UserStatusActive`/`UserStatusMerged` are untyped string constants, while `User.Status` and `TokenResponse.Status` are plain `string`. A defined `UserStatus` type would let the compiler catch invalid status assignments and make the allowed status values part of the public contract, rather than relying on convention.",
+    "suggestion_code": "type UserStatus string\n\nconst (\n\tUserStatusActive UserStatus = \"active\"\n\tUserStatusMerged UserStatus = \"merged\"\n)",
+    "existing_code": "const (\n\tUserStatusActive = \"active\"\n\tUserStatusMerged = \"merged\"\n)",
+    "start_line": 12,
+    "end_line": 15,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/memory_store.go",
+    "content": "MarkMerged binds `deviceID` to the target without first removing any previous device_id the target already owns, and it silently overwrites `byDevice[deviceID]` if that device is currently bound to a different user. After a second merge on the same target, `byDevice` still maps the target's old device to the target while `target.DeviceID` points at the new device, so `GetActiveByDeviceID` returns a stale binding. This diverges from the MySQL store, where `device_id` is a single column with `uk_users_device_id` (the old device is simply overwritten/unbound). Remove the target's prior mapping and reject a deviceID owned by another user before mutating state.",
+    "suggestion_code": "if target.DeviceID != nil {\n\t\tdelete(s.byDevice, *target.DeviceID)\n\t}\n\tif existing, ok := s.byDevice[deviceID]; ok \u0026\u0026 existing != targetID {\n\t\treturn ErrDuplicateDeviceID\n\t}\n\ttarget.DeviceID = cloneStringPtr(\u0026deviceID)\n\ttarget.UpdatedAt = at\n\ts.users[targetID] = target\n\ts.byDevice[deviceID] = targetID",
+    "existing_code": "target.DeviceID = cloneStringPtr(\u0026deviceID)\n\ttarget.UpdatedAt = at\n\ts.users[targetID] = target\n\ts.byDevice[deviceID] = targetID",
+    "start_line": 98,
+    "end_line": 101,
+    "category": "bug",
+    "severity": "high"
+  },
+  {
+    "path": "internal/account/memory_store.go",
+    "content": "A duplicate user id is reported with an ad-hoc `fmt.Errorf` rather than a sentinel error, unlike `ErrNotFound` and `ErrDuplicateDeviceID`. Callers cannot distinguish this failure via `errors.Is`, and it would be mapped to a generic INTERNAL error in the unified envelope. Define a dedicated sentinel (e.g., `ErrDuplicateUserID`) for consistency.",
+    "existing_code": "return fmt.Errorf(\"account: duplicate user id\")",
+    "start_line": 37,
+    "end_line": 37,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/store.go",
+    "content": "Connection pool settings and the startup ping timeout are hardcoded with no configuration hook. In orchestrations where the app and MySQL start concurrently (or during a cold DB warm-up), the single 3-second ping with no retry causes a hard startup failure, and fixed pool sizes (20/10/30m) limit production tuning. Consider externalizing these via config (alongside MYSQL_DSN) or adding a bounded retry for the initial ping.",
+    "existing_code": "\tdb.SetMaxOpenConns(20)\n\tdb.SetMaxIdleConns(10)\n\tdb.SetConnMaxLifetime(30 * time.Minute)\n\n\tctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)",
+    "start_line": 44,
+    "end_line": 48,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/service.go",
+    "content": "The merge sequence is not atomic: ReassignFromGuest, MarkMerged, and DeleteRefreshTokensForUser are three independent store calls. If MarkMerged commits but DeleteRefreshTokensForUser fails, Merge returns an error even though the merge already completed, and the retry path (holder.ID == actor.ID) short-circuits to AlreadyMerged without ever revoking the guest's refresh token, leaving a live refresh token for an archived account. Conversely, if ReassignFromGuest succeeds but MarkMerged fails (e.g. a concurrent merge makes the guest no longer active, so MarkMerged returns ErrNotFound), business data has been reassigned without the merge being recorded and the client receives a 500 instead of an idempotent result. Consider making the guest archive + device transfer + token revocation atomic, or treating post-MarkMerged failures as success and also revoking tokens on the AlreadyMerged branch.",
+    "existing_code": "\tif err := s.reassigner.ReassignFromGuest(ctx, holder.ID, actor.ID); err != nil {\n\t\treturn MergeResponse{}, err\n\t}\n\tnow := s.now()\n\tif err := s.store.MarkMerged(ctx, holder.ID, actor.ID, normalized, now); err != nil {\n\t\treturn MergeResponse{}, err\n\t}\n\tif err := s.store.DeleteRefreshTokensForUser(ctx, holder.ID); err != nil {\n\t\treturn MergeResponse{}, err\n\t}",
+    "start_line": 127,
+    "end_line": 136,
+    "category": "bug",
+    "severity": "high"
+  },
+  {
+    "path": "internal/account/service.go",
+    "content": "Every GetUser error here — database outage, context cancellation, or scan failure — is collapsed to 401 'invalid access token'. Only ErrNotFound should map to 401; other errors should surface as 5xx (e.g. apierr.Internal/Unavailable) so infrastructure failures are not masked as auth failures.",
+    "suggestion_code": "\tactor, err := s.store.GetUser(ctx, actorUserID)\n\tif errors.Is(err, ErrNotFound) {\n\t\treturn MergeResponse{}, apierr.Unauthenticated(\"invalid access token\")\n\t}\n\tif err != nil {\n\t\treturn MergeResponse{}, err\n\t}",
+    "existing_code": "\tactor, err := s.store.GetUser(ctx, actorUserID)\n\tif err != nil {\n\t\treturn MergeResponse{}, apierr.Unauthenticated(\"invalid access token\")\n\t}",
+    "start_line": 96,
+    "end_line": 99,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/account/service.go",
+    "content": "Same issue as in Merge: any GetUser error (DB outage, context cancellation) is returned as 401 'invalid access token'. Distinguish ErrNotFound from real failures so infrastructure errors produce a 5xx instead of misleading the client and hiding operational problems.",
+    "suggestion_code": "\tuser, err := s.store.GetUser(ctx, claims.Subject)\n\tif errors.Is(err, ErrNotFound) {\n\t\treturn User{}, apierr.Unauthenticated(\"invalid access token\")\n\t}\n\tif err != nil {\n\t\treturn User{}, err\n\t}",
+    "existing_code": "\tuser, err := s.store.GetUser(ctx, claims.Subject)\n\tif err != nil {\n\t\treturn User{}, apierr.Unauthenticated(\"invalid access token\")\n\t}",
+    "start_line": 154,
+    "end_line": 157,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/account/service.go",
+    "content": "mergedFrom swallows every error from FindGuestMergedInto and returns nil. A transient DB failure in the AlreadyMerged branch then yields AlreadyMerged=true with MergedFromUserID=nil, silently dropping the linkage. Distinguish ErrNotFound (→ nil) from real errors and at least log them.",
+    "suggestion_code": "func (s *Service) mergedFrom(ctx context.Context, targetID string) *string {\n\tguest, err := s.store.FindGuestMergedInto(ctx, targetID)\n\tif err != nil {\n\t\tif !errors.Is(err, ErrNotFound) {\n\t\t\ts.logger.Warn(\"find merged guest failed\", \"target_id\", targetID, \"err\", err)\n\t\t}\n\t\treturn nil\n\t}\n\tid := guest.ID\n\treturn \u0026id\n}",
+    "existing_code": "func (s *Service) mergedFrom(ctx context.Context, targetID string) *string {\n\tguest, err := s.store.FindGuestMergedInto(ctx, targetID)\n\tif err != nil {\n\t\treturn nil\n\t}\n\tid := guest.ID\n\treturn \u0026id\n}",
+    "start_line": 185,
+    "end_line": 192,
+    "category": "bug",
+    "severity": "low"
+  },
+  {
+    "path": "internal/account/service.go",
+    "content": "IssueSession mints access+refresh tokens for any User value without verifying existence or UserStatusActive. Unlike Authenticate and Merge, an inactive or merged account passed here still receives valid tokens. Since this is exported for later login callers, consider enforcing the Active-status check here (or documenting that callers must validate) to preserve the account lifecycle invariant.",
+    "suggestion_code": "func (s *Service) IssueSession(ctx context.Context, user User) (TokenResponse, error) {\n\tif user.Status != UserStatusActive {\n\t\treturn TokenResponse{}, apierr.Unauthenticated(\"account is not active\")\n\t}\n\treturn s.issueSession(ctx, user)\n}",
+    "existing_code": "func (s *Service) IssueSession(ctx context.Context, user User) (TokenResponse, error) {\n\treturn s.issueSession(ctx, user)\n}",
+    "start_line": 165,
+    "end_line": 167,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/apierr/apierr.go",
+    "content": "The comment claims Internal \"does not leak internals\", but the function does not enforce this — it forwards the caller-supplied message directly to the client-facing Message field. Today's callers pass a fixed \"internal error\" string, but nothing prevents a future call like apierr.Internal(err.Error()) from exposing DB/internal details to API clients. Consider making Internal() return a fixed generic client message (and logging the real error server-side) so the contract is explicit rather than relying on caller discipline.",
+    "existing_code": "return \u0026Error{Code: \"INTERNAL\", Message: message, HTTPStatus: 500}",
+    "start_line": 60,
+    "end_line": 60,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/apierr/apierr.go",
+    "content": "The stable machine-readable codes are part of the public API contract, but each is repeated as a string literal across the constructors, risking typos or drift between this package and any client-side mapping. Consider defining named constants (e.g. CodeInvalidArgument = \"INVALID_ARGUMENT\") and referencing them from each constructor.",
+    "existing_code": "return \u0026Error{Code: \"INVALID_ARGUMENT\", Message: message, HTTPStatus: 400}",
+    "start_line": 30,
+    "end_line": 30,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/config/config.go",
+    "content": "The production safeguard only rejects the publicly known DevJWTSecret when AppEnv is exactly \"production\". Any other deployment value (e.g. \"prod\", \"staging\", \"uat\") — or an unset APP_ENV, which Load() silently defaults to \"development\" — runs with the hardcoded signing secret, so anyone who reads the source can forge JWT tokens. Dockerfile/docker-compose.yml don't set APP_ENV at all, so a container deployed as-is uses the dev secret. Prefer an allowlist of development environment names and require a real secret for everything else.",
+    "suggestion_code": "\tif !isDevEnvironment(c.AppEnv) \u0026\u0026 c.AuthJWTSecret == DevJWTSecret {\n\t\treturn fmt.Errorf(\"AUTH_JWT_SECRET must not use the development default outside development\")\n\t}",
+    "existing_code": "\tif c.IsProduction() \u0026\u0026 c.AuthJWTSecret == DevJWTSecret {\n\t\treturn fmt.Errorf(\"AUTH_JWT_SECRET must be set in production\")\n\t}",
+    "start_line": 56,
+    "end_line": 58,
+    "category": "security",
+    "severity": "high"
+  },
+  {
+    "path": "internal/config/config.go",
+    "content": "durationOr silently returns the fallback when the TTL env var is malformed because the time.ParseDuration error is discarded. A typo such as AUTH_ACCESS_TTL=2hurs produces no startup error or warning, so the server runs with an unintended token lifetime and the misconfiguration stays hidden. Consider returning the parse error and propagating it through Load() so invalid values fail fast.",
+    "suggestion_code": "\tparsed, err := time.ParseDuration(raw)\n\tif err != nil {\n\t\treturn 0, fmt.Errorf(\"%s: %w\", key, err)\n\t}",
+    "existing_code": "\tparsed, err := time.ParseDuration(raw)\n\tif err != nil {\n\t\treturn fallback\n\t}",
+    "start_line": 84,
+    "end_line": 87,
+    "category": "maintainability",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/config/config.go",
+    "content": "Validate() only checks that HTTPAddr is non-empty, so malformed values such as \"8080\" or \"localhost\" pass configuration validation and only fail later inside http.Server.ListenAndServe. Validating the host:port format here makes startup errors actionable and keeps configuration failures deterministic.",
+    "suggestion_code": "\tif _, _, err := net.SplitHostPort(strings.TrimSpace(c.HTTPAddr)); err != nil {\n\t\treturn fmt.Errorf(\"HTTP_ADDR must be a valid host:port: %w\", err)\n\t}",
+    "existing_code": "\tif strings.TrimSpace(c.HTTPAddr) == \"\" {\n\t\treturn fmt.Errorf(\"HTTP_ADDR is required\")\n\t}",
+    "start_line": 50,
+    "end_line": 52,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "scripts/dev-down.sh",
+    "content": "`command -v docker` only verifies that the Docker CLI exists. `docker compose down` will still fail when the Compose plugin is missing or the Docker daemon is not running, and because `set -euo pipefail` is active the script then exits non-zero before printing the final status message. For an idempotent teardown script, consider checking `docker compose version` and/or handling a failed `down` explicitly so the user gets the intended message instead of an abrupt failure.",
+    "existing_code": "if [[ -f \"$ROOT/deploy/docker-compose.yml\" ]] \u0026\u0026 command -v docker \u003e/dev/null 2\u003e\u00261; then\n  docker compose -f \"$ROOT/deploy/docker-compose.yml\" down\nfi",
+    "start_line": 7,
+    "end_line": 9,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/httpserver/server.go",
+    "content": "The readiness handler calls `ready(c.Request.Context())` without any deadline. When wired to `MySQLStore.Ping` (i.e. `sql.DB.PingContext`), a check against an unreachable DB can block until the client disconnects rather than failing fast, so orchestrator readiness probes will time out and keep the pod unready. Apply a short timeout around the dependency check.",
+    "suggestion_code": "\t\tif ready != nil {\n\t\t\tctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)\n\t\t\tdefer cancel()\n\t\t\tif err := ready(ctx); err != nil {",
+    "existing_code": "\t\tif ready != nil {\n\t\t\tif err := ready(c.Request.Context()); err != nil {",
+    "start_line": 55,
+    "end_line": 56,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "internal/httpserver/server.go",
+    "content": "A package-level `sync.Once` permanently switches Gin into ReleaseMode on the first `New` call and can never be undone. This is an implicit, cross-cutting global side effect: any test that constructs the server can no longer switch Gin to TestMode/DebugMode for output, and `main` already sets ReleaseMode before calling `New`, making this redundant in production. Prefer letting the caller control gin mode explicitly.",
+    "existing_code": "var ginOnce sync.Once",
+    "start_line": 18,
+    "end_line": 18,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/httpjson/httpjson.go",
+    "content": "`Error` writes `ae.HTTPStatus` directly without validation. `apierr.Error` has exported fields and no constructor-time validation, so a zero or out-of-range status (e.g. `HTTPStatus == 0`) would cause `AbortWithStatusJSON`/`net/http` to panic (`invalid WriteHeader code`). Today all `apierr` constructors set a valid status, but since this is the central error handler, normalize invalid statuses defensively to avoid a panic that the Recover middleware then turns into a misleading 500.",
+    "suggestion_code": "\tstatus := ae.HTTPStatus\n\tif status \u003c http.StatusBadRequest || status \u003e 599 {\n\t\tstatus = http.StatusInternalServerError\n\t}\n\tc.AbortWithStatusJSON(status, apierr.Body{",
+    "existing_code": "\tc.AbortWithStatusJSON(ae.HTTPStatus, apierr.Body{",
+    "start_line": 38,
+    "end_line": 38,
+    "category": "bug",
+    "severity": "medium"
+  },
+  {
+    "path": "scripts/dev-check.sh",
+    "content": "When `gofumpt -l .` finds unformatted files, the file list is captured and discarded, so the script aborts with no indication of which files failed the check. Consider printing the offending files before failing. The same applies to the `goimports -l` check below.",
+    "suggestion_code": "unformatted=\"$(gofumpt -l .)\"\ntest -z \"$unformatted\" || { printf '%s\\n' \"$unformatted\" \u003e\u00262; exit 1; }",
+    "existing_code": "test -z \"$(gofumpt -l .)\"",
+    "start_line": 21,
+    "end_line": 21,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "scripts/dev-check.sh",
+    "content": "`need` only checks that the binary exists, not its version. An already-installed golangci-lint v1 would pass this check even though the install command pins v2, whose CLI and configuration format differ and may then fail or behave differently in `golangci-lint run ./...`. Consider verifying the major version for tools where compatibility matters.",
+    "existing_code": "need golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
+    "start_line": 18,
+    "end_line": 18,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "internal/httpserver/middleware.go",
+    "content": "The client-supplied X-Request-ID is accepted verbatim and both echoed on the response and stored for logs/error envelopes, with no length or character validation. A malicious or buggy client can send an extremely long or control-character-laden value, bloating logs and spoofing trace IDs. Consider capping the length (and falling back to a generated UUID when empty/oversized/invalid).",
+    "suggestion_code": "\t\tid := c.GetHeader(requestIDHeader)\n\t\tif id == \"\" || len(id) \u003e 64 {\n\t\t\tid = uuid.NewString()\n\t\t}\n\t\tc.Set(httpjson.RequestIDContextKey, id)\n\t\tc.Header(requestIDHeader, id)",
+    "existing_code": "\t\tid := c.GetHeader(requestIDHeader)\n\t\tif id == \"\" {\n\t\t\tid = uuid.NewString()\n\t\t}\n\t\tc.Set(httpjson.RequestIDContextKey, id)\n\t\tc.Header(requestIDHeader, id)",
+    "start_line": 19,
+    "end_line": 24,
+    "category": "security",
+    "severity": "low"
+  },
+  {
+    "path": "internal/httpserver/middleware.go",
+    "content": "The Recover middleware also swallows http.ErrAbortHandler, the sentinel panic net/http uses to abort a handler (e.g. client disconnect). The docs state such panics should not be recovered by the handler; converting it to a logged 500 response misclassifies client aborts as server errors. Re-panic it so the server can handle the abort.",
+    "suggestion_code": "\t\t\tif rec := recover(); rec != nil {\n\t\t\t\tif rec == http.ErrAbortHandler {\n\t\t\t\t\tpanic(rec)\n\t\t\t\t}\n\t\t\t\tif logger != nil {\n\t\t\t\t\tlogger.Error(\"panic recovered\", \"panic\", rec, \"request_id\", httpjson.RequestID(c))\n\t\t\t\t}\n\t\t\t\thttpjson.Error(c, apierr.Internal(\"internal error\"))\n\t\t\t}",
+    "existing_code": "\t\t\tif rec := recover(); rec != nil {\n\t\t\t\tif logger != nil {\n\t\t\t\t\tlogger.Error(\"panic recovered\", \"panic\", rec, \"request_id\", httpjson.RequestID(c))\n\t\t\t\t}\n\t\t\t\thttpjson.Error(c, apierr.Internal(\"internal error\"))\n\t\t\t}",
+    "start_line": 33,
+    "end_line": 38,
+    "category": "bug",
+    "severity": "low"
+  },
+  {
+    "path": "internal/httpserver/middleware.go",
+    "content": "The field names are semantically reversed: c.FullPath() returns the registered route pattern, while c.Request.URL.Path is the actual requested path. Logging the route pattern under \"path\" and the real path under \"route\" will mislead log consumers and dashboards. Swap the values (or rename the keys) so \"path\" reflects the requested path.",
+    "suggestion_code": "\t\t\t\"path\", c.Request.URL.Path,\n\t\t\t\"route\", c.FullPath(),",
+    "existing_code": "\t\t\t\"path\", c.FullPath(),\n\t\t\t\"route\", c.Request.URL.Path,",
+    "start_line": 54,
+    "end_line": 55,
+    "category": "maintainability",
+    "severity": "low"
+  },
+  {
+    "path": "scripts/dev-up.sh",
+    "content": "wait_for_health only checks that /healthz responds, but never verifies that the just-launched `go run` process is still alive or that it is the process answering the request. If another server is already listening on PORT, `go run` exits immediately with \"bind: address already in use\" while curl still succeeds against the stale server, so the script falsely reports a healthy app-server and smoke-tests the wrong process. Also note /healthz is liveness (always 200 once the HTTP server is up); /readyz is the endpoint that reflects store readiness. Add a `kill -0 \"$SERVER_PID\"` check inside the loop so the wait fails when the newly started process dies.",
+    "suggestion_code": "wait_for_health() {\n  local url=\"http://127.0.0.1:${PORT}/healthz\"\n  local i\n  for i in $(seq 1 60); do\n    if ! kill -0 \"$SERVER_PID\" \u003e/dev/null 2\u003e\u00261; then\n      echo \"app-server exited before becoming healthy\" \u003e\u00262\n      return 1\n    fi\n    if curl -sf \"$url\" \u003e/dev/null 2\u003e\u00261; then\n      return 0\n    fi\n    sleep 0.5\n  done",
+    "existing_code": "wait_for_health() {\n  local url=\"http://127.0.0.1:${PORT}/healthz\"\n  local i\n  for i in $(seq 1 60); do\n    if curl -sf \"$url\" \u003e/dev/null 2\u003e\u00261; then\n      return 0\n    fi\n    sleep 0.5\n  done",
+    "start_line": 77,
+    "end_line": 85,
+    "category": "bug",
+    "severity": "medium"
+  }
+]
