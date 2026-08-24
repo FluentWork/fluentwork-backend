@@ -1,0 +1,103 @@
+openapi: 3.0.3
+info:
+  title: FluentWork app-server
+  version: 0.1.0
+  description: First-wave account contracts for guest auth and merge.
+servers:
+  - url: /api/v1
+paths:
+  /auth/guest:
+    post:
+      summary: Issue or reuse a device-bound guest identity
+      operationId: issueGuest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id]
+              properties:
+                device_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+      responses:
+        "200":
+          description: Token pair for the device identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/merge:
+    post:
+      summary: Merge guest data onto the authenticated registered account
+      operationId: mergeGuestAccount
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id]
+              properties:
+                device_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+      responses:
+        "200":
+          description: Merge result, including idempotent retries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TokenResponse:
+      type: object
+      required: [user_id, is_guest, status, access_token, refresh_token, token_type, expires_in]
+      properties:
+        user_id: { type: string }
+        is_guest: { type: boolean }
+        status: { type: string }
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer }
+    MergeResponse:
+      type: object
+      required: [user_id, is_guest, already_merged]
+      properties:
+        user_id: { type: string }
+        is_guest: { type: boolean }
+        merged_from_user_id:
+          type: string
+          nullable: true
+        already_merged: { type: boolean }
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string }

@@ -25,7 +25,12 @@ jobs:
           test -d cmd/worker
           test -d internal
           test -d migrations
+          test -d configs
           test -f go.mod
+          test -f Dockerfile
+          test -f migrations/0001_create_users_and_auth_tokens.sql
+          test -f migrations/0002_create_ai_cost_logs.sql
+          test -f api/openapi-v1.yaml
           echo "Repository skeleton is present."
 
   go-build-and-test:
@@ -66,3 +71,6 @@ jobs:
 
       - name: Build packages
         run: go build ./...
+
+      - name: Build app-server image
+        run: docker build -t fluentwork-app-server:${{ github.sha }} .
