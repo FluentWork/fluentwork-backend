@@ -1,3 +1,4 @@
+// Package main starts the FluentWork app server entrypoint.
 package main
 
 import (

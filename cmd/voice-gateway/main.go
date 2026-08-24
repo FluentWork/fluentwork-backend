@@ -1,3 +1,4 @@
+// Package main starts the FluentWork voice gateway entrypoint.
 package main
 
 import (

@@ -1,3 +1,4 @@
+// Package main starts the FluentWork worker entrypoint.
 package main
 
 import (
