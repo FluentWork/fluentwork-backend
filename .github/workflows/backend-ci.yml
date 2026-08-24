@@ -40,12 +40,26 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Check formatting
+      - name: Install Go quality tools
         run: |
-          test -z "$(gofmt -l .)"
+          go install mvdan.cc/gofumpt@latest
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-      - name: Vet packages
-        run: go vet ./...
+      - name: Check gofumpt formatting
+        run: |
+          GOFUMPT_BIN="$(go env GOPATH)/bin/gofumpt"
+          test -z "$("$GOFUMPT_BIN" -l .)"
+
+      - name: Check goimports formatting
+        run: |
+          GOIMPORTS_BIN="$(go env GOPATH)/bin/goimports"
+          test -z "$("$GOIMPORTS_BIN" -l .)"
+
+      - name: Run golangci-lint
+        run: |
+          GOLANGCI_LINT_BIN="$(go env GOPATH)/bin/golangci-lint"
+          "$GOLANGCI_LINT_BIN" run ./...
 
       - name: Run tests
         run: go test ./...

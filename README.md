@@ -38,10 +38,18 @@ test/
 - shared agent policy comes from `fluentwork-meta`
 - external helpers such as gstack and Matt Pocock style skills are allowed, but repo rules win on conflicts
 
+## Recommended Code Quality Stack
+
+- formatting: `gofumpt` + `goimports`
+- lint and static checks: `golangci-lint`
+- minimum correctness baseline: `go test ./...`
+- keep `go vet` enabled as part of the aggregated lint baseline
+
 ## CI Goals
 
-- `go fmt`
-- `go vet`
+- `gofumpt`
+- `goimports`
+- `golangci-lint`
 - unit tests
 - integration tests
 - migration checks
@@ -61,6 +69,7 @@ This repository currently includes:
 - `AGENTS.md`
 - `CODEOWNERS`
 - `go.mod`
+- `.golangci.yml`
 - `.github/workflows/agent-config-check.yml`
 - `.github/workflows/backend-ci.yml`
 - `.github/workflows/opencode-review.yml`
