@@ -1,0 +1,10 @@
+.git
+.github
+.opencodereview
+docs
+**/*_test.go
+*.md
+.bin
+dist
+coverage.out
+.DS_Store
