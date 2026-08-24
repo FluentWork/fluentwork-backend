@@ -1,0 +1,49 @@
+name: opencode-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check review secrets availability
+        id: preflight
+        env:
+          OCR_LLM_URL: ${{ secrets.OPENCODEREVIEW_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OPENCODEREVIEW_LLM_TOKEN }}
+          OCR_LLM_MODEL: ${{ secrets.OPENCODEREVIEW_LLM_MODEL }}
+        run: |
+          if [ -n "${OCR_LLM_URL}" ] && [ -n "${OCR_LLM_TOKEN}" ] && [ -n "${OCR_LLM_MODEL}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.preflight.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Skip until review secrets are configured
+        if: steps.preflight.outputs.enabled != 'true'
+        run: echo "OpenCodeReview is initialized but skipped because required secrets are not configured yet."
+
+      - name: Run OpenCodeReview
+        if: steps.preflight.outputs.enabled == 'true'
+        uses: alibaba/open-code-review@main
+        with:
+          llm_url: ${{ secrets.OPENCODEREVIEW_LLM_URL }}
+          llm_auth_token: ${{ secrets.OPENCODEREVIEW_LLM_TOKEN }}
+          llm_model: ${{ secrets.OPENCODEREVIEW_LLM_MODEL }}
+          llm_use_anthropic: 'true'
+          language: 中文
+          sticky_summary: 'true'
+          incremental: 'true'
+          route_severity_below: medium

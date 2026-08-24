@@ -1,0 +1,12 @@
+* @FluentWork/core
+
+/CLAUDE.md @FluentWork/core @FluentWork/backend
+/AGENTS.md @FluentWork/core @FluentWork/backend
+/.github/ @FluentWork/core @FluentWork/infra
+/cmd/ @FluentWork/backend
+/internal/ @FluentWork/backend
+/pkg/ @FluentWork/backend
+/api/ @FluentWork/backend
+/migrations/ @FluentWork/core @FluentWork/backend
+/deploy/ @FluentWork/core @FluentWork/infra
+/test/ @FluentWork/backend

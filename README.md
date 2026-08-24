@@ -35,6 +35,8 @@ test/
 - clear separation between entrypoints and domain modules
 - health, readiness, logging, and config from day one
 - contract-first collaboration with iOS
+- shared agent policy comes from `fluentwork-meta`
+- external helpers such as gstack and Matt Pocock style skills are allowed, but repo rules win on conflicts
 
 ## CI Goals
 
@@ -44,7 +46,27 @@ test/
 - integration tests
 - migration checks
 - Docker image build
+- agent entry file validation
+- report-only AI review integration as a secondary review layer
 
 ## Upstream Source of Truth
 
 Product rules, service boundaries, and milestone priorities should be aligned with `fluentwork-meta`.
+
+## Current Initialization Status
+
+This repository currently includes:
+
+- `CLAUDE.md`
+- `AGENTS.md`
+- `CODEOWNERS`
+- `.github/workflows/agent-config-check.yml`
+- `.github/workflows/backend-ci.yml`
+- `.github/workflows/opencode-review.yml`
+- initial service directory skeleton
+
+## Agent Tooling
+
+- `gstack` can be used locally for `/review` and later `/setup-deploy` or `/ship`
+- Matt Pocock style skills may be used as helpers under FluentWork shared governance
+- OpenCodeReview is initialized as a GitHub review workflow skeleton and should start in report-only mode

@@ -1,0 +1,49 @@
+name: backend-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-structure-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate expected backend skeleton
+        run: |
+          set -euo pipefail
+          test -d cmd/app-server
+          test -d cmd/voice-gateway
+          test -d cmd/worker
+          test -d internal
+          test -d migrations
+          echo "Repository skeleton is present."
+
+  go-ci-placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Go when module exists
+        if: hashFiles('go.mod') != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Placeholder notice
+        if: hashFiles('go.mod') == ''
+        run: echo "No go.mod yet. Skipping go fmt/vet/test until backend scaffold exists."
+
+      - name: Future go fmt
+        if: hashFiles('go.mod') != ''
+        run: echo "go.mod detected. Replace this placeholder with go fmt, go vet, and go test."

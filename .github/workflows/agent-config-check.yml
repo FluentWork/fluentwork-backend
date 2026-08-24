@@ -1,0 +1,27 @@
+name: agent-config-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent-config-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate agent entry files
+        run: |
+          set -euo pipefail
+          test -f CLAUDE.md
+          test -f AGENTS.md
+          grep -q "fluentwork-meta" CLAUDE.md
+          grep -q "fluentwork-meta" AGENTS.md
+          echo "Agent entry files are present and reference fluentwork-meta."
