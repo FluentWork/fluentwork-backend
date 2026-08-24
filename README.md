@@ -60,9 +60,11 @@ This repository currently includes:
 - `CLAUDE.md`
 - `AGENTS.md`
 - `CODEOWNERS`
+- `go.mod`
 - `.github/workflows/agent-config-check.yml`
 - `.github/workflows/backend-ci.yml`
 - `.github/workflows/opencode-review.yml`
+- executable Go module baseline
 - initial service directory skeleton
 
 ## Agent Tooling

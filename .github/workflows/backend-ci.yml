@@ -25,25 +25,30 @@ jobs:
           test -d cmd/worker
           test -d internal
           test -d migrations
+          test -f go.mod
           echo "Repository skeleton is present."
 
-  go-ci-placeholder:
+  go-build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Setup Go when module exists
-        if: hashFiles('go.mod') != ''
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Placeholder notice
-        if: hashFiles('go.mod') == ''
-        run: echo "No go.mod yet. Skipping go fmt/vet/test until backend scaffold exists."
+      - name: Check formatting
+        run: |
+          test -z "$(gofmt -l .)"
 
-      - name: Future go fmt
-        if: hashFiles('go.mod') != ''
-        run: echo "go.mod detected. Replace this placeholder with go fmt, go vet, and go test."
+      - name: Vet packages
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build packages
+        run: go build ./...
