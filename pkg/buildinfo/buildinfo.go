@@ -1,3 +1,4 @@
+// Package buildinfo provides baseline repository metadata helpers.
 package buildinfo
 
 // Repository identifies the backend repository name.
