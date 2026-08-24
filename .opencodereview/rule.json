@@ -1,0 +1,35 @@
+{
+  "include": [
+    ".github/workflows/**/*.yml",
+    ".github/workflows/**/*.yaml",
+    "cmd/**/*.go",
+    "internal/**/*.go",
+    "pkg/**/*.go",
+    "go.mod"
+  ],
+  "exclude": [
+    "**/*_test.go"
+  ],
+  "rules": [
+    {
+      "path": ".github/workflows/**/*.{yml,yaml}",
+      "rule": "Review GitHub Actions for least-privilege permissions, pinned action versions where practical, correct secret usage, and whether the workflow can accidentally comment, deploy, or mutate state more broadly than intended."
+    },
+    {
+      "path": "cmd/**/*.go",
+      "rule": "Review service entrypoints for startup and shutdown safety: signal handling, context propagation, timeout boundaries, configuration validation, log clarity, and avoiding hidden global state or panic-prone initialization."
+    },
+    {
+      "path": "internal/**/*.go",
+      "rule": "Review backend domain and infrastructure code for nil safety, context propagation, timeout and retry boundaries, error wrapping, concurrency hazards, and whether public behavior is explicit rather than relying on implicit side effects."
+    },
+    {
+      "path": "pkg/**/*.go",
+      "rule": "Review exported Go APIs for clear contracts, nil handling, stable defaults, backward-compatible behavior, and whether callers can understand failure cases without reading implementation details."
+    },
+    {
+      "path": "go.mod",
+      "rule": "Review module changes for unnecessary dependency growth, suspicious replacements, version drift that may destabilize CI, and whether new dependencies are justified by repository scope."
+    }
+  ]
+}
