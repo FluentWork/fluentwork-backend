@@ -42,7 +42,7 @@ jobs:
           llm_url: ${{ secrets.OPENCODEREVIEW_LLM_URL }}
           llm_auth_token: ${{ secrets.OPENCODEREVIEW_LLM_TOKEN }}
           llm_model: ${{ secrets.OPENCODEREVIEW_LLM_MODEL }}
-          llm_use_anthropic: 'true'
+          llm_use_anthropic: 'false'
           language: 中文
           sticky_summary: 'true'
           incremental: 'true'
