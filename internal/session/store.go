@@ -38,6 +38,12 @@ type Store interface {
 	MarkSessionActive(ctx context.Context, sessionID string, at time.Time) (Session, error)
 	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error)
 	ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error)
+	EnqueueJob(ctx context.Context, job Job) error
+	HasSessionJob(ctx context.Context, sessionID, jobType string, statuses ...string) (bool, error)
+	ClaimNextJob(ctx context.Context, workerID string, at time.Time) (Job, error)
+	CompleteJob(ctx context.Context, jobID string, at time.Time) error
+	FailJob(ctx context.Context, jobID string, at time.Time, errMsg string, retryDelay time.Duration) error
+	MarkSessionReviewed(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time) (Session, error)
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 }
 
