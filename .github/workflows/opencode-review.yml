@@ -2,7 +2,7 @@ name: opencode-review
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -16,6 +16,14 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    # Contract with alibaba/open-code-review@main (composite action.yml):
+    # the "Run OpenCodeReview" step redirects `ocr review --format json`
+    # stdout to /tmp/ocr-result.json on the shared runner filesystem.
+    # That path persists across subsequent steps in this job; we re-checkout
+    # the PR head afterward because the action's internal checkout may
+    # replace GITHUB_WORKSPACE with a different tree.
+    env:
+      OCR_RESULT_FILE: /tmp/ocr-result.json
     steps:
       - name: Check review secrets availability
         id: preflight
@@ -40,6 +48,7 @@ jobs:
         run: echo "OpenCodeReview is initialized but skipped because required secrets are not configured yet."
 
       - name: Run OpenCodeReview
+        id: ocr
         if: steps.preflight.outputs.enabled == 'true'
         uses: alibaba/open-code-review@main
         with:
@@ -51,7 +60,21 @@ jobs:
           sticky_summary: 'true'
           incremental: 'true'
           route_severity_below: medium
+          upload_artifacts: 'true'
+
+      - name: Restore PR head for gate script
+        if: steps.preflight.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fail on critical/high OCR findings
         if: steps.preflight.outputs.enabled == 'true'
-        run: bash ./scripts/ocr-fail-on-high.sh /tmp/ocr-result.json
+        run: |
+          if [[ ! -f "${OCR_RESULT_FILE}" ]]; then
+            echo "error: OCR result missing at ${OCR_RESULT_FILE}"
+            echo "Expected alibaba/open-code-review to write JSON there (action.yml Run OpenCodeReview step)."
+            exit 1
+          fi
+          bash ./scripts/ocr-fail-on-high.sh "${OCR_RESULT_FILE}"
