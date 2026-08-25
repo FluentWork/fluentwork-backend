@@ -37,12 +37,15 @@ type Handler struct {
 	logger             *slog.Logger
 	now                func() time.Time
 	insecureSkipOrigin bool
+	idleTimeout        time.Duration
 }
 
 // Options configures optional Handler behavior.
 type Options struct {
 	// InsecureSkipOrigin skips WebSocket Origin checks (local/dev only).
 	InsecureSkipOrigin bool
+	// IdleTimeout bounds each WebSocket read; zero uses a 2m default.
+	IdleTimeout time.Duration
 }
 
 // NewHandler constructs the voice gateway HTTP/WSS handler.
@@ -50,11 +53,16 @@ func NewHandler(consumer TicketConsumer, logger *slog.Logger, opts Options) *Han
 	if logger == nil {
 		logger = slog.Default()
 	}
+	idle := opts.IdleTimeout
+	if idle <= 0 {
+		idle = defaultIdleTimeout
+	}
 	return &Handler{
 		consumer:           consumer,
 		logger:             logger,
 		now:                time.Now,
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
+		idleTimeout:        idle,
 	}
 }
 
@@ -159,7 +167,9 @@ func (h *Handler) handshake(ctx context.Context, conn *websocket.Conn) (Consumed
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
 	started := false
 	for {
-		typ, data, err := conn.Read(ctx)
+		readCtx, cancel := context.WithTimeout(ctx, h.idleTimeout)
+		typ, data, err := conn.Read(readCtx)
+		cancel()
 		if err != nil {
 			return err
 		}
