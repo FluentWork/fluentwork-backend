@@ -181,7 +181,8 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		}
 		return EndResponse{}, err
 	}
-	if existing.Status == StatusEnded {
+	now := s.now().UTC()
+	if existing.Status == StatusReviewed {
 		saved, listErr := s.store.ListUtterances(ctx, sessionID)
 		if listErr != nil {
 			return EndResponse{}, listErr
@@ -194,8 +195,24 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 			AlreadyEnded:   true,
 		}, nil
 	}
+	if existing.Status == StatusEnded {
+		saved, listErr := s.store.ListUtterances(ctx, sessionID)
+		if listErr != nil {
+			return EndResponse{}, listErr
+		}
+		// Compensate a prior End that committed before enqueue failed.
+		if err := s.ensureSessionFinishedEnqueued(ctx, sessionID, now); err != nil {
+			return EndResponse{}, err
+		}
+		return EndResponse{
+			SessionID:      existing.ID,
+			Status:         existing.Status,
+			DurationSec:    existing.DurationSec,
+			UtteranceCount: len(saved),
+			AlreadyEnded:   true,
+		}, nil
+	}
 
-	now := s.now().UTC()
 	utterances, err := s.normalizeEndUtterances(sessionID, req.Utterances, now)
 	if err != nil {
 		return EndResponse{}, err
@@ -219,6 +236,9 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		"already_ended", alreadyEnded,
 		"reason", strings.TrimSpace(req.Reason),
 	)
+	if err := s.ensureSessionFinishedEnqueued(ctx, session.ID, now); err != nil {
+		return EndResponse{}, err
+	}
 	return EndResponse{
 		SessionID:      session.ID,
 		Status:         session.Status,
@@ -226,6 +246,36 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		UtteranceCount: len(saved),
 		AlreadyEnded:   alreadyEnded,
 	}, nil
+}
+
+func (s *Service) ensureSessionFinishedEnqueued(ctx context.Context, sessionID string, now time.Time) error {
+	exists, err := s.store.HasSessionJob(ctx, sessionID, JobTypeSessionFinished,
+		JobStatusPending, JobStatusProcessing, JobStatusDone)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	return s.enqueueSessionFinished(ctx, sessionID, now)
+}
+
+func (s *Service) enqueueSessionFinished(ctx context.Context, sessionID string, now time.Time) error {
+	job := Job{
+		ID:          s.newID(),
+		SessionID:   sessionID,
+		JobType:     JobTypeSessionFinished,
+		Status:      JobStatusPending,
+		Attempts:    0,
+		AvailableAt: now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := s.store.EnqueueJob(ctx, job); err != nil {
+		return err
+	}
+	s.logger.Info("session.finished enqueued", "session_id", sessionID, "job_id", job.ID)
+	return nil
 }
 
 func (s *Service) normalizeEndUtterances(sessionID string, items []EndUtteranceItem, now time.Time) ([]Utterance, error) {

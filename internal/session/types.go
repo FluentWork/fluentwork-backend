@@ -12,10 +12,31 @@ const (
 	StatusActive    = "active"
 	StatusEnded     = "ended"
 	StatusAbandoned = "abandoned"
+	StatusReviewed  = "reviewed"
 )
 
 // DefaultSceneType is used when the client omits scene_type.
 const DefaultSceneType = "demo"
+
+// Job types and statuses for the async review outbox (B5).
+const (
+	JobTypeSessionFinished = "session.finished"
+
+	JobStatusPending    = "pending"
+	JobStatusProcessing = "processing"
+	JobStatusDone       = "done"
+	JobStatusFailed     = "failed"
+)
+
+// MaxJobAttempts is initial try + one retry (backend tech design §5.2).
+const MaxJobAttempts = 2
+
+// DefaultJobLease is how long a claimed job may stay in processing before
+// another worker may reclaim it (crash / hung worker recovery).
+const DefaultJobLease = 2 * time.Minute
+
+// DefaultJobTimeout bounds a single job's runJob work (not Fail/Complete).
+const DefaultJobTimeout = 60 * time.Second
 
 // Session is the practice_sessions aggregate.
 type Session struct {
@@ -25,6 +46,22 @@ type Session struct {
 	SceneType   string
 	Status      string
 	DurationSec int
+	ReviewJSON  []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// Job is an outbox row consumed by the review worker.
+type Job struct {
+	ID          string
+	SessionID   string
+	JobType     string
+	Status      string
+	Attempts    int
+	AvailableAt time.Time
+	LockedAt    *time.Time
+	LockedBy    *string
+	LastError   *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

@@ -14,6 +14,7 @@ type MemoryStore struct {
 	sessions   map[string]Session
 	tickets    map[string]Ticket
 	utterances map[string][]Utterance
+	jobs       map[string]Job
 }
 
 // NewMemoryStore constructs an empty in-memory session store.
@@ -22,6 +23,7 @@ func NewMemoryStore() *MemoryStore {
 		sessions:   make(map[string]Session),
 		tickets:    make(map[string]Ticket),
 		utterances: make(map[string][]Utterance),
+		jobs:       make(map[string]Job),
 	}
 }
 
@@ -174,6 +176,142 @@ func (s *MemoryStore) ListUtterances(_ context.Context, sessionID string) ([]Utt
 	return out, nil
 }
 
+// EnqueueJob inserts a pending outbox job.
+func (s *MemoryStore) EnqueueJob(_ context.Context, job Job) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.jobs[job.ID]; exists {
+		return fmt.Errorf("session: duplicate job id")
+	}
+	s.jobs[job.ID] = cloneJob(job)
+	return nil
+}
+
+// HasSessionJob reports whether a job exists for session+type in any given status.
+func (s *MemoryStore) HasSessionJob(_ context.Context, sessionID, jobType string, statuses ...string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wanted := make(map[string]struct{}, len(statuses))
+	for _, st := range statuses {
+		wanted[st] = struct{}{}
+	}
+	for _, job := range s.jobs {
+		if job.SessionID != sessionID || job.JobType != jobType {
+			continue
+		}
+		if _, ok := wanted[job.Status]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ClaimNextJob claims the oldest available pending job, or a stale processing lease.
+func (s *MemoryStore) ClaimNextJob(_ context.Context, workerID string, at time.Time) (Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	leaseCutoff := at.Add(-DefaultJobLease)
+	var selectedID string
+	var selected Job
+	for id, job := range s.jobs {
+		switch job.Status {
+		case JobStatusPending:
+			if job.AvailableAt.After(at) {
+				continue
+			}
+		case JobStatusProcessing:
+			if job.LockedAt == nil || job.LockedAt.After(leaseCutoff) {
+				continue
+			}
+		default:
+			continue
+		}
+		if selectedID == "" || job.CreatedAt.Before(selected.CreatedAt) || (job.CreatedAt.Equal(selected.CreatedAt) && job.ID < selected.ID) {
+			selectedID = id
+			selected = job
+		}
+	}
+	if selectedID == "" {
+		return Job{}, ErrNotFound
+	}
+	lockedAt := at
+	lockedBy := workerID
+	selected.Status = JobStatusProcessing
+	selected.Attempts++
+	selected.LockedAt = &lockedAt
+	selected.LockedBy = &lockedBy
+	selected.UpdatedAt = at
+	s.jobs[selectedID] = selected
+	return cloneJob(selected), nil
+}
+
+// CompleteJob marks a claimed job done.
+func (s *MemoryStore) CompleteJob(_ context.Context, jobID string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return ErrNotFound
+	}
+	if job.Status != JobStatusProcessing {
+		return ErrConflict
+	}
+	job.Status = JobStatusDone
+	job.LockedAt = nil
+	job.LockedBy = nil
+	job.UpdatedAt = at
+	s.jobs[jobID] = job
+	return nil
+}
+
+// FailJob retries once or marks the job failed permanently.
+func (s *MemoryStore) FailJob(_ context.Context, jobID string, at time.Time, errMsg string, retryDelay time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return ErrNotFound
+	}
+	if job.Status != JobStatusProcessing {
+		return ErrConflict
+	}
+	msg := errMsg
+	job.LastError = &msg
+	job.LockedAt = nil
+	job.LockedBy = nil
+	job.UpdatedAt = at
+	if job.Attempts < MaxJobAttempts {
+		job.Status = JobStatusPending
+		job.AvailableAt = at.Add(retryDelay)
+	} else {
+		job.Status = JobStatusFailed
+	}
+	s.jobs[jobID] = job
+	return nil
+}
+
+// MarkSessionReviewed writes review_json and status=reviewed for an ended session.
+func (s *MemoryStore) MarkSessionReviewed(_ context.Context, sessionID string, reviewJSON []byte, at time.Time) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, ErrNotFound
+	}
+	switch session.Status {
+	case StatusReviewed:
+		return cloneSession(session), nil
+	case StatusEnded:
+		session.Status = StatusReviewed
+		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+		session.UpdatedAt = at
+		s.sessions[sessionID] = session
+		return cloneSession(session), nil
+	default:
+		return cloneSession(session), ErrConflict
+	}
+}
+
 // ReassignUser moves all sessions from a guest onto a registered account.
 func (s *MemoryStore) ReassignUser(_ context.Context, fromUserID, toUserID string) error {
 	s.mu.Lock()
@@ -201,6 +339,9 @@ func cloneSession(session Session) Session {
 		copied := *session.MaterialID
 		cloned.MaterialID = &copied
 	}
+	if session.ReviewJSON != nil {
+		cloned.ReviewJSON = append([]byte(nil), session.ReviewJSON...)
+	}
 	return cloned
 }
 
@@ -209,6 +350,23 @@ func cloneTicket(ticket Ticket) Ticket {
 	if ticket.UsedAt != nil {
 		copied := *ticket.UsedAt
 		cloned.UsedAt = &copied
+	}
+	return cloned
+}
+
+func cloneJob(job Job) Job {
+	cloned := job
+	if job.LockedAt != nil {
+		v := *job.LockedAt
+		cloned.LockedAt = &v
+	}
+	if job.LockedBy != nil {
+		v := *job.LockedBy
+		cloned.LockedBy = &v
+	}
+	if job.LastError != nil {
+		v := *job.LastError
+		cloned.LastError = &v
 	}
 	return cloned
 }
