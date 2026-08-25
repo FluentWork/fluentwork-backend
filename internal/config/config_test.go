@@ -12,6 +12,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_ACCESS_TTL", "")
 	t.Setenv("AUTH_REFRESH_TTL", "")
+	t.Setenv("VOICE_GATEWAY_WSS_URL", "")
+	t.Setenv("SESSION_TICKET_TTL", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -29,6 +31,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RefreshTokenTTL != defaultRefreshTokenTTL {
 		t.Fatalf("RefreshTokenTTL = %s", cfg.RefreshTokenTTL)
 	}
+	if cfg.VoiceGatewayWSSURL != defaultVoiceGatewayWSSURL {
+		t.Fatalf("VoiceGatewayWSSURL = %q", cfg.VoiceGatewayWSSURL)
+	}
+	if cfg.SessionTicketTTL != defaultSessionTicketTTL {
+		t.Fatalf("SessionTicketTTL = %s", cfg.SessionTicketTTL)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
 	}
@@ -36,11 +44,13 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestValidateProductionRequiresMySQLAndSecret(t *testing.T) {
 	cfg := Config{
-		HTTPAddr:        ":8080",
-		AppEnv:          "production",
-		AuthJWTSecret:   DevJWTSecret,
-		AccessTokenTTL:  time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
+		HTTPAddr:           ":8080",
+		AppEnv:             "production",
+		AuthJWTSecret:      DevJWTSecret,
+		AccessTokenTTL:     time.Hour,
+		RefreshTokenTTL:    24 * time.Hour,
+		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
+		SessionTicketTTL:   defaultSessionTicketTTL,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected production secret error")
@@ -59,12 +69,14 @@ func TestValidateProductionRequiresMySQLAndSecret(t *testing.T) {
 
 func TestValidateRejectsDevSecretOutsideDevelopment(t *testing.T) {
 	cfg := Config{
-		HTTPAddr:        ":8080",
-		AppEnv:          "staging",
-		AuthJWTSecret:   DevJWTSecret,
-		AccessTokenTTL:  time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
-		MySQLDSN:        "fw:fw@tcp(127.0.0.1:3306)/fluentwork",
+		HTTPAddr:           ":8080",
+		AppEnv:             "staging",
+		AuthJWTSecret:      DevJWTSecret,
+		AccessTokenTTL:     time.Hour,
+		RefreshTokenTTL:    24 * time.Hour,
+		MySQLDSN:           "fw:fw@tcp(127.0.0.1:3306)/fluentwork",
+		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
+		SessionTicketTTL:   defaultSessionTicketTTL,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected staging secret error")

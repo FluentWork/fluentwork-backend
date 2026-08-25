@@ -12,6 +12,9 @@ import (
 // ContextUserIDKey is the gin key for the authenticated user id.
 const ContextUserIDKey = "user_id"
 
+// ContextIsGuestKey is the gin key for whether the authenticated user is a guest.
+const ContextIsGuestKey = "is_guest"
+
 // Handler exposes account HTTP endpoints.
 type Handler struct {
 	svc *Service
@@ -28,8 +31,17 @@ func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/account/merge", h.RequireRegistered(), h.PostMerge)
 }
 
+// RequireAuth rejects missing or invalid bearer tokens. Guests are allowed.
+func (h *Handler) RequireAuth() gin.HandlerFunc {
+	return h.requireAuth(false)
+}
+
 // RequireRegistered rejects missing, invalid, or guest tokens.
 func (h *Handler) RequireRegistered() gin.HandlerFunc {
+	return h.requireAuth(true)
+}
+
+func (h *Handler) requireAuth(registeredOnly bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		parts := strings.SplitN(header, " ", 2)
@@ -47,11 +59,12 @@ func (h *Handler) RequireRegistered() gin.HandlerFunc {
 			httpjson.Error(c, err)
 			return
 		}
-		if user.IsGuest {
+		if registeredOnly && user.IsGuest {
 			httpjson.Error(c, apierr.PermissionDenied("registered account required"))
 			return
 		}
 		c.Set(ContextUserIDKey, user.ID)
+		c.Set(ContextIsGuestKey, user.IsGuest)
 		c.Next()
 	}
 }

@@ -68,7 +68,7 @@ test/
 - Go as the primary backend language
 - clear separation between entrypoints and domain modules
 - health, readiness, logging, and config from day one
-- contract-first collaboration with iOS
+- contract-first collaboration with iOS (`api/openapi-v1.yaml`, also served at `GET /openapi.yaml`)
 - shared agent policy comes from `fluentwork-meta`
 - external helpers such as gstack and Matt Pocock style skills are allowed, but repo rules win on conflicts
 

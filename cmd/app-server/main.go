@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 )
 
@@ -37,18 +38,31 @@ func run() error {
 	slog.SetDefault(logger)
 	gin.SetMode(gin.ReleaseMode)
 
-	store, closer, err := account.OpenStore(cfg, logger)
+	accountStore, accountCloser, err := account.OpenStore(cfg, logger)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if closeErr := closer(); closeErr != nil {
+		if closeErr := accountCloser(); closeErr != nil {
 			logger.Error("closing account store", "err", closeErr)
 		}
 	}()
 
-	svc := account.NewService(store, account.NopReassigner{}, cfg, logger)
-	server := httpserver.New(cfg, logger, account.NewHandler(svc), store.Ping)
+	sessionStore, sessionCloser, err := session.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := sessionCloser(); closeErr != nil {
+			logger.Error("closing session store", "err", closeErr)
+		}
+	}()
+
+	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
+	accountHandler := account.NewHandler(accountSvc)
+	sessionSvc := session.NewService(sessionStore, cfg, logger)
+	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
+	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.1.0
-  description: First-wave account contracts for guest auth and merge.
+  version: 0.2.0
+  description: First-wave contracts for guest auth, merge, and session creation.
 servers:
   - url: /api/v1
 paths:
@@ -66,6 +66,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /sessions:
+    post:
+      summary: Create a practice session and issue a one-time WSS ticket
+      operationId: createSession
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                material_id:
+                  type: string
+                  nullable: true
+                  maxLength: 36
+                scene_type:
+                  type: string
+                  maxLength: 64
+                  default: demo
+      responses:
+        "200":
+          description: Session id, WSS URL, and ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSessionResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -94,6 +128,17 @@ components:
           type: string
           nullable: true
         already_merged: { type: boolean }
+    CreateSessionResponse:
+      type: object
+      required: [session_id, wss_url, ticket, ticket_expires_in, ticket_expires_at, scene_type, status]
+      properties:
+        session_id: { type: string }
+        wss_url: { type: string }
+        ticket: { type: string }
+        ticket_expires_in: { type: integer }
+        ticket_expires_at: { type: string, format: date-time }
+        scene_type: { type: string }
+        status: { type: string }
     Error:
       type: object
       required: [code, message, request_id]

@@ -12,31 +12,37 @@ import (
 const DevJWTSecret = "fluentwork-dev-jwt-secret-change-me!!"
 
 const (
-	defaultHTTPAddr        = ":8080"
-	defaultAppEnv          = "development"
-	defaultAccessTokenTTL  = 2 * time.Hour
-	defaultRefreshTokenTTL = 30 * 24 * time.Hour
+	defaultHTTPAddr           = ":8080"
+	defaultAppEnv             = "development"
+	defaultAccessTokenTTL     = 2 * time.Hour
+	defaultRefreshTokenTTL    = 30 * 24 * time.Hour
+	defaultVoiceGatewayWSSURL = "ws://127.0.0.1:8081/v1/voice"
+	defaultSessionTicketTTL   = 60 * time.Second
 )
 
 // Config holds process settings for app-server.
 type Config struct {
-	HTTPAddr        string
-	AppEnv          string
-	MySQLDSN        string
-	AuthJWTSecret   string
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
+	HTTPAddr           string
+	AppEnv             string
+	MySQLDSN           string
+	AuthJWTSecret      string
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
+	VoiceGatewayWSSURL string
+	SessionTicketTTL   time.Duration
 }
 
 // Load reads configuration from environment variables.
 func Load() Config {
 	return Config{
-		HTTPAddr:        envOr("HTTP_ADDR", defaultHTTPAddr),
-		AppEnv:          envOr("APP_ENV", defaultAppEnv),
-		MySQLDSN:        strings.TrimSpace(os.Getenv("MYSQL_DSN")),
-		AuthJWTSecret:   envOr("AUTH_JWT_SECRET", DevJWTSecret),
-		AccessTokenTTL:  durationOr("AUTH_ACCESS_TTL", defaultAccessTokenTTL),
-		RefreshTokenTTL: durationOr("AUTH_REFRESH_TTL", defaultRefreshTokenTTL),
+		HTTPAddr:           envOr("HTTP_ADDR", defaultHTTPAddr),
+		AppEnv:             envOr("APP_ENV", defaultAppEnv),
+		MySQLDSN:           strings.TrimSpace(os.Getenv("MYSQL_DSN")),
+		AuthJWTSecret:      envOr("AUTH_JWT_SECRET", DevJWTSecret),
+		AccessTokenTTL:     durationOr("AUTH_ACCESS_TTL", defaultAccessTokenTTL),
+		RefreshTokenTTL:    durationOr("AUTH_REFRESH_TTL", defaultRefreshTokenTTL),
+		VoiceGatewayWSSURL: envOr("VOICE_GATEWAY_WSS_URL", defaultVoiceGatewayWSSURL),
+		SessionTicketTTL:   durationOr("SESSION_TICKET_TTL", defaultSessionTicketTTL),
 	}
 }
 
@@ -74,6 +80,12 @@ func (c Config) Validate() error {
 	}
 	if c.RefreshTokenTTL <= 0 {
 		return fmt.Errorf("AUTH_REFRESH_TTL must be positive")
+	}
+	if strings.TrimSpace(c.VoiceGatewayWSSURL) == "" {
+		return fmt.Errorf("VOICE_GATEWAY_WSS_URL is required")
+	}
+	if c.SessionTicketTTL <= 0 {
+		return fmt.Errorf("SESSION_TICKET_TTL must be positive")
 	}
 	return nil
 }
