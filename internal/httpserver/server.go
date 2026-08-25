@@ -10,10 +10,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/FluentWork/fluentwork-backend/api"
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
+	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
 
 var ginOnce sync.Once
@@ -23,8 +25,14 @@ type Server struct {
 	engine *gin.Engine
 }
 
-// New constructs the Gin engine with health checks and account routes.
-func New(cfg config.Config, logger *slog.Logger, accounts *account.Handler, ready func(context.Context) error) *Server {
+// New constructs the Gin engine with health checks, account, and session routes.
+func New(
+	cfg config.Config,
+	logger *slog.Logger,
+	accounts *account.Handler,
+	sessions *session.Handler,
+	ready func(context.Context) error,
+) *Server {
 	ginOnce.Do(func() {
 		gin.SetMode(gin.ReleaseMode)
 	})
@@ -32,7 +40,16 @@ func New(cfg config.Config, logger *slog.Logger, accounts *account.Handler, read
 	engine.Use(withLogger(logger), RequestID(), Recover(logger), AccessLog(logger))
 	engine.GET("/healthz", liveness)
 	engine.GET("/readyz", readiness(ready))
-	account.RegisterRoutes(engine.Group("/api/v1"), accounts)
+	engine.GET("/", discovery)
+	engine.GET("/openapi.yaml", serveOpenAPI)
+	engine.GET("/openapi/v1.yaml", serveOpenAPI)
+	apiGroup := engine.Group("/api/v1")
+	if accounts != nil {
+		account.RegisterRoutes(apiGroup, accounts)
+	}
+	if sessions != nil {
+		session.RegisterRoutes(apiGroup, sessions)
+	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))
 	})
@@ -63,6 +80,21 @@ func readiness(ready func(context.Context) error) gin.HandlerFunc {
 		}
 		httpjson.OK(c, gin.H{"status": "ready"})
 	}
+}
+
+func discovery(c *gin.Context) {
+	httpjson.OK(c, gin.H{
+		"service":    "app-server",
+		"api_prefix": "/api/v1",
+		"openapi":    "/openapi.yaml",
+		"healthz":    "/healthz",
+		"readyz":     "/readyz",
+	})
+}
+
+func serveOpenAPI(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "application/yaml; charset=utf-8", api.OpenAPIV1)
 }
 
 func withLogger(logger *slog.Logger) gin.HandlerFunc {

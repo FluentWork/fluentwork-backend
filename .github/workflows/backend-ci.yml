@@ -30,6 +30,7 @@ jobs:
           test -f Dockerfile
           test -f migrations/0001_create_users_and_auth_tokens.sql
           test -f migrations/0002_create_ai_cost_logs.sql
+          test -f migrations/0003_create_practice_sessions.sql
           test -f api/openapi-v1.yaml
           echo "Repository skeleton is present."
 

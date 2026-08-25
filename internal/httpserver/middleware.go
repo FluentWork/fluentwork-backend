@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
 )
@@ -53,13 +54,20 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 		if logger == nil {
 			return
 		}
-		logger.Info("http",
+		attrs := []any{
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"route", c.FullPath(),
 			"status", c.Writer.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"request_id", httpjson.RequestID(c),
-		)
+		}
+		if value, ok := c.Get(account.ContextUserIDKey); ok {
+			attrs = append(attrs, "user_id", value)
+		}
+		if value, ok := c.Get(account.ContextIsGuestKey); ok {
+			attrs = append(attrs, "is_guest", value)
+		}
+		logger.Info("http", attrs...)
 	}
 }
