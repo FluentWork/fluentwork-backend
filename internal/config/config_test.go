@@ -105,9 +105,18 @@ func TestValidateRejectsDevSecretOutsideDevelopment(t *testing.T) {
 	}
 }
 
-func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
-	t.Setenv("AUTH_ACCESS_TTL", "not-a-duration")
-	if got := durationOr("AUTH_ACCESS_TTL", time.Minute); got != time.Minute {
-		t.Fatalf("durationOr() = %s", got)
+func TestLoadRejectsDevSecretDefaultOutsideDevelopment(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("INTERNAL_API_TOKEN", "")
+	t.Setenv("AUTH_JWT_SECRET", "")
+	cfg := Load()
+	if cfg.InternalAPIToken != "" {
+		t.Fatalf("InternalAPIToken should not default outside development, got %q", cfg.InternalAPIToken)
+	}
+	if cfg.AuthJWTSecret != "" {
+		t.Fatalf("AuthJWTSecret should not default outside development, got %q", cfg.AuthJWTSecret)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected Validate to reject missing secrets outside development")
 	}
 }

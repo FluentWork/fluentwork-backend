@@ -38,17 +38,19 @@ type Config struct {
 // Load reads configuration from environment variables.
 // APP_ENV has no implicit default: local scripts must set it explicitly so a
 // forgotten production deploy cannot silently treat the process as development.
+// Development secrets are only auto-filled when APP_ENV is an explicit local value.
 func Load() Config {
+	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	return Config{
 		HTTPAddr:           envOr("HTTP_ADDR", defaultHTTPAddr),
-		AppEnv:             strings.TrimSpace(os.Getenv("APP_ENV")),
+		AppEnv:             appEnv,
 		MySQLDSN:           strings.TrimSpace(os.Getenv("MYSQL_DSN")),
-		AuthJWTSecret:      envOr("AUTH_JWT_SECRET", DevJWTSecret),
+		AuthJWTSecret:      secretOr("AUTH_JWT_SECRET", DevJWTSecret, appEnv),
 		AccessTokenTTL:     durationOr("AUTH_ACCESS_TTL", defaultAccessTokenTTL),
 		RefreshTokenTTL:    durationOr("AUTH_REFRESH_TTL", defaultRefreshTokenTTL),
 		VoiceGatewayWSSURL: envOr("VOICE_GATEWAY_WSS_URL", defaultVoiceGatewayWSSURL),
 		SessionTicketTTL:   durationOr("SESSION_TICKET_TTL", defaultSessionTicketTTL),
-		InternalAPIToken:   envOr("INTERNAL_API_TOKEN", DevInternalAPIToken),
+		InternalAPIToken:   secretOr("INTERNAL_API_TOKEN", DevInternalAPIToken, appEnv),
 	}
 }
 
@@ -59,12 +61,7 @@ func (c Config) IsProduction() bool {
 
 // IsDevelopment reports whether the process is an explicitly configured local/test environment.
 func (c Config) IsDevelopment() bool {
-	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
-	case "development", "dev", "test", "local":
-		return true
-	default:
-		return false
-	}
+	return isDevelopmentEnv(c.AppEnv)
 }
 
 // Validate checks required production and auth constraints.
@@ -99,7 +96,7 @@ func (c Config) Validate() error {
 	if len(strings.TrimSpace(c.InternalAPIToken)) < 16 {
 		return fmt.Errorf("INTERNAL_API_TOKEN must be at least 16 characters")
 	}
-	if !c.IsDevelopment() && c.InternalAPIToken == DevInternalAPIToken {
+	if !c.IsDevelopment() && (c.InternalAPIToken == "" || c.InternalAPIToken == DevInternalAPIToken) {
 		return fmt.Errorf("INTERNAL_API_TOKEN must be set outside development environments")
 	}
 	return nil
@@ -111,6 +108,26 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func secretOr(key, devFallback, appEnv string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value != "" {
+		return value
+	}
+	if isDevelopmentEnv(appEnv) {
+		return devFallback
+	}
+	return ""
+}
+
+func isDevelopmentEnv(appEnv string) bool {
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "development", "dev", "test", "local":
+		return true
+	default:
+		return false
+	}
 }
 
 func durationOr(key string, fallback time.Duration) time.Duration {

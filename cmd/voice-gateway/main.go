@@ -38,6 +38,7 @@ func run() error {
 	}
 	handler := voicegateway.NewHandler(consumer, logger, voicegateway.Options{
 		InsecureSkipOrigin: cfg.IsDevelopment(),
+		IdleTimeout:        cfg.IdleTimeout,
 	})
 	mux := http.NewServeMux()
 	handler.Mount(mux)
