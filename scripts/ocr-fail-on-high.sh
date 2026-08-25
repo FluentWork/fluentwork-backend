@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Fail CI when OpenCodeReview reports any critical/high finding.
+# Fail when OpenCodeReview reports any critical/high finding.
 # Policy: fluentwork-meta/agents/shared/review-gate.md
 #
-# Result file contract: alibaba/open-code-review@main writes review JSON to
-# /tmp/ocr-result.json (see its composite action.yml "Run OpenCodeReview"
-# step: `ocr review ... > /tmp/ocr-result.json`). Workflows should pass that
-# path explicitly (or via OCR_RESULT_FILE).
+# Used by the local pre-commit gate (scripts/ocr-local-review.sh). Pass the
+# JSON path from `ocr review --format json`, or set OCR_RESULT_FILE.
 #
 # Usage:
 #   ./scripts/ocr-fail-on-high.sh [/tmp/ocr-result.json]
@@ -15,7 +13,7 @@ RESULT_PATH="${1:-${OCR_RESULT_FILE:-/tmp/ocr-result.json}}"
 
 if [[ ! -f "${RESULT_PATH}" ]]; then
   echo "error: OCR result not found at ${RESULT_PATH}"
-  echo "OpenCodeReview should write JSON to this path (action contract); failing closed."
+  echo "Expected JSON from \`ocr review --format json\`; failing closed."
   exit 1
 fi
 
@@ -56,8 +54,8 @@ if not blocking:
     print(f"OCR gate passed: no critical/high findings in {path} ({len(comments)} total).")
     sys.exit(0)
 
-print(f"OCR gate failed: {len(blocking)} critical/high finding(s). Merge is blocked.")
-print("Fix these before merge (medium/low may remain as follow-ups):")
+print(f"OCR gate failed: {len(blocking)} critical/high finding(s). Commit is blocked.")
+print("Fix these before commit (medium/low may remain as follow-ups):")
 for item in blocking:
     severity = item.get("severity", "?")
     category = item.get("category", "?")

@@ -93,7 +93,7 @@ test/
 - migration checks
 - Docker image build
 - agent entry file validation
-- report-only AI review integration as a secondary review layer
+- local OpenCodeReview pre-commit gate (`high`/`critical` block commit; `medium`/`low` do not)
 
 ## Upstream Source of Truth
 
@@ -101,8 +101,9 @@ Product rules, service boundaries, and milestone priorities should be aligned wi
 
 ## Agent Tooling
 
-- `gstack` can be used locally for `/review` and later `/setup-deploy` or `/ship`
-- local OpenCodeReview CLI (`ocr`) can be used for pre-PR review against `.opencodereview/rule.json`
-- after `ocr review`, run `./scripts/ocr-export-review.sh` to save findings under `.opencodereview/reviews/` (see `latest.md`)
+- `gstack` can be used locally for deeper `/review` and later `/setup-deploy` or `/ship`
+- OpenCodeReview CLI (`ocr`) is the **commit gate**: enable hooks once with `./scripts/setup-git-hooks.sh`
+- pre-commit runs `./scripts/ocr-local-review.sh` (uses `.opencodereview/rule.json` + `ocr-fail-on-high.sh`)
+- after a review, optionally run `./scripts/ocr-export-review.sh` to save findings under `.opencodereview/reviews/` (see `latest.md`)
 - Matt Pocock style skills may be used as helpers under FluentWork shared governance
-- OpenCodeReview is initialized as a GitHub review workflow and should start in report-only mode
+- GitHub CI no longer runs OpenCodeReview; keep review local before commit

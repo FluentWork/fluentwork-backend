@@ -29,7 +29,7 @@ Shared topics:
 1. Read current backend and architecture docs before editing.
 2. Keep changes scoped to the active service or contract.
 3. Do not bypass review, CI, or owner approval requirements.
-4. OpenCodeReview `high` / `critical` findings must be fixed before merge; absence of `high`/`critical` allows merge.
+4. Before each commit, local OpenCodeReview must pass: fix any `high` / `critical` findings (see `scripts/ocr-local-review.sh`); `medium` / `low` may remain as follow-ups.
 5. Do not perform destructive git operations without explicit approval.
 6. Surface data safety, migration, and deploy implications clearly.
 
@@ -40,6 +40,13 @@ Shared topics:
 3. Auth, idempotency, and concurrency-sensitive code
 4. Production deploy and environment configuration
 
+## Local Review Gate
+
+1. One-time per clone: `./scripts/setup-git-hooks.sh` (sets `core.hooksPath=.githooks`).
+2. Pre-commit runs `scripts/ocr-local-review.sh` (OCR CLI + `ocr-fail-on-high.sh`).
+3. Emergency bypass only: `SKIP_OCR=1`, and justify in the commit/PR body.
+4. Optional archive: `./scripts/ocr-export-review.sh` after a review.
+
 ## CI Boundary
 
-CI validates fmt, vet, tests, builds, and configuration. CI does not run a full interactive skills runtime.
+CI validates fmt, vet, tests, builds, and configuration. CI does not run OpenCodeReview or a full interactive skills runtime.

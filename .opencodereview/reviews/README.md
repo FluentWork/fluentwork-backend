@@ -2,7 +2,7 @@
 
 OCR CLI sessions normally live under `~/.opencodereview/sessions/` (outside the repo), which makes findings hard to share or re-open later.
 
-This folder stores **exported** review artifacts for FluentWork backend.
+This folder stores **exported** review artifacts for this repository.
 
 ## Files
 
@@ -14,6 +14,18 @@ This folder stores **exported** review artifacts for FluentWork backend.
 | `<stamp>-<label>-<session>.md` | Historical exports |
 
 Raw session JSONL remains in `~/.opencodereview/sessions/` and is not copied here (it can be large and may contain prompt/tool payloads).
+
+## Local commit gate
+
+```bash
+# one-time per clone
+./scripts/setup-git-hooks.sh
+
+# pre-commit runs this automatically; or run manually:
+./scripts/ocr-local-review.sh
+```
+
+Emergency bypass: `SKIP_OCR=1` (justify in commit/PR body).
 
 ## Export after a review
 
@@ -37,4 +49,4 @@ ocr session comments <session-id>
 
 1. Keep exports readable; do not commit secrets or `.env` contents.
 2. Prefer summarizing disposition (fixed / deferred) in the PR body when findings drove code changes.
-3. GitHub PR OpenCodeReview remains the secondary report layer; local exports are for author visibility.
+3. Local OCR pre-commit is the severity gate; GitHub CI does not re-run OpenCodeReview.
