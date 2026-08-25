@@ -10,7 +10,7 @@ Requires Go 1.26+. No Docker is required for the default in-memory store.
 ./scripts/dev-up.sh
 ```
 
-This starts `app-server` on `http://127.0.0.1:8080`, waits for `/healthz`, and smoke-tests `POST /api/v1/auth/guest`. Press Ctrl-C to stop.
+This starts `app-server` on `http://127.0.0.1:8080` and `voice-gateway` on `ws://127.0.0.1:8081/v1/voice`, waits for `/healthz`, and smoke-tests `POST /api/v1/auth/guest`. Press Ctrl-C to stop. Use `--no-gateway` to run app-server only.
 
 Optional MySQL 8 (Docker daemon required):
 
@@ -32,6 +32,9 @@ First-wave scope: `docs/00_开发入口与第一波范围.md`
 - `GET /healthz`, `GET /readyz`
 - `POST /api/v1/auth/guest`
 - `POST /api/v1/account/merge`
+- `POST /api/v1/sessions`
+- `POST /internal/v1/tickets/consume` (voice-gateway only; `X-Internal-Token`)
+- voice-gateway WSS `GET /v1/voice` (JSON control frames; schema in `api/wss-control-frames-v1.json`)
 - error envelope `{code, message, request_id}`
 - OpenAPI: `api/openapi-v1.yaml`
 

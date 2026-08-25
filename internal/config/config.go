@@ -18,6 +18,8 @@ const (
 	defaultRefreshTokenTTL    = 30 * 24 * time.Hour
 	defaultVoiceGatewayWSSURL = "ws://127.0.0.1:8081/v1/voice"
 	defaultSessionTicketTTL   = 60 * time.Second
+	// DevInternalAPIToken is the local-only shared secret between app-server and voice-gateway.
+	DevInternalAPIToken = "fluentwork-dev-internal-token-change-me!!"
 )
 
 // Config holds process settings for app-server.
@@ -30,6 +32,7 @@ type Config struct {
 	RefreshTokenTTL    time.Duration
 	VoiceGatewayWSSURL string
 	SessionTicketTTL   time.Duration
+	InternalAPIToken   string
 }
 
 // Load reads configuration from environment variables.
@@ -43,6 +46,7 @@ func Load() Config {
 		RefreshTokenTTL:    durationOr("AUTH_REFRESH_TTL", defaultRefreshTokenTTL),
 		VoiceGatewayWSSURL: envOr("VOICE_GATEWAY_WSS_URL", defaultVoiceGatewayWSSURL),
 		SessionTicketTTL:   durationOr("SESSION_TICKET_TTL", defaultSessionTicketTTL),
+		InternalAPIToken:   envOr("INTERNAL_API_TOKEN", DevInternalAPIToken),
 	}
 }
 
@@ -86,6 +90,12 @@ func (c Config) Validate() error {
 	}
 	if c.SessionTicketTTL <= 0 {
 		return fmt.Errorf("SESSION_TICKET_TTL must be positive")
+	}
+	if len(strings.TrimSpace(c.InternalAPIToken)) < 16 {
+		return fmt.Errorf("INTERNAL_API_TOKEN must be at least 16 characters")
+	}
+	if !c.IsDevelopment() && c.InternalAPIToken == DevInternalAPIToken {
+		return fmt.Errorf("INTERNAL_API_TOKEN must be set outside development environments")
 	}
 	return nil
 }

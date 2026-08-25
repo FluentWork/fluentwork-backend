@@ -49,6 +49,7 @@ func New(
 	}
 	if sessions != nil {
 		session.RegisterRoutes(apiGroup, sessions)
+		session.RegisterInternalRoutes(engine.Group("/internal/v1"), sessions, cfg.InternalAPIToken)
 	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))

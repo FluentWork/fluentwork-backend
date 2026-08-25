@@ -5,17 +5,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 WITH_MYSQL=0
+WITH_GATEWAY=1
 PORT="${PORT:-8080}"
+GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 
 usage() {
   cat <<'EOF'
-Start FluentWork app-server for local development.
+Start FluentWork app-server (and voice-gateway by default) for local development.
 
 Usage:
-  ./scripts/dev-up.sh [--mysql] [--port 8080]
+  ./scripts/dev-up.sh [--mysql] [--no-gateway] [--port 8080]
 
-Default mode uses the in-memory account store (no Docker required).
+Default mode uses the in-memory account/session store (no Docker required).
 Pass --mysql to start MySQL 8 via Docker Compose and apply migrations.
+Pass --no-gateway to run only app-server.
 EOF
 }
 
@@ -23,6 +26,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mysql)
       WITH_MYSQL=1
+      shift
+      ;;
+    --no-gateway)
+      WITH_GATEWAY=0
       shift
       ;;
     --port)
@@ -71,15 +78,21 @@ fi
 export APP_ENV="${APP_ENV:-development}"
 export HTTP_ADDR=":${PORT}"
 export AUTH_JWT_SECRET="${AUTH_JWT_SECRET:-fluentwork-dev-jwt-secret-change-me!!}"
+export INTERNAL_API_TOKEN="${INTERNAL_API_TOKEN:-fluentwork-dev-internal-token-change-me!!}"
+export VOICE_GATEWAY_WSS_URL="${VOICE_GATEWAY_WSS_URL:-ws://127.0.0.1:${GATEWAY_PORT}/v1/voice}"
+export APP_SERVER_INTERNAL_URL="${APP_SERVER_INTERNAL_URL:-http://127.0.0.1:${PORT}}"
+export VOICE_GATEWAY_HTTP_ADDR=":${GATEWAY_PORT}"
 
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 
-wait_for_health() {
-  local url="http://127.0.0.1:${PORT}/healthz"
+wait_for_url() {
+  local url="$1"
+  local name="$2"
+  local pid="$3"
   local i
   for i in $(seq 1 60); do
-    if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-      echo "app-server exited before becoming healthy" >&2
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      echo "${name} exited before becoming healthy" >&2
       return 1
     fi
     if curl -sf "$url" >/dev/null 2>&1; then
@@ -87,7 +100,7 @@ wait_for_health() {
     fi
     sleep 0.5
   done
-  echo "app-server did not become healthy at $url" >&2
+  echo "${name} did not become healthy at $url" >&2
   return 1
 }
 
@@ -112,26 +125,43 @@ else
   unset MYSQL_DSN || true
 fi
 
-echo "Starting app-server on http://127.0.0.1:${PORT}"
-echo "  GET  /healthz"
-echo "  GET  /readyz"
-echo "  POST /api/v1/auth/guest"
-echo "  POST /api/v1/account/merge"
-echo
-
-go run ./cmd/app-server &
-SERVER_PID=$!
+SERVER_PID=""
+GATEWAY_PID=""
 
 cleanup() {
-  if kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+  if [[ -n "${GATEWAY_PID}" ]] && kill -0 "$GATEWAY_PID" >/dev/null 2>&1; then
+    kill "$GATEWAY_PID" >/dev/null 2>&1 || true
+    wait "$GATEWAY_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${SERVER_PID}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT INT TERM
 
-if ! wait_for_health; then
+echo "Starting app-server on http://127.0.0.1:${PORT}"
+echo "  GET  /healthz"
+echo "  GET  /readyz"
+echo "  POST /api/v1/auth/guest"
+echo "  POST /api/v1/sessions"
+echo "  POST /internal/v1/tickets/consume"
+echo
+
+go run ./cmd/app-server &
+SERVER_PID=$!
+
+if ! wait_for_url "http://127.0.0.1:${PORT}/healthz" "app-server" "$SERVER_PID"; then
   exit 1
+fi
+
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  echo "Starting voice-gateway on ws://127.0.0.1:${GATEWAY_PORT}/v1/voice"
+  go run ./cmd/voice-gateway &
+  GATEWAY_PID=$!
+  if ! wait_for_url "http://127.0.0.1:${GATEWAY_PORT}/healthz" "voice-gateway" "$GATEWAY_PID"; then
+    exit 1
+  fi
 fi
 
 echo "Healthy. Smoke-testing guest auth..."
@@ -140,5 +170,10 @@ curl -sS -H 'Content-Type: application/json' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
 echo
 echo
-echo "app-server is running (pid ${SERVER_PID}). Ctrl-C to stop."
-wait "$SERVER_PID"
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  echo "app-server (pid ${SERVER_PID}) and voice-gateway (pid ${GATEWAY_PID}) are running. Ctrl-C to stop."
+  wait "$SERVER_PID" "$GATEWAY_PID"
+else
+  echo "app-server is running (pid ${SERVER_PID}). Ctrl-C to stop."
+  wait "$SERVER_PID"
+fi
