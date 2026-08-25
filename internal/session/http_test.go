@@ -29,6 +29,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 		RefreshTokenTTL:    24 * time.Hour,
 		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
 		SessionTicketTTL:   60 * time.Second,
+		InternalAPIToken:   config.DevInternalAPIToken,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)

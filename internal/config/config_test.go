@@ -7,19 +7,20 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("HTTP_ADDR", "")
-	t.Setenv("APP_ENV", "")
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("MYSQL_DSN", "")
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_ACCESS_TTL", "")
 	t.Setenv("AUTH_REFRESH_TTL", "")
 	t.Setenv("VOICE_GATEWAY_WSS_URL", "")
 	t.Setenv("SESSION_TICKET_TTL", "")
+	t.Setenv("INTERNAL_API_TOKEN", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
 		t.Fatalf("HTTPAddr = %q", cfg.HTTPAddr)
 	}
-	if cfg.AppEnv != defaultAppEnv {
+	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q", cfg.AppEnv)
 	}
 	if cfg.AuthJWTSecret != DevJWTSecret {
@@ -37,8 +38,27 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SessionTicketTTL != defaultSessionTicketTTL {
 		t.Fatalf("SessionTicketTTL = %s", cfg.SessionTicketTTL)
 	}
+	if cfg.InternalAPIToken != DevInternalAPIToken {
+		t.Fatalf("InternalAPIToken = %q", cfg.InternalAPIToken)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
+	}
+}
+
+func TestValidateRequiresAppEnv(t *testing.T) {
+	cfg := Config{
+		HTTPAddr:           ":8080",
+		AppEnv:             "",
+		AuthJWTSecret:      DevJWTSecret,
+		AccessTokenTTL:     time.Hour,
+		RefreshTokenTTL:    24 * time.Hour,
+		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
+		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   DevInternalAPIToken,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected APP_ENV required error")
 	}
 }
 
@@ -51,6 +71,7 @@ func TestValidateProductionRequiresMySQLAndSecret(t *testing.T) {
 		RefreshTokenTTL:    24 * time.Hour,
 		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
 		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   "production-internal-token-long",
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected production secret error")
@@ -77,15 +98,25 @@ func TestValidateRejectsDevSecretOutsideDevelopment(t *testing.T) {
 		MySQLDSN:           "fw:fw@tcp(127.0.0.1:3306)/fluentwork",
 		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
 		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   "staging-internal-token-long",
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected staging secret error")
 	}
 }
 
-func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
-	t.Setenv("AUTH_ACCESS_TTL", "not-a-duration")
-	if got := durationOr("AUTH_ACCESS_TTL", time.Minute); got != time.Minute {
-		t.Fatalf("durationOr() = %s", got)
+func TestLoadRejectsDevSecretDefaultOutsideDevelopment(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("INTERNAL_API_TOKEN", "")
+	t.Setenv("AUTH_JWT_SECRET", "")
+	cfg := Load()
+	if cfg.InternalAPIToken != "" {
+		t.Fatalf("InternalAPIToken should not default outside development, got %q", cfg.InternalAPIToken)
+	}
+	if cfg.AuthJWTSecret != "" {
+		t.Fatalf("AuthJWTSecret should not default outside development, got %q", cfg.AuthJWTSecret)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected Validate to reject missing secrets outside development")
 	}
 }
