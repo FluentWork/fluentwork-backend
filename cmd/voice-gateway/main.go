@@ -36,7 +36,9 @@ func run() error {
 		BaseURL: cfg.AppServerInternalURL,
 		Token:   cfg.InternalAPIToken,
 	}
-	handler := voicegateway.NewHandler(consumer, logger)
+	handler := voicegateway.NewHandler(consumer, logger, voicegateway.Options{
+		InsecureSkipOrigin: cfg.IsDevelopment(),
+	})
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 

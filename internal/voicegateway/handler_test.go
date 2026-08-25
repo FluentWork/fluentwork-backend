@@ -45,7 +45,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 			UserID:    "u1",
 		},
 	}
-	h := voicegateway.NewHandler(consumer, nil)
+	h := voicegateway.NewHandler(consumer, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -59,7 +59,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
 		Type:   voiceproto.TypeAuth,
@@ -68,7 +68,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 		t.Fatalf("write auth: %v", err)
 	}
 
-	ready := readFrame(t, ctx, conn)
+	ready := readFrame(ctx, t, conn)
 	if ready["type"] != voiceproto.TypeSessionReady {
 		t.Fatalf("expected session.ready, got %#v", ready)
 	}
@@ -82,7 +82,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("write session.start: %v", err)
 	}
-	delta := readFrame(t, ctx, conn)
+	delta := readFrame(ctx, t, conn)
 	if delta["type"] != voiceproto.TypeAITextDelta {
 		t.Fatalf("expected ai.text.delta, got %#v", delta)
 	}
@@ -93,7 +93,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("write ping: %v", err)
 	}
-	pong := readFrame(t, ctx, conn)
+	pong := readFrame(ctx, t, conn)
 	if pong["type"] != voiceproto.TypePong {
 		t.Fatalf("expected pong, got %#v", pong)
 	}
@@ -104,7 +104,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("write session.end: %v", err)
 	}
-	end := readFrame(t, ctx, conn)
+	end := readFrame(ctx, t, conn)
 	if end["type"] != voiceproto.TypeSessionEnd {
 		t.Fatalf("expected session.end ack, got %#v", end)
 	}
@@ -118,7 +118,7 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	t.Parallel()
 
 	consumer := &stubConsumer{err: errors.New("invalid ticket")}
-	h := voicegateway.NewHandler(consumer, nil)
+	h := voicegateway.NewHandler(consumer, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -132,7 +132,7 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
 		Type:   voiceproto.TypeAuth,
@@ -141,13 +141,13 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 		t.Fatalf("write auth: %v", err)
 	}
 
-	frame := readFrame(t, ctx, conn)
+	frame := readFrame(ctx, t, conn)
 	if frame["type"] != voiceproto.TypeError {
 		t.Fatalf("expected error, got %#v", frame)
 	}
 }
 
-func readFrame(t *testing.T, ctx context.Context, conn *websocket.Conn) map[string]any {
+func readFrame(ctx context.Context, t *testing.T, conn *websocket.Conn) map[string]any {
 	t.Helper()
 	typ, data, err := conn.Read(ctx)
 	if err != nil {

@@ -33,6 +33,23 @@ type errorBody struct {
 	Message string `json:"message"`
 }
 
+// ConsumeError is a structured failure from app-server ticket consume.
+type ConsumeError struct {
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (e *ConsumeError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Code != "" {
+		return fmt.Sprintf("%s: %s", e.Code, e.Message)
+	}
+	return e.Message
+}
+
 // Consume posts the raw ticket to app-server and returns the bound session.
 func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (ConsumedTicket, error) {
 	base := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
@@ -59,7 +76,7 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 	if err != nil {
 		return ConsumedTicket{}, fmt.Errorf("ticket consume request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -75,7 +92,11 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 		if msg == "" {
 			msg = resp.Status
 		}
-		return ConsumedTicket{}, fmt.Errorf("%s", msg)
+		return ConsumedTicket{}, &ConsumeError{
+			StatusCode: resp.StatusCode,
+			Code:       eb.Code,
+			Message:    msg,
+		}
 	}
 
 	var out consumeResponse
@@ -85,9 +106,5 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 	if out.SessionID == "" || out.UserID == "" {
 		return ConsumedTicket{}, fmt.Errorf("consume response missing session_id/user_id")
 	}
-	return ConsumedTicket{
-		TicketID:  out.TicketID,
-		SessionID: out.SessionID,
-		UserID:    out.UserID,
-	}, nil
+	return ConsumedTicket(out), nil
 }

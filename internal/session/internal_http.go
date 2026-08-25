@@ -1,6 +1,7 @@
 package session
 
 import (
+	"crypto/subtle"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +37,7 @@ func requireInternalToken(expected string) gin.HandlerFunc {
 			return
 		}
 		got := strings.TrimSpace(c.GetHeader(internalTokenHeader))
-		if got == "" || got != expected {
+		if got == "" || len(got) != len(expected) || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
 			httpjson.Error(c, apierr.Unauthenticated("invalid internal token"))
 			return
 		}

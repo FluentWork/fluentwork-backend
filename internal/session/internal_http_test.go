@@ -47,7 +47,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("guest: %v", err)
 	}
-	defer guestRes.Body.Close()
+	defer func() { _ = guestRes.Body.Close() }()
 	var guest map[string]any
 	if err := json.NewDecoder(guestRes.Body).Decode(&guest); err != nil {
 		t.Fatalf("decode guest: %v", err)
@@ -64,7 +64,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	defer createRes.Body.Close()
+	defer func() { _ = createRes.Body.Close() }()
 	var created map[string]any
 	if err := json.NewDecoder(createRes.Body).Decode(&created); err != nil {
 		t.Fatalf("decode create: %v", err)
@@ -89,7 +89,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	defer consumeRes.Body.Close()
+	defer func() { _ = consumeRes.Body.Close() }()
 	if consumeRes.StatusCode != http.StatusOK {
 		t.Fatalf("consume status = %d", consumeRes.StatusCode)
 	}
@@ -116,7 +116,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	defer replayRes.Body.Close()
+	defer func() { _ = replayRes.Body.Close() }()
 	if replayRes.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("replay status = %d", replayRes.StatusCode)
 	}
@@ -154,7 +154,7 @@ func TestInternalConsumeTicketRequiresToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d", res.StatusCode)
 	}
