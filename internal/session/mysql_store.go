@@ -50,6 +50,32 @@ func (s *MySQLStore) CreateTicket(ctx context.Context, ticket Ticket) error {
 	return err
 }
 
+// CreateSessionWithTicket inserts a session and ticket in one transaction.
+func (s *MySQLStore) CreateSessionWithTicket(ctx context.Context, session Session, ticket Ticket) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO practice_sessions (
+			id, user_id, material_id, scene_type, status, duration_sec, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, session.ID, session.UserID, nullString(session.MaterialID), session.SceneType, session.Status,
+		session.DurationSec, session.CreatedAt, session.UpdatedAt); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO session_tickets (
+			id, session_id, user_id, token_hash, expires_at, used_at, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, ticket.ID, ticket.SessionID, ticket.UserID, ticket.Hash, ticket.ExpiresAt, nullTime(ticket.UsedAt), ticket.CreatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // GetTicketByHash returns a ticket by hashed raw value.
 func (s *MySQLStore) GetTicketByHash(ctx context.Context, hash string) (Ticket, error) {
 	row := s.db.QueryRowContext(ctx, `
@@ -58,6 +84,53 @@ func (s *MySQLStore) GetTicketByHash(ctx context.Context, hash string) (Ticket, 
 		WHERE token_hash = ?
 	`, hash)
 	return scanTicket(row)
+}
+
+// ConsumeTicket atomically marks an unused, unexpired ticket as used.
+func (s *MySQLStore) ConsumeTicket(ctx context.Context, hash string, at time.Time) (Ticket, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Ticket{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, session_id, user_id, token_hash, expires_at, used_at, created_at
+		FROM session_tickets
+		WHERE token_hash = ?
+		FOR UPDATE
+	`, hash)
+	ticket, err := scanTicket(row)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if ticket.UsedAt != nil {
+		return ticket, ErrTicketUsed
+	}
+	if !ticket.ExpiresAt.After(at) {
+		return ticket, ErrTicketExpired
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE session_tickets
+		SET used_at = ?
+		WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+	`, at, hash, at)
+	if err != nil {
+		return Ticket{}, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return Ticket{}, err
+	}
+	if n != 1 {
+		return Ticket{}, ErrTicketUsed
+	}
+	usedAt := at
+	ticket.UsedAt = &usedAt
+	if err := tx.Commit(); err != nil {
+		return Ticket{}, err
+	}
+	return ticket, nil
 }
 
 // ReassignUser moves sessions and tickets from a guest onto a registered account.

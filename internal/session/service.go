@@ -85,9 +85,6 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.store.CreateSession(ctx, session); err != nil {
-		return CreateResponse{}, err
-	}
 
 	rawTicket, err := randomTicket()
 	if err != nil {
@@ -102,7 +99,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 		ExpiresAt: expiresAt,
 		CreatedAt: now,
 	}
-	if err := s.store.CreateTicket(ctx, ticket); err != nil {
+	if err := s.store.CreateSessionWithTicket(ctx, session, ticket); err != nil {
 		return CreateResponse{}, err
 	}
 
@@ -124,30 +121,36 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	}, nil
 }
 
-// LookupTicket resolves a raw ticket for gateway handshake (used by B3).
-func (s *Service) LookupTicket(ctx context.Context, rawTicket string) (Ticket, error) {
+// ConsumeTicket validates and atomically consumes a one-time WSS ticket (B3 handshake).
+func (s *Service) ConsumeTicket(ctx context.Context, rawTicket string) (Ticket, error) {
 	rawTicket = strings.TrimSpace(rawTicket)
 	if rawTicket == "" {
 		return Ticket{}, apierr.Unauthenticated("ticket is required")
 	}
-	ticket, err := s.store.GetTicketByHash(ctx, hashTicket(rawTicket))
+	now := s.now().UTC()
+	ticket, err := s.store.ConsumeTicket(ctx, hashTicket(rawTicket), now)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+		switch {
+		case errors.Is(err, ErrNotFound):
 			s.logger.Warn("session ticket not found")
 			return Ticket{}, apierr.Unauthenticated("invalid ticket")
+		case errors.Is(err, ErrTicketUsed):
+			s.logger.Warn("session ticket already used", "session_id", ticket.SessionID, "user_id", ticket.UserID)
+			return Ticket{}, apierr.Unauthenticated("ticket already used")
+		case errors.Is(err, ErrTicketExpired):
+			s.logger.Warn("session ticket expired", "session_id", ticket.SessionID, "user_id", ticket.UserID, "expires_at", ticket.ExpiresAt)
+			return Ticket{}, apierr.Unauthenticated("ticket expired")
+		default:
+			return Ticket{}, err
 		}
-		return Ticket{}, err
-	}
-	now := s.now().UTC()
-	if ticket.UsedAt != nil {
-		s.logger.Warn("session ticket already used", "session_id", ticket.SessionID, "user_id", ticket.UserID)
-		return Ticket{}, apierr.Unauthenticated("ticket already used")
-	}
-	if !ticket.ExpiresAt.After(now) {
-		s.logger.Warn("session ticket expired", "session_id", ticket.SessionID, "user_id", ticket.UserID, "expires_at", ticket.ExpiresAt)
-		return Ticket{}, apierr.Unauthenticated("ticket expired")
 	}
 	return ticket, nil
+}
+
+// LookupTicket is retained as an alias for ConsumeTicket for gateway call sites.
+// Deprecated: prefer ConsumeTicket; lookup without consume is intentionally unsupported.
+func (s *Service) LookupTicket(ctx context.Context, rawTicket string) (Ticket, error) {
+	return s.ConsumeTicket(ctx, rawTicket)
 }
 
 func normalizeOptionalMaterialID(raw *string) (*string, error) {

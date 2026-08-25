@@ -60,6 +60,21 @@ func (s *MemoryStore) CreateTicket(_ context.Context, ticket Ticket) error {
 	return nil
 }
 
+// CreateSessionWithTicket atomically inserts a session and its ticket.
+func (s *MemoryStore) CreateSessionWithTicket(_ context.Context, session Session, ticket Ticket) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.sessions[session.ID]; exists {
+		return fmt.Errorf("session: duplicate session id")
+	}
+	if _, exists := s.tickets[ticket.Hash]; exists {
+		return fmt.Errorf("session: duplicate ticket hash")
+	}
+	s.sessions[session.ID] = cloneSession(session)
+	s.tickets[ticket.Hash] = cloneTicket(ticket)
+	return nil
+}
+
 // GetTicketByHash returns a ticket by its hashed raw value.
 func (s *MemoryStore) GetTicketByHash(_ context.Context, hash string) (Ticket, error) {
 	s.mu.Lock()
@@ -68,6 +83,26 @@ func (s *MemoryStore) GetTicketByHash(_ context.Context, hash string) (Ticket, e
 	if !ok {
 		return Ticket{}, ErrNotFound
 	}
+	return cloneTicket(ticket), nil
+}
+
+// ConsumeTicket atomically marks an unused, unexpired ticket as used.
+func (s *MemoryStore) ConsumeTicket(_ context.Context, hash string, at time.Time) (Ticket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket, ok := s.tickets[hash]
+	if !ok {
+		return Ticket{}, ErrNotFound
+	}
+	if ticket.UsedAt != nil {
+		return cloneTicket(ticket), ErrTicketUsed
+	}
+	if !ticket.ExpiresAt.After(at) {
+		return cloneTicket(ticket), ErrTicketExpired
+	}
+	usedAt := at
+	ticket.UsedAt = &usedAt
+	s.tickets[hash] = ticket
 	return cloneTicket(ticket), nil
 }
 
