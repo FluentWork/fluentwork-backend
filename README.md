@@ -35,6 +35,7 @@ First-wave scope: `docs/00_开发入口与第一波范围.md`
 - `POST /api/v1/sessions`
 - `POST /internal/v1/tickets/consume` (voice-gateway only; `X-Internal-Token`)
 - `POST /internal/v1/sessions/activate` / `POST /internal/v1/sessions/end` (voice-gateway session lifecycle)
+- async `session.finished` outbox + `cmd/worker` stub review pipeline (B5)
 - voice-gateway WSS `GET /v1/voice` (JSON control frames; schema in `api/wss-control-frames-v1.json`)
 - error envelope `{code, message, request_id}`
 - OpenAPI: `api/openapi-v1.yaml`

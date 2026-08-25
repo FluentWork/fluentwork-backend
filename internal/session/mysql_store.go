@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -22,7 +23,7 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const sessionColumns = `id, user_id, material_id, scene_type, status, duration_sec, created_at, updated_at`
+const sessionColumns = `id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at`
 
 // CreateSession inserts a practice session row.
 func (s *MySQLStore) CreateSession(ctx context.Context, session Session) error {
@@ -237,6 +238,177 @@ func (s *MySQLStore) ListUtterances(ctx context.Context, sessionID string) ([]Ut
 	return listUtterancesTx(ctx, s.db, sessionID)
 }
 
+// EnqueueJob inserts a pending outbox job.
+func (s *MySQLStore) EnqueueJob(ctx context.Context, job Job) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_jobs (
+			id, session_id, job_type, status, attempts, available_at, locked_at, locked_by, last_error, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, job.ID, job.SessionID, job.JobType, job.Status, job.Attempts, job.AvailableAt, nullTime(job.LockedAt), nullString(job.LockedBy), nullString(job.LastError), job.CreatedAt, job.UpdatedAt)
+	return err
+}
+
+// HasSessionJob reports whether a job exists for session+type in any given status.
+func (s *MySQLStore) HasSessionJob(ctx context.Context, sessionID, jobType string, statuses ...string) (bool, error) {
+	if len(statuses) == 0 {
+		return false, nil
+	}
+	placeholders := make([]string, len(statuses))
+	args := make([]any, 0, 2+len(statuses))
+	args = append(args, sessionID, jobType)
+	for i, st := range statuses {
+		placeholders[i] = "?"
+		args = append(args, st)
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT 1 FROM session_jobs
+		WHERE session_id = ? AND job_type = ? AND status IN (`+strings.Join(placeholders, ",")+`)
+		LIMIT 1
+	`, args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ClaimNextJob claims one available pending job, or a stale processing lease.
+func (s *MySQLStore) ClaimNextJob(ctx context.Context, workerID string, at time.Time) (Job, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	leaseCutoff := at.Add(-DefaultJobLease)
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, session_id, job_type, status, attempts, available_at, locked_at, locked_by, last_error, created_at, updated_at
+		FROM session_jobs
+		WHERE (status = ? AND available_at <= ?)
+		   OR (status = ? AND locked_at IS NOT NULL AND locked_at <= ?)
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+		FOR UPDATE
+	`, JobStatusPending, at, JobStatusProcessing, leaseCutoff)
+	job, err := scanJob(row)
+	if err != nil {
+		return Job{}, err
+	}
+	job.Status = JobStatusProcessing
+	job.Attempts++
+	lockedAt := at
+	lockedBy := workerID
+	job.LockedAt = &lockedAt
+	job.LockedBy = &lockedBy
+	job.UpdatedAt = at
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_jobs
+		SET status = ?, attempts = ?, locked_at = ?, locked_by = ?, updated_at = ?
+		WHERE id = ?
+	`, job.Status, job.Attempts, lockedAt, lockedBy, at, job.ID); err != nil {
+		return Job{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+	return job, nil
+}
+
+// CompleteJob marks a claimed job done.
+func (s *MySQLStore) CompleteJob(ctx context.Context, jobID string, at time.Time) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE session_jobs
+		SET status = ?, locked_at = NULL, locked_by = NULL, updated_at = ?
+		WHERE id = ? AND status = ?
+	`, JobStatusDone, at, jobID, JobStatusProcessing)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return jobTransitionConflict(ctx, s.db, jobID)
+	}
+	return nil
+}
+
+// FailJob retries once or marks the job failed permanently.
+func (s *MySQLStore) FailJob(ctx context.Context, jobID string, at time.Time, errMsg string, retryDelay time.Duration) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	job, err := scanJob(tx.QueryRowContext(ctx, `
+		SELECT id, session_id, job_type, status, attempts, available_at, locked_at, locked_by, last_error, created_at, updated_at
+		FROM session_jobs WHERE id = ? FOR UPDATE
+	`, jobID))
+	if err != nil {
+		return err
+	}
+	if job.Status != JobStatusProcessing {
+		return ErrConflict
+	}
+	status := JobStatusFailed
+	availableAt := at
+	if job.Attempts < MaxJobAttempts {
+		status = JobStatusPending
+		availableAt = at.Add(retryDelay)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_jobs
+		SET status = ?, available_at = ?, locked_at = NULL, locked_by = NULL, last_error = ?, updated_at = ?
+		WHERE id = ? AND status = ?
+	`, status, availableAt, errMsg, at, jobID, JobStatusProcessing); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkSessionReviewed writes review_json and status=reviewed.
+func (s *MySQLStore) MarkSessionReviewed(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time) (Session, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM practice_sessions WHERE id = ? FOR UPDATE`, sessionID))
+	if err != nil {
+		return Session{}, err
+	}
+	switch session.Status {
+	case StatusReviewed:
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	case StatusEnded:
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE practice_sessions
+			SET status = ?, review_json = ?, updated_at = ?
+			WHERE id = ?
+		`, StatusReviewed, reviewJSON, at, sessionID); err != nil {
+			return Session{}, err
+		}
+		session.Status = StatusReviewed
+		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+		session.UpdatedAt = at
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	default:
+		return session, ErrConflict
+	}
+}
+
 type queryRower interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
@@ -299,6 +471,7 @@ func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID stri
 func scanSession(row *sql.Row) (Session, error) {
 	var session Session
 	var materialID sql.NullString
+	var reviewJSON []byte
 	err := row.Scan(
 		&session.ID,
 		&session.UserID,
@@ -306,6 +479,7 @@ func scanSession(row *sql.Row) (Session, error) {
 		&session.SceneType,
 		&session.Status,
 		&session.DurationSec,
+		&reviewJSON,
 		&session.CreatedAt,
 		&session.UpdatedAt,
 	)
@@ -319,7 +493,61 @@ func scanSession(row *sql.Row) (Session, error) {
 		value := materialID.String
 		session.MaterialID = &value
 	}
+	if len(reviewJSON) > 0 {
+		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+	}
 	return session, nil
+}
+
+func jobTransitionConflict(ctx context.Context, db *sql.DB, jobID string) error {
+	var status string
+	err := db.QueryRowContext(ctx, `SELECT status FROM session_jobs WHERE id = ?`, jobID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return ErrConflict
+}
+
+func scanJob(row *sql.Row) (Job, error) {
+	var job Job
+	var lockedAt sql.NullTime
+	var lockedBy sql.NullString
+	var lastError sql.NullString
+	err := row.Scan(
+		&job.ID,
+		&job.SessionID,
+		&job.JobType,
+		&job.Status,
+		&job.Attempts,
+		&job.AvailableAt,
+		&lockedAt,
+		&lockedBy,
+		&lastError,
+		&job.CreatedAt,
+		&job.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, ErrNotFound
+	}
+	if err != nil {
+		return Job{}, err
+	}
+	if lockedAt.Valid {
+		v := lockedAt.Time
+		job.LockedAt = &v
+	}
+	if lockedBy.Valid {
+		v := lockedBy.String
+		job.LockedBy = &v
+	}
+	if lastError.Valid {
+		v := lastError.String
+		job.LastError = &v
+	}
+	return job, nil
 }
 
 func scanTicket(row *sql.Row) (Ticket, error) {

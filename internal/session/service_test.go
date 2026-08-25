@@ -236,4 +236,120 @@ func TestActivateAndEndPersistUtterances(t *testing.T) {
 	if len(rows) != 2 || rows[0].Text != "ready" || rows[1].Speaker != SpeakerUser {
 		t.Fatalf("utterances = %+v", rows)
 	}
+
+	ok, err := svc.ProcessNextJob(context.Background(), "test-worker")
+	if err != nil {
+		t.Fatalf("ProcessNextJob: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected a job to process")
+	}
+	got, err := store.GetSession(context.Background(), created.SessionID)
+	if err != nil {
+		t.Fatalf("GetSession after review: %v", err)
+	}
+	if got.Status != StatusReviewed || len(got.ReviewJSON) == 0 {
+		t.Fatalf("expected reviewed session with review_json, got %+v", got)
+	}
+	ok, err = svc.ProcessNextJob(context.Background(), "test-worker")
+	if err != nil {
+		t.Fatalf("ProcessNextJob empty: %v", err)
+	}
+	if ok {
+		t.Fatal("expected empty queue")
+	}
 }
+
+func TestEndReenqueuesMissingFinishedJob(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Activate(context.Background(), created.SessionID); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	ended, err := svc.End(context.Background(), EndRequest{
+		SessionID:   created.SessionID,
+		DurationSec: 5,
+		Utterances:  []EndUtteranceItem{{Seq: 1, Speaker: SpeakerAI, Text: "ready"}},
+	})
+	if err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	if ended.AlreadyEnded {
+		t.Fatal("first End should not be already ended")
+	}
+
+	// Simulate End that committed before enqueue (drop outbox rows).
+	store.mu.Lock()
+	store.jobs = map[string]Job{}
+	store.mu.Unlock()
+
+	replay, err := svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID,
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "ignored-invalid-would-fail-if-validated"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("End replay: %v", err)
+	}
+	if !replay.AlreadyEnded {
+		t.Fatal("expected already ended")
+	}
+	exists, err := store.HasSessionJob(context.Background(), created.SessionID, JobTypeSessionFinished,
+		JobStatusPending, JobStatusProcessing, JobStatusDone)
+	if err != nil || !exists {
+		t.Fatalf("expected re-enqueued job, exists=%v err=%v", exists, err)
+	}
+}
+
+func TestClaimNextJobReclaimsStaleProcessing(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	lockedAt := now.Add(-DefaultJobLease - time.Second)
+	job := Job{
+		ID:          "job-1",
+		SessionID:   "s1",
+		JobType:     JobTypeSessionFinished,
+		Status:      JobStatusProcessing,
+		Attempts:    1,
+		AvailableAt: now.Add(-time.Hour),
+		LockedAt:    &lockedAt,
+		LockedBy:    strPtr("dead-worker"),
+		CreatedAt:   now.Add(-time.Hour),
+		UpdatedAt:   lockedAt,
+	}
+	if err := store.EnqueueJob(context.Background(), Job{
+		ID: job.ID, SessionID: job.SessionID, JobType: job.JobType,
+		Status: JobStatusPending, AvailableAt: job.AvailableAt,
+		CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
+	}); err != nil {
+		t.Fatalf("EnqueueJob: %v", err)
+	}
+	store.mu.Lock()
+	store.jobs[job.ID] = job
+	store.mu.Unlock()
+
+	claimed, err := store.ClaimNextJob(context.Background(), "worker-2", now)
+	if err != nil {
+		t.Fatalf("ClaimNextJob: %v", err)
+	}
+	if claimed.Status != JobStatusProcessing || claimed.Attempts != 2 {
+		t.Fatalf("unexpected claim: %+v", claimed)
+	}
+	if claimed.LockedBy == nil || *claimed.LockedBy != "worker-2" {
+		t.Fatalf("locked_by = %v", claimed.LockedBy)
+	}
+}
+
+func strPtr(v string) *string { return &v }
