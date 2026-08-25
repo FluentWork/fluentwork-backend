@@ -34,6 +34,25 @@ func (s *stubConsumer) Consume(_ context.Context, rawTicket string) (voicegatewa
 	return s.out, nil
 }
 
+type stubLifecycle struct {
+	activateCalls int
+	endCalls      int
+	lastEnd       voicegateway.EndSessionRequest
+	activateErr   error
+	endErr        error
+}
+
+func (s *stubLifecycle) Activate(_ context.Context, _ string) error {
+	s.activateCalls++
+	return s.activateErr
+}
+
+func (s *stubLifecycle) End(_ context.Context, req voicegateway.EndSessionRequest) error {
+	s.endCalls++
+	s.lastEnd = req
+	return s.endErr
+}
+
 func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +64,8 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 			UserID:    "u1",
 		},
 	}
-	h := voicegateway.NewHandler(consumer, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	life := &stubLifecycle{}
+	h := voicegateway.NewHandler(consumer, life, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -112,13 +132,19 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	if consumer.calls != 1 {
 		t.Fatalf("consumer calls = %d", consumer.calls)
 	}
+	if life.activateCalls != 1 || life.endCalls != 1 {
+		t.Fatalf("lifecycle activate=%d end=%d", life.activateCalls, life.endCalls)
+	}
+	if life.lastEnd.SessionID != "s1" || len(life.lastEnd.Utterances) != 1 || life.lastEnd.Utterances[0].Text != "ready" {
+		t.Fatalf("unexpected end request: %+v", life.lastEnd)
+	}
 }
 
 func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	t.Parallel()
 
 	consumer := &stubConsumer{err: errors.New("invalid ticket")}
-	h := voicegateway.NewHandler(consumer, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h := voicegateway.NewHandler(consumer, nil, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)

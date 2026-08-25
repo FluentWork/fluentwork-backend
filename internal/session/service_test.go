@@ -177,3 +177,63 @@ func TestReassignerMovesSessions(t *testing.T) {
 		t.Fatalf("user_id = %q", got.UserID)
 	}
 }
+
+func TestActivateAndEndPersistUtterances(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	activated, err := svc.Activate(context.Background(), created.SessionID)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if activated.Status != StatusActive {
+		t.Fatalf("status = %q", activated.Status)
+	}
+
+	ended, err := svc.End(context.Background(), EndRequest{
+		SessionID:   created.SessionID,
+		DurationSec: 12,
+		Reason:      "user",
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "ready"},
+			{Seq: 2, Speaker: SpeakerUser, Text: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	if ended.Status != StatusEnded || ended.UtteranceCount != 2 || ended.AlreadyEnded {
+		t.Fatalf("unexpected end response: %+v", ended)
+	}
+
+	replay, err := svc.End(context.Background(), EndRequest{
+		SessionID:   created.SessionID,
+		DurationSec: 99,
+		Utterances:  []EndUtteranceItem{{Seq: 1, Speaker: SpeakerAI, Text: "ignored"}},
+	})
+	if err != nil {
+		t.Fatalf("End replay: %v", err)
+	}
+	if !replay.AlreadyEnded || replay.DurationSec != 12 || replay.UtteranceCount != 2 {
+		t.Fatalf("unexpected replay: %+v", replay)
+	}
+
+	rows, err := store.ListUtterances(context.Background(), created.SessionID)
+	if err != nil {
+		t.Fatalf("ListUtterances: %v", err)
+	}
+	if len(rows) != 2 || rows[0].Text != "ready" || rows[1].Speaker != SpeakerUser {
+		t.Fatalf("utterances = %+v", rows)
+	}
+}

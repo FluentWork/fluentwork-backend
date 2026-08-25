@@ -133,6 +133,147 @@ func (s *MySQLStore) ConsumeTicket(ctx context.Context, hash string, at time.Tim
 	return ticket, nil
 }
 
+// MarkSessionActive transitions created → active (idempotent if already active).
+func (s *MySQLStore) MarkSessionActive(ctx context.Context, sessionID string, at time.Time) (Session, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM practice_sessions WHERE id = ? FOR UPDATE`, sessionID))
+	if err != nil {
+		return Session{}, err
+	}
+	switch session.Status {
+	case StatusActive:
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	case StatusCreated:
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE practice_sessions SET status = ?, updated_at = ? WHERE id = ?
+		`, StatusActive, at, sessionID); err != nil {
+			return Session{}, err
+		}
+		session.Status = StatusActive
+		session.UpdatedAt = at
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	default:
+		return session, ErrConflict
+	}
+}
+
+// EndSession marks a session ended and writes utterances in one transaction.
+func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM practice_sessions WHERE id = ? FOR UPDATE`, sessionID))
+	if err != nil {
+		return Session{}, nil, false, err
+	}
+	if session.Status == StatusEnded {
+		existing, listErr := listUtterancesTx(ctx, tx, sessionID)
+		if listErr != nil {
+			return Session{}, nil, false, listErr
+		}
+		if err := tx.Commit(); err != nil {
+			return Session{}, nil, false, err
+		}
+		return session, existing, true, nil
+	}
+	if session.Status != StatusCreated && session.Status != StatusActive {
+		return session, nil, false, ErrConflict
+	}
+	if durationSec < 0 {
+		durationSec = 0
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE practice_sessions
+		SET status = ?, duration_sec = ?, updated_at = ?
+		WHERE id = ?
+	`, StatusEnded, durationSec, at, sessionID); err != nil {
+		return Session{}, nil, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM utterances WHERE session_id = ?`, sessionID); err != nil {
+		return Session{}, nil, false, err
+	}
+	for _, u := range utterances {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO utterances (
+				id, session_id, seq, speaker, text, asr_confidence, audio_url, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, u.ID, sessionID, u.Seq, u.Speaker, u.Text, nullFloat(u.ASRConfidence), nullString(u.AudioURL), u.CreatedAt); err != nil {
+			return Session{}, nil, false, err
+		}
+	}
+	session.Status = StatusEnded
+	session.DurationSec = durationSec
+	session.UpdatedAt = at
+	saved := make([]Utterance, 0, len(utterances))
+	for _, u := range utterances {
+		u.SessionID = sessionID
+		saved = append(saved, cloneUtterance(u))
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, nil, false, err
+	}
+	return session, saved, false, nil
+}
+
+// ListUtterances returns transcript rows ordered by seq.
+func (s *MySQLStore) ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error) {
+	if _, err := s.GetSession(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	return listUtterancesTx(ctx, s.db, sessionID)
+}
+
+type queryRower interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Utterance, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT id, session_id, seq, speaker, text, asr_confidence, audio_url, created_at
+		FROM utterances
+		WHERE session_id = ?
+		ORDER BY seq ASC
+	`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Utterance
+	for rows.Next() {
+		var u Utterance
+		var confidence sql.NullFloat64
+		var audioURL sql.NullString
+		if err := rows.Scan(&u.ID, &u.SessionID, &u.Seq, &u.Speaker, &u.Text, &confidence, &audioURL, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		if confidence.Valid {
+			v := confidence.Float64
+			u.ASRConfidence = &v
+		}
+		if audioURL.Valid {
+			v := audioURL.String
+			u.AudioURL = &v
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // ReassignUser moves sessions and tickets from a guest onto a registered account.
 func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -214,6 +355,13 @@ func nullString(value *string) any {
 }
 
 func nullTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullFloat(value *float64) any {
 	if value == nil {
 		return nil
 	}

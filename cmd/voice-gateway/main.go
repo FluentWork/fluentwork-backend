@@ -1,4 +1,4 @@
-// Package main starts the FluentWork voice-gateway WSS process (B3).
+// Package main starts the FluentWork voice-gateway WSS process (B3/B4).
 package main
 
 import (
@@ -36,7 +36,11 @@ func run() error {
 		BaseURL: cfg.AppServerInternalURL,
 		Token:   cfg.InternalAPIToken,
 	}
-	handler := voicegateway.NewHandler(consumer, logger, voicegateway.Options{
+	lifecycle := &voicegateway.HTTPSessionClient{
+		BaseURL: cfg.AppServerInternalURL,
+		Token:   cfg.InternalAPIToken,
+	}
+	handler := voicegateway.NewHandler(consumer, lifecycle, logger, voicegateway.Options{
 		InsecureSkipOrigin: cfg.IsDevelopment(),
 		IdleTimeout:        cfg.IdleTimeout,
 	})

@@ -147,6 +147,130 @@ func (s *Service) ConsumeTicket(ctx context.Context, rawTicket string) (Ticket, 
 	return ticket, nil
 }
 
+// Activate marks a practice session active after WSS session.start.
+func (s *Service) Activate(ctx context.Context, sessionID string) (ActivateResponse, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ActivateResponse{}, apierr.InvalidArgument("session_id is required")
+	}
+	now := s.now().UTC()
+	session, err := s.store.MarkSessionActive(ctx, sessionID, now)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			return ActivateResponse{}, apierr.NotFound("session not found")
+		case errors.Is(err, ErrConflict):
+			return ActivateResponse{}, apierr.Conflict("session cannot be activated")
+		default:
+			return ActivateResponse{}, err
+		}
+	}
+	return ActivateResponse{SessionID: session.ID, Status: session.Status}, nil
+}
+
+// End persists session.end status and transcript rows (idempotent if already ended).
+func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) {
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		return EndResponse{}, apierr.InvalidArgument("session_id is required")
+	}
+	existing, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return EndResponse{}, apierr.NotFound("session not found")
+		}
+		return EndResponse{}, err
+	}
+	if existing.Status == StatusEnded {
+		saved, listErr := s.store.ListUtterances(ctx, sessionID)
+		if listErr != nil {
+			return EndResponse{}, listErr
+		}
+		return EndResponse{
+			SessionID:      existing.ID,
+			Status:         existing.Status,
+			DurationSec:    existing.DurationSec,
+			UtteranceCount: len(saved),
+			AlreadyEnded:   true,
+		}, nil
+	}
+
+	now := s.now().UTC()
+	utterances, err := s.normalizeEndUtterances(sessionID, req.Utterances, now)
+	if err != nil {
+		return EndResponse{}, err
+	}
+	session, saved, alreadyEnded, err := s.store.EndSession(ctx, sessionID, req.DurationSec, utterances, now)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			return EndResponse{}, apierr.NotFound("session not found")
+		case errors.Is(err, ErrConflict):
+			return EndResponse{}, apierr.Conflict("session cannot be ended")
+		default:
+			return EndResponse{}, err
+		}
+	}
+	s.logger.Info("practice session ended",
+		"session_id", session.ID,
+		"user_id", session.UserID,
+		"duration_sec", session.DurationSec,
+		"utterance_count", len(saved),
+		"already_ended", alreadyEnded,
+		"reason", strings.TrimSpace(req.Reason),
+	)
+	return EndResponse{
+		SessionID:      session.ID,
+		Status:         session.Status,
+		DurationSec:    session.DurationSec,
+		UtteranceCount: len(saved),
+		AlreadyEnded:   alreadyEnded,
+	}, nil
+}
+
+func (s *Service) normalizeEndUtterances(sessionID string, items []EndUtteranceItem, now time.Time) ([]Utterance, error) {
+	const maxUtterances = 500
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) > maxUtterances {
+		return nil, apierr.InvalidArgument("too many utterances")
+	}
+	seen := make(map[int]struct{}, len(items))
+	out := make([]Utterance, 0, len(items))
+	for _, item := range items {
+		if item.Seq < 1 || item.Seq > maxUtterances {
+			return nil, apierr.InvalidArgument("utterance seq is out of range")
+		}
+		if _, ok := seen[item.Seq]; ok {
+			return nil, apierr.InvalidArgument("utterance seq must be unique")
+		}
+		seen[item.Seq] = struct{}{}
+		speaker := strings.TrimSpace(item.Speaker)
+		switch speaker {
+		case SpeakerUser, SpeakerAI:
+		default:
+			return nil, apierr.InvalidArgument("utterance speaker must be user or ai")
+		}
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			return nil, apierr.InvalidArgument("utterance text is required")
+		}
+		if len(text) > 32*1024 {
+			return nil, apierr.InvalidArgument("utterance text is too long")
+		}
+		out = append(out, Utterance{
+			ID:        s.newID(),
+			SessionID: sessionID,
+			Seq:       item.Seq,
+			Speaker:   speaker,
+			Text:      text,
+			CreatedAt: now,
+		})
+	}
+	return out, nil
+}
+
 // LookupTicket is retained as an alias for ConsumeTicket for gateway call sites.
 // Deprecated: prefer ConsumeTicket; lookup without consume is intentionally unsupported.
 func (s *Service) LookupTicket(ctx context.Context, rawTicket string) (Ticket, error) {

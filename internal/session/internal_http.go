@@ -27,6 +27,8 @@ type ConsumeTicketResponse struct {
 // RegisterInternalRoutes mounts gateway-facing internal routes under /internal/v1.
 func RegisterInternalRoutes(rg gin.IRouter, h *Handler, expectedToken string) {
 	rg.POST("/tickets/consume", requireInternalToken(expectedToken), h.PostConsumeTicket)
+	rg.POST("/sessions/activate", requireInternalToken(expectedToken), h.PostActivate)
+	rg.POST("/sessions/end", requireInternalToken(expectedToken), h.PostEnd)
 }
 
 func requireInternalToken(expected string) gin.HandlerFunc {
@@ -62,4 +64,34 @@ func (h *Handler) PostConsumeTicket(c *gin.Context) {
 		SessionID: ticket.SessionID,
 		UserID:    ticket.UserID,
 	})
+}
+
+// PostActivate handles POST /internal/v1/sessions/activate for voice-gateway.
+func (h *Handler) PostActivate(c *gin.Context) {
+	var req ActivateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.Activate(c.Request.Context(), req.SessionID)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostEnd handles POST /internal/v1/sessions/end for voice-gateway.
+func (h *Handler) PostEnd(c *gin.Context) {
+	var req EndRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.End(c.Request.Context(), req)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
 }

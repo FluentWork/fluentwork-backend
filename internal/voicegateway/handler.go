@@ -1,4 +1,4 @@
-// Package voicegateway implements the FluentWork voice WSS gateway (B3).
+// Package voicegateway implements the FluentWork voice WSS gateway (B3/B4).
 package voicegateway
 
 import (
@@ -31,15 +31,6 @@ type TicketConsumer interface {
 	Consume(ctx context.Context, rawTicket string) (ConsumedTicket, error)
 }
 
-// Handler serves WSS upgrades and the control-frame loop.
-type Handler struct {
-	consumer           TicketConsumer
-	logger             *slog.Logger
-	now                func() time.Time
-	insecureSkipOrigin bool
-	idleTimeout        time.Duration
-}
-
 // Options configures optional Handler behavior.
 type Options struct {
 	// InsecureSkipOrigin skips WebSocket Origin checks (local/dev only).
@@ -48,8 +39,18 @@ type Options struct {
 	IdleTimeout time.Duration
 }
 
+// Handler serves WSS upgrades and the control-frame loop.
+type Handler struct {
+	consumer           TicketConsumer
+	lifecycle          SessionLifecycle
+	logger             *slog.Logger
+	now                func() time.Time
+	insecureSkipOrigin bool
+	idleTimeout        time.Duration
+}
+
 // NewHandler constructs the voice gateway HTTP/WSS handler.
-func NewHandler(consumer TicketConsumer, logger *slog.Logger, opts Options) *Handler {
+func NewHandler(consumer TicketConsumer, lifecycle SessionLifecycle, logger *slog.Logger, opts Options) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -59,6 +60,7 @@ func NewHandler(consumer TicketConsumer, logger *slog.Logger, opts Options) *Han
 	}
 	return &Handler{
 		consumer:           consumer,
+		lifecycle:          lifecycle,
 		logger:             logger,
 		now:                time.Now,
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
@@ -164,8 +166,15 @@ func (h *Handler) handshake(ctx context.Context, conn *websocket.Conn) (Consumed
 	return consumed, nil
 }
 
+type sessionRuntime struct {
+	started   bool
+	startedAt time.Time
+	nextSeq   int
+	turns     []EndUtterance
+}
+
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
-	started := false
+	rt := &sessionRuntime{nextSeq: 1}
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, h.idleTimeout)
 		typ, data, err := conn.Read(readCtx)
@@ -175,10 +184,9 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		}
 		switch typ {
 		case websocket.MessageBinary:
-			// Opus audio frames: accepted but not forwarded in B3 (vendor path later).
 			continue
 		case websocket.MessageText:
-			if err := h.handleControl(ctx, conn, session, data, &started); err != nil {
+			if err := h.handleControl(ctx, conn, session, data, rt); err != nil {
 				if errors.Is(err, errSessionEnded) {
 					return nil
 				}
@@ -195,7 +203,7 @@ func (h *Handler) handleControl(
 	conn *websocket.Conn,
 	session ConsumedTicket,
 	data []byte,
-	started *bool,
+	rt *sessionRuntime,
 ) error {
 	frameType, err := voiceproto.DecodeType(data)
 	if err != nil {
@@ -223,20 +231,39 @@ func (h *Handler) handleControl(
 		return writeJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
 
 	case voiceproto.TypeSessionStart:
-		*started = true
+		if !rt.started {
+			if h.lifecycle != nil {
+				if err := h.lifecycle.Activate(ctx, session.SessionID); err != nil {
+					h.logger.Warn("session activate failed", "session_id", session.SessionID, "err", err)
+					return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+						Type:    voiceproto.TypeError,
+						Code:    "activate_failed",
+						Message: err.Error(),
+					})
+				}
+			}
+			rt.started = true
+			rt.startedAt = h.now().UTC()
+		}
 		h.logger.Info("session.start accepted",
 			"session_id", session.SessionID,
 			"user_id", session.UserID,
 		)
-		// B3 stub: acknowledge with a short AI text delta so clients can exercise the loop.
+		const stub = "ready"
+		rt.turns = append(rt.turns, EndUtterance{
+			Seq:     rt.nextSeq,
+			Speaker: "ai",
+			Text:    stub,
+		})
+		rt.nextSeq++
 		return writeJSON(ctx, conn, map[string]any{
 			"type":    voiceproto.TypeAITextDelta,
-			"text":    "ready",
+			"text":    stub,
 			"turn_id": "bootstrap",
 		})
 
 	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd:
-		if !*started {
+		if !rt.started {
 			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "session_not_started",
@@ -250,7 +277,43 @@ func (h *Handler) handleControl(
 		return nil
 
 	case voiceproto.TypeSessionEnd:
-		h.logger.Info("session.end received", "session_id", session.SessionID)
+		var end voiceproto.SessionEnd
+		if err := json.Unmarshal(data, &end); err != nil {
+			h.logger.Warn("session.end frame decode failed", "err", err, "raw", string(data))
+		}
+		reason := strings.TrimSpace(end.Reason)
+		if reason == "" {
+			reason = "user"
+		}
+		durationSec := 0
+		if rt.started && !rt.startedAt.IsZero() {
+			durationSec = int(h.now().UTC().Sub(rt.startedAt).Seconds())
+			if durationSec < 0 {
+				durationSec = 0
+			}
+		}
+		if h.lifecycle != nil {
+			endCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			if err := h.lifecycle.End(endCtx, EndSessionRequest{
+				SessionID:   session.SessionID,
+				DurationSec: durationSec,
+				Reason:      reason,
+				Utterances:  append([]EndUtterance(nil), rt.turns...),
+			}); err != nil {
+				h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
+				return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+					Type:    voiceproto.TypeError,
+					Code:    "end_failed",
+					Message: err.Error(),
+				})
+			}
+		}
+		h.logger.Info("session.end persisted",
+			"session_id", session.SessionID,
+			"duration_sec", durationSec,
+			"utterance_count", len(rt.turns),
+		)
 		_ = writeJSON(ctx, conn, map[string]any{
 			"type":   voiceproto.TypeSessionEnd,
 			"reason": "ack",

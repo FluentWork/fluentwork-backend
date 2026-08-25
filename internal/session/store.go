@@ -23,6 +23,9 @@ var ErrTicketUsed = errors.New("session: ticket already used")
 // ErrTicketExpired is returned when a ticket is past its expiry.
 var ErrTicketExpired = errors.New("session: ticket expired")
 
+// ErrConflict is returned when a session state transition is illegal.
+var ErrConflict = errors.New("session: conflict")
+
 // Store persists practice sessions and WSS tickets.
 type Store interface {
 	Ping(ctx context.Context) error
@@ -32,6 +35,9 @@ type Store interface {
 	CreateSessionWithTicket(ctx context.Context, session Session, ticket Ticket) error
 	GetTicketByHash(ctx context.Context, hash string) (Ticket, error)
 	ConsumeTicket(ctx context.Context, hash string, at time.Time) (Ticket, error)
+	MarkSessionActive(ctx context.Context, sessionID string, at time.Time) (Session, error)
+	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error)
+	ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error)
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 }
 
