@@ -2,15 +2,20 @@
 # Fail CI when OpenCodeReview reports any critical/high finding.
 # Policy: fluentwork-meta/agents/shared/review-gate.md
 #
+# Result file contract: alibaba/open-code-review@main writes review JSON to
+# /tmp/ocr-result.json (see its composite action.yml "Run OpenCodeReview"
+# step: `ocr review ... > /tmp/ocr-result.json`). Workflows should pass that
+# path explicitly (or via OCR_RESULT_FILE).
+#
 # Usage:
 #   ./scripts/ocr-fail-on-high.sh [/tmp/ocr-result.json]
 set -euo pipefail
 
-RESULT_PATH="${1:-/tmp/ocr-result.json}"
+RESULT_PATH="${1:-${OCR_RESULT_FILE:-/tmp/ocr-result.json}}"
 
 if [[ ! -f "${RESULT_PATH}" ]]; then
   echo "error: OCR result not found at ${RESULT_PATH}"
-  echo "OpenCodeReview ran but produced no result file; failing closed."
+  echo "OpenCodeReview should write JSON to this path (action contract); failing closed."
   exit 1
 fi
 
