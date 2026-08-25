@@ -51,3 +51,7 @@ jobs:
           sticky_summary: 'true'
           incremental: 'true'
           route_severity_below: medium
+
+      - name: Fail on critical/high OCR findings
+        if: steps.preflight.outputs.enabled == 'true'
+        run: bash ./scripts/ocr-fail-on-high.sh /tmp/ocr-result.json

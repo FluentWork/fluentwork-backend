@@ -29,7 +29,7 @@ Shared topics:
 1. Read current backend and architecture docs before editing.
 2. Keep changes scoped to the active service or contract.
 3. Do not bypass review, CI, or owner approval requirements.
-4. OpenCodeReview `high` findings must be fixed before merge; absence of `high` allows merge.
+4. OpenCodeReview `high` / `critical` findings must be fixed before merge; absence of `high`/`critical` allows merge.
 5. Do not perform destructive git operations without explicit approval.
 6. Surface data safety, migration, and deploy implications clearly.
 
