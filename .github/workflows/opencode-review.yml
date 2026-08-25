@@ -2,7 +2,7 @@ name: opencode-review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -16,12 +16,11 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Contract with alibaba/open-code-review@main (composite action.yml):
+    # Contract with alibaba/open-code-review (composite action.yml):
     # the "Run OpenCodeReview" step redirects `ocr review --format json`
     # stdout to /tmp/ocr-result.json on the shared runner filesystem.
-    # That path persists across subsequent steps in this job; we re-checkout
-    # the PR head afterward because the action's internal checkout may
-    # replace GITHUB_WORKSPACE with a different tree.
+    # Gate script is always loaded from the PR base (trusted), never from
+    # the untrusted PR head.
     env:
       OCR_RESULT_FILE: /tmp/ocr-result.json
     steps:
@@ -50,7 +49,8 @@ jobs:
       - name: Run OpenCodeReview
         id: ocr
         if: steps.preflight.outputs.enabled == 'true'
-        uses: alibaba/open-code-review@main
+        # Pin to commit SHA (not floating @main) for supply-chain reproducibility.
+        uses: alibaba/open-code-review@cfbb62e2296d7684dc648e27fe1b906e8c960f9c
         with:
           llm_url: ${{ secrets.OPENCODEREVIEW_LLM_URL }}
           llm_auth_token: ${{ secrets.OPENCODEREVIEW_LLM_TOKEN }}
@@ -62,12 +62,15 @@ jobs:
           route_severity_below: medium
           upload_artifacts: 'true'
 
-      - name: Restore PR head for gate script
+      - name: Checkout trusted OCR gate script from base
         if: steps.preflight.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: |
+            scripts/ocr-fail-on-high.sh
+          sparse-checkout-cone-mode: false
 
       - name: Fail on critical/high OCR findings
         if: steps.preflight.outputs.enabled == 'true'
