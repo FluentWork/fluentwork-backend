@@ -45,4 +45,4 @@ This file only adds backend-specific constraints.
 
 1. `gstack` may be used locally for review and deploy-planning assistance.
 2. Matt Pocock style skills may be used as helpers under FluentWork shared policy.
-3. OpenCodeReview is expected to run in GitHub as a secondary report-oriented review layer.
+3. OpenCodeReview runs on PRs: any `high` finding blocks merge until fixed; no `high` means merge is allowed (see `fluentwork-meta/agents/shared/review-gate.md`).

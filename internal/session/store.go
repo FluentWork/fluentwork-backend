@@ -17,18 +17,29 @@ import (
 // ErrNotFound is returned when a session or ticket lookup misses.
 var ErrNotFound = errors.New("session: not found")
 
+// ErrTicketUsed is returned when a one-time ticket was already consumed.
+var ErrTicketUsed = errors.New("session: ticket already used")
+
+// ErrTicketExpired is returned when a ticket is past its expiry.
+var ErrTicketExpired = errors.New("session: ticket expired")
+
 // Store persists practice sessions and WSS tickets.
 type Store interface {
 	Ping(ctx context.Context) error
 	CreateSession(ctx context.Context, session Session) error
 	GetSession(ctx context.Context, id string) (Session, error)
 	CreateTicket(ctx context.Context, ticket Ticket) error
+	CreateSessionWithTicket(ctx context.Context, session Session, ticket Ticket) error
 	GetTicketByHash(ctx context.Context, hash string) (Ticket, error)
+	ConsumeTicket(ctx context.Context, hash string, at time.Time) (Ticket, error)
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.
 func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if cfg.MySQLDSN == "" {
 		logger.Warn("MYSQL_DSN is empty; using in-memory session store")
 		return NewMemoryStore(), func() error { return nil }, nil

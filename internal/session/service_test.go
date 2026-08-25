@@ -38,12 +38,18 @@ func TestCreateSessionIssuesTicket(t *testing.T) {
 		t.Fatalf("unexpected metadata: %+v", result)
 	}
 
-	ticket, err := svc.LookupTicket(context.Background(), result.Ticket)
+	ticket, err := svc.ConsumeTicket(context.Background(), result.Ticket)
 	if err != nil {
-		t.Fatalf("LookupTicket: %v", err)
+		t.Fatalf("ConsumeTicket: %v", err)
 	}
 	if ticket.SessionID != result.SessionID || ticket.UserID != "user-1" {
 		t.Fatalf("unexpected ticket: %+v", ticket)
+	}
+	if ticket.UsedAt == nil {
+		t.Fatal("expected UsedAt to be set after consume")
+	}
+	if _, err := svc.ConsumeTicket(context.Background(), result.Ticket); err == nil {
+		t.Fatal("expected replay to fail")
 	}
 }
 
@@ -90,7 +96,7 @@ func TestLookupTicketRejectsExpired(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	svc.now = func() time.Time { return fixed.Add(2 * time.Second) }
-	if _, err := svc.LookupTicket(context.Background(), result.Ticket); err == nil {
+	if _, err := svc.ConsumeTicket(context.Background(), result.Ticket); err == nil {
 		t.Fatal("expected expired ticket error")
 	}
 }
@@ -105,10 +111,10 @@ func TestLookupTicketRejectsInvalidAndUsed(t *testing.T) {
 		HTTPAddr:           ":0",
 	}
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if _, err := svc.LookupTicket(context.Background(), ""); err == nil {
+	if _, err := svc.ConsumeTicket(context.Background(), ""); err == nil {
 		t.Fatal("expected empty ticket error")
 	}
-	if _, err := svc.LookupTicket(context.Background(), "not-a-real-ticket"); err == nil {
+	if _, err := svc.ConsumeTicket(context.Background(), "not-a-real-ticket"); err == nil {
 		t.Fatal("expected invalid ticket error")
 	}
 
@@ -125,7 +131,7 @@ func TestLookupTicketRejectsInvalidAndUsed(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateTicket: %v", err)
 	}
-	if _, err := svc.LookupTicket(context.Background(), "used-ticket"); err == nil {
+	if _, err := svc.ConsumeTicket(context.Background(), "used-ticket"); err == nil {
 		t.Fatal("expected used ticket error")
 	}
 }
