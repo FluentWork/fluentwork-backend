@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fluentwork.app/schemas/wss-control-frames-v1.json",
+  "title": "FluentWork WSS control frames v1",
+  "description": "JSON control frames for voice-gateway ↔ iOS. Binary Opus audio frames are out of band.",
+  "oneOf": [
+    { "$ref": "#/$defs/auth" },
+    { "$ref": "#/$defs/sessionReady" },
+    { "$ref": "#/$defs/sessionStart" },
+    { "$ref": "#/$defs/userSpeechStart" },
+    { "$ref": "#/$defs/userSpeechEnd" },
+    { "$ref": "#/$defs/aiTextDelta" },
+    { "$ref": "#/$defs/aiAudioChunk" },
+    { "$ref": "#/$defs/interrupt" },
+    { "$ref": "#/$defs/feedbackBadge" },
+    { "$ref": "#/$defs/sessionEnd" },
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/pong" }
+  ],
+  "$defs": {
+    "auth": {
+      "type": "object",
+      "required": ["type", "ticket"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "auth" },
+        "ticket": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sessionReady": {
+      "type": "object",
+      "required": ["type", "session_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "session.ready" },
+        "session_id": { "type": "string", "minLength": 1 },
+        "user_id": { "type": "string" }
+      }
+    },
+    "sessionStart": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "session.start" },
+        "material_id": { "type": "string" },
+        "scene_type": { "type": "string" },
+        "voice": { "type": "string" }
+      }
+    },
+    "userSpeechStart": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "user.speech.start" }
+      }
+    },
+    "userSpeechEnd": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "user.speech.end" }
+      }
+    },
+    "aiTextDelta": {
+      "type": "object",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ai.text.delta" },
+        "text": { "type": "string" },
+        "turn_id": { "type": "string" }
+      }
+    },
+    "aiAudioChunk": {
+      "type": "object",
+      "required": ["type", "seq"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ai.audio.chunk" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "turn_id": { "type": "string" }
+      }
+    },
+    "interrupt": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "interrupt" },
+        "max_seq": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "feedbackBadge": {
+      "type": "object",
+      "required": ["type", "badge"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "feedback.badge" },
+        "badge": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sessionEnd": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "session.end" },
+        "reason": { "type": "string" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["type", "code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "error" },
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "pong": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "pong" },
+        "ts": { "type": "integer" }
+      }
+    }
+  }
+}

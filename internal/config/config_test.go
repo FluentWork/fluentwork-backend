@@ -14,6 +14,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("AUTH_REFRESH_TTL", "")
 	t.Setenv("VOICE_GATEWAY_WSS_URL", "")
 	t.Setenv("SESSION_TICKET_TTL", "")
+	t.Setenv("INTERNAL_API_TOKEN", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -37,6 +38,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SessionTicketTTL != defaultSessionTicketTTL {
 		t.Fatalf("SessionTicketTTL = %s", cfg.SessionTicketTTL)
 	}
+	if cfg.InternalAPIToken != DevInternalAPIToken {
+		t.Fatalf("InternalAPIToken = %q", cfg.InternalAPIToken)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
 	}
@@ -51,6 +55,7 @@ func TestValidateProductionRequiresMySQLAndSecret(t *testing.T) {
 		RefreshTokenTTL:    24 * time.Hour,
 		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
 		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   "production-internal-token-long",
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected production secret error")
@@ -77,6 +82,7 @@ func TestValidateRejectsDevSecretOutsideDevelopment(t *testing.T) {
 		MySQLDSN:           "fw:fw@tcp(127.0.0.1:3306)/fluentwork",
 		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
 		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   "staging-internal-token-long",
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected staging secret error")
