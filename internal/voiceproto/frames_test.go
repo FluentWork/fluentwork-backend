@@ -20,6 +20,7 @@ func TestControlFrameRoundTrip(t *testing.T) {
 		voiceproto.Interrupt{Type: voiceproto.TypeInterrupt},
 		voiceproto.SessionEnd{Type: voiceproto.TypeSessionEnd, Reason: "user"},
 		voiceproto.ErrorFrame{Type: voiceproto.TypeError, Code: "unauthenticated", Message: "bad ticket"},
+		voiceproto.Ping{Type: voiceproto.TypePing, TS: 1},
 		voiceproto.Pong{Type: voiceproto.TypePong, TS: 1},
 	}
 	for _, c := range cases {
@@ -60,7 +61,7 @@ func TestSchemaFilePresent(t *testing.T) {
 	if !ok {
 		t.Fatal("schema missing $defs")
 	}
-	for _, name := range []string{"auth", "sessionReady", "sessionStart", "sessionEnd", "interrupt", "error"} {
+	for _, name := range []string{"auth", "sessionReady", "sessionStart", "sessionEnd", "interrupt", "error", "ping", "pong"} {
 		if _, ok := defs[name]; !ok {
 			t.Fatalf("schema missing $defs.%s", name)
 		}

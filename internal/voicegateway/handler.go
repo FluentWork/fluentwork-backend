@@ -17,11 +17,13 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
+var errSessionEnded = errors.New("voice session ended")
+
 // ConsumedTicket is the result of a successful one-time ticket consume.
 type ConsumedTicket struct {
-	TicketID  string
-	SessionID string
-	UserID    string
+	TicketID  string `json:"ticket_id"`
+	SessionID string `json:"session_id"`
+	UserID    string `json:"user_id"`
 }
 
 // TicketConsumer validates and consumes a WSS ticket via app-server.
@@ -31,20 +33,28 @@ type TicketConsumer interface {
 
 // Handler serves WSS upgrades and the control-frame loop.
 type Handler struct {
-	consumer TicketConsumer
-	logger   *slog.Logger
-	now      func() time.Time
+	consumer           TicketConsumer
+	logger             *slog.Logger
+	now                func() time.Time
+	insecureSkipOrigin bool
+}
+
+// Options configures optional Handler behavior.
+type Options struct {
+	// InsecureSkipOrigin skips WebSocket Origin checks (local/dev only).
+	InsecureSkipOrigin bool
 }
 
 // NewHandler constructs the voice gateway HTTP/WSS handler.
-func NewHandler(consumer TicketConsumer, logger *slog.Logger) *Handler {
+func NewHandler(consumer TicketConsumer, logger *slog.Logger, opts Options) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Handler{
-		consumer: consumer,
-		logger:   logger,
-		now:      time.Now,
+		consumer:           consumer,
+		logger:             logger,
+		now:                time.Now,
+		insecureSkipOrigin: opts.InsecureSkipOrigin,
 	}
 }
 
@@ -62,22 +72,26 @@ func (h *Handler) healthz(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) serveVoice(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Local iOS Simulator / web debug often omit Origin; tighten in production later.
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: h.insecureSkipOrigin,
 	})
 	if err != nil {
 		h.logger.Warn("websocket accept failed", "err", err)
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.CloseNow() }()
 
 	ctx := r.Context()
 	session, err := h.handshake(ctx, conn)
 	if err != nil {
 		h.logger.Warn("voice handshake failed", "err", err)
+		code := "unauthenticated"
+		var ce *ConsumeError
+		if errors.As(err, &ce) && ce.Code != "" {
+			code = strings.ToLower(ce.Code)
+		}
 		_ = writeJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
-			Code:    "unauthenticated",
+			Code:    code,
 			Message: err.Error(),
 		})
 		_ = conn.Close(websocket.StatusPolicyViolation, "auth failed")
@@ -132,7 +146,7 @@ func (h *Handler) handshake(ctx context.Context, conn *websocket.Conn) (Consumed
 	if err != nil {
 		return ConsumedTicket{}, err
 	}
-	if err := writeJSON(ctx, conn, voiceproto.SessionReady{
+	if err := writeJSON(authCtx, conn, voiceproto.SessionReady{
 		Type:      voiceproto.TypeSessionReady,
 		SessionID: consumed.SessionID,
 		UserID:    consumed.UserID,
@@ -155,6 +169,9 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 			continue
 		case websocket.MessageText:
 			if err := h.handleControl(ctx, conn, session, data, &started); err != nil {
+				if errors.Is(err, errSessionEnded) {
+					return nil
+				}
 				return err
 			}
 		default:
@@ -182,7 +199,13 @@ func (h *Handler) handleControl(
 	switch frameType {
 	case voiceproto.TypePing:
 		var ping voiceproto.Ping
-		_ = json.Unmarshal(data, &ping)
+		if err := json.Unmarshal(data, &ping); err != nil {
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "invalid_frame",
+				Message: err.Error(),
+			})
+		}
 		ts := ping.TS
 		if ts == 0 {
 			ts = h.now().UnixMilli()
@@ -222,7 +245,8 @@ func (h *Handler) handleControl(
 			"type":   voiceproto.TypeSessionEnd,
 			"reason": "ack",
 		})
-		return conn.Close(websocket.StatusNormalClosure, "session ended")
+		_ = conn.Close(websocket.StatusNormalClosure, "session ended")
+		return errSessionEnded
 
 	case voiceproto.TypeAuth:
 		return writeJSON(ctx, conn, voiceproto.ErrorFrame{

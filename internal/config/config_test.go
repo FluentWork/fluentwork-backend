@@ -7,7 +7,7 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("HTTP_ADDR", "")
-	t.Setenv("APP_ENV", "")
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("MYSQL_DSN", "")
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_ACCESS_TTL", "")
@@ -20,7 +20,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.HTTPAddr != defaultHTTPAddr {
 		t.Fatalf("HTTPAddr = %q", cfg.HTTPAddr)
 	}
-	if cfg.AppEnv != defaultAppEnv {
+	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q", cfg.AppEnv)
 	}
 	if cfg.AuthJWTSecret != DevJWTSecret {
@@ -43,6 +43,22 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
+	}
+}
+
+func TestValidateRequiresAppEnv(t *testing.T) {
+	cfg := Config{
+		HTTPAddr:           ":8080",
+		AppEnv:             "",
+		AuthJWTSecret:      DevJWTSecret,
+		AccessTokenTTL:     time.Hour,
+		RefreshTokenTTL:    24 * time.Hour,
+		VoiceGatewayWSSURL: defaultVoiceGatewayWSSURL,
+		SessionTicketTTL:   defaultSessionTicketTTL,
+		InternalAPIToken:   DevInternalAPIToken,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected APP_ENV required error")
 	}
 }
 

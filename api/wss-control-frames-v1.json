@@ -15,6 +15,7 @@
     { "$ref": "#/$defs/feedbackBadge" },
     { "$ref": "#/$defs/sessionEnd" },
     { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/ping" },
     { "$ref": "#/$defs/pong" }
   ],
   "$defs": {
@@ -119,6 +120,15 @@
         "type": { "const": "error" },
         "code": { "type": "string" },
         "message": { "type": "string" }
+      }
+    },
+    "ping": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ping" },
+        "ts": { "type": "integer" }
       }
     },
     "pong": {

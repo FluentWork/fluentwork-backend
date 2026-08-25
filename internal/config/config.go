@@ -11,15 +11,15 @@ import (
 // DevJWTSecret is the local-only signing secret. Production must override it.
 const DevJWTSecret = "fluentwork-dev-jwt-secret-change-me!!"
 
+// DevInternalAPIToken is the local-only shared secret between app-server and voice-gateway.
+const DevInternalAPIToken = "fluentwork-dev-internal-token-change-me!!"
+
 const (
 	defaultHTTPAddr           = ":8080"
-	defaultAppEnv             = "development"
 	defaultAccessTokenTTL     = 2 * time.Hour
 	defaultRefreshTokenTTL    = 30 * 24 * time.Hour
 	defaultVoiceGatewayWSSURL = "ws://127.0.0.1:8081/v1/voice"
 	defaultSessionTicketTTL   = 60 * time.Second
-	// DevInternalAPIToken is the local-only shared secret between app-server and voice-gateway.
-	DevInternalAPIToken = "fluentwork-dev-internal-token-change-me!!"
 )
 
 // Config holds process settings for app-server.
@@ -36,10 +36,12 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
+// APP_ENV has no implicit default: local scripts must set it explicitly so a
+// forgotten production deploy cannot silently treat the process as development.
 func Load() Config {
 	return Config{
 		HTTPAddr:           envOr("HTTP_ADDR", defaultHTTPAddr),
-		AppEnv:             envOr("APP_ENV", defaultAppEnv),
+		AppEnv:             strings.TrimSpace(os.Getenv("APP_ENV")),
 		MySQLDSN:           strings.TrimSpace(os.Getenv("MYSQL_DSN")),
 		AuthJWTSecret:      envOr("AUTH_JWT_SECRET", DevJWTSecret),
 		AccessTokenTTL:     durationOr("AUTH_ACCESS_TTL", defaultAccessTokenTTL),
@@ -55,7 +57,7 @@ func (c Config) IsProduction() bool {
 	return strings.EqualFold(c.AppEnv, "production")
 }
 
-// IsDevelopment reports whether the process is a local/test environment.
+// IsDevelopment reports whether the process is an explicitly configured local/test environment.
 func (c Config) IsDevelopment() bool {
 	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
 	case "development", "dev", "test", "local":
@@ -69,6 +71,9 @@ func (c Config) IsDevelopment() bool {
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.HTTPAddr) == "" {
 		return fmt.Errorf("HTTP_ADDR is required")
+	}
+	if strings.TrimSpace(c.AppEnv) == "" {
+		return fmt.Errorf("APP_ENV is required")
 	}
 	if len(c.AuthJWTSecret) < 32 {
 		return fmt.Errorf("AUTH_JWT_SECRET must be at least 32 characters")
