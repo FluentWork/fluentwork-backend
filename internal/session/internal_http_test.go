@@ -120,6 +120,48 @@ func TestInternalConsumeTicket(t *testing.T) {
 	if replayRes.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("replay status = %d", replayRes.StatusCode)
 	}
+
+	activateReq, err := http.NewRequest(
+		http.MethodPost,
+		ts.URL+"/internal/v1/sessions/activate",
+		bytes.NewBufferString(`{"session_id":"`+sessionID+`"}`),
+	)
+	if err != nil {
+		t.Fatalf("activate request: %v", err)
+	}
+	activateReq.Header.Set("Content-Type", "application/json")
+	activateReq.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	activateRes, err := http.DefaultClient.Do(activateReq)
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	defer func() { _ = activateRes.Body.Close() }()
+	if activateRes.StatusCode != http.StatusOK {
+		t.Fatalf("activate status = %d", activateRes.StatusCode)
+	}
+
+	endPayload := `{"session_id":"` + sessionID + `","duration_sec":5,"reason":"user","utterances":[{"seq":1,"speaker":"ai","text":"ready"}]}`
+	endReq, err := http.NewRequest(http.MethodPost, ts.URL+"/internal/v1/sessions/end", bytes.NewBufferString(endPayload))
+	if err != nil {
+		t.Fatalf("end request: %v", err)
+	}
+	endReq.Header.Set("Content-Type", "application/json")
+	endReq.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	endRes, err := http.DefaultClient.Do(endReq)
+	if err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	defer func() { _ = endRes.Body.Close() }()
+	if endRes.StatusCode != http.StatusOK {
+		t.Fatalf("end status = %d", endRes.StatusCode)
+	}
+	var ended map[string]any
+	if err := json.NewDecoder(endRes.Body).Decode(&ended); err != nil {
+		t.Fatalf("decode end: %v", err)
+	}
+	if ended["status"] != "ended" {
+		t.Fatalf("end body = %#v", ended)
+	}
 }
 
 func TestInternalConsumeTicketRequiresToken(t *testing.T) {

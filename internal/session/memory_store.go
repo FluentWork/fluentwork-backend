@@ -3,22 +3,25 @@ package session
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
 
 // MemoryStore is a process-local Store used by tests and local development.
 type MemoryStore struct {
-	mu       sync.Mutex
-	sessions map[string]Session
-	tickets  map[string]Ticket
+	mu         sync.Mutex
+	sessions   map[string]Session
+	tickets    map[string]Ticket
+	utterances map[string][]Utterance
 }
 
 // NewMemoryStore constructs an empty in-memory session store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions: make(map[string]Session),
-		tickets:  make(map[string]Ticket),
+		sessions:   make(map[string]Session),
+		tickets:    make(map[string]Ticket),
+		utterances: make(map[string][]Utterance),
 	}
 }
 
@@ -106,6 +109,71 @@ func (s *MemoryStore) ConsumeTicket(_ context.Context, hash string, at time.Time
 	return cloneTicket(ticket), nil
 }
 
+// MarkSessionActive transitions created → active.
+func (s *MemoryStore) MarkSessionActive(_ context.Context, sessionID string, at time.Time) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, ErrNotFound
+	}
+	switch session.Status {
+	case StatusActive:
+		return cloneSession(session), nil
+	case StatusCreated:
+		session.Status = StatusActive
+		session.UpdatedAt = at
+		s.sessions[sessionID] = session
+		return cloneSession(session), nil
+	default:
+		return cloneSession(session), ErrConflict
+	}
+}
+
+// EndSession marks a session ended and replaces its utterances atomically.
+// If already ended, returns the existing rows with alreadyEnded=true.
+func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, nil, false, ErrNotFound
+	}
+	if session.Status == StatusEnded {
+		existing := cloneUtterances(s.utterances[sessionID])
+		return cloneSession(session), existing, true, nil
+	}
+	if session.Status != StatusCreated && session.Status != StatusActive {
+		return cloneSession(session), nil, false, ErrConflict
+	}
+	if durationSec < 0 {
+		durationSec = 0
+	}
+	session.Status = StatusEnded
+	session.DurationSec = durationSec
+	session.UpdatedAt = at
+	s.sessions[sessionID] = session
+
+	cloned := make([]Utterance, 0, len(utterances))
+	for _, u := range utterances {
+		cloned = append(cloned, cloneUtterance(u))
+	}
+	s.utterances[sessionID] = cloned
+	return cloneSession(session), cloneUtterances(cloned), false, nil
+}
+
+// ListUtterances returns transcript rows for a session ordered by seq.
+func (s *MemoryStore) ListUtterances(_ context.Context, sessionID string) ([]Utterance, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, ErrNotFound
+	}
+	out := cloneUtterances(s.utterances[sessionID])
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
+}
+
 // ReassignUser moves all sessions from a guest onto a registered account.
 func (s *MemoryStore) ReassignUser(_ context.Context, fromUserID, toUserID string) error {
 	s.mu.Lock()
@@ -143,4 +211,28 @@ func cloneTicket(ticket Ticket) Ticket {
 		cloned.UsedAt = &copied
 	}
 	return cloned
+}
+
+func cloneUtterance(u Utterance) Utterance {
+	cloned := u
+	if u.ASRConfidence != nil {
+		v := *u.ASRConfidence
+		cloned.ASRConfidence = &v
+	}
+	if u.AudioURL != nil {
+		v := *u.AudioURL
+		cloned.AudioURL = &v
+	}
+	return cloned
+}
+
+func cloneUtterances(items []Utterance) []Utterance {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]Utterance, 0, len(items))
+	for _, item := range items {
+		out = append(out, cloneUtterance(item))
+	}
+	return out
 }
