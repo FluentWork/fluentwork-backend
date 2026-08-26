@@ -11,5 +11,6 @@ fi
 
 git config core.hooksPath .githooks
 echo "Enabled core.hooksPath=.githooks for $(basename "$ROOT")"
-echo "OpenCodeReview pre-commit gate is PAUSED; use gstack /review before merge."
-echo "Optional manual OCR: FORCE_OCR=1 ./scripts/ocr-local-review.sh"
+echo "pre-commit requires gstack /review attestation:"
+echo "  GSTACK_REVIEWED=1 git commit ..."
+echo "Emergency bypass: SKIP_GSTACK_REVIEW=1 (justify in commit/PR body)"

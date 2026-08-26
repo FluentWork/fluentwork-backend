@@ -96,7 +96,7 @@ test/
 - migration checks
 - Docker image build
 - agent entry file validation
-- pre-merge review via **gstack `/review`** (OpenCodeReview pre-commit gate paused)
+- pre-commit gstack `/review` attestation (`GSTACK_REVIEWED=1`); CI does not run code review
 
 ## Upstream Source of Truth
 
@@ -104,9 +104,9 @@ Product rules, service boundaries, and milestone priorities should be aligned wi
 
 ## Agent Tooling
 
+- **gstack `/review`** before commit, then `GSTACK_REVIEWED=1 git commit ...`
+- emergency bypass: `SKIP_GSTACK_REVIEW=1` (justify in commit/PR)
 - `gstack` can be used locally for deeper `/review` and later `/setup-deploy` or `/ship`
-- **gstack `/review`** is the primary pre-merge review path
-- OpenCodeReview pre-commit gate is **paused**; optional `FORCE_OCR=1 ./scripts/ocr-local-review.sh`
-- after a review, optionally run `./scripts/ocr-export-review.sh` to save findings under `.opencodereview/reviews/` (see `latest.md`)
+- OCR scripts optional/manual only; not part of default pre-commit
 - Matt Pocock style skills may be used as helpers under FluentWork shared governance
-- GitHub CI does not run OpenCodeReview; use gstack `/review` before merge
+- GitHub CI does not run code review

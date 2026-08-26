@@ -3,13 +3,12 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-if [[ -x "$ROOT/scripts/ocr-local-review.sh" ]]; then
-  exec "$ROOT/scripts/ocr-local-review.sh"
+if [[ -x "$ROOT/scripts/gstack-review-gate.sh" ]]; then
+  exec "$ROOT/scripts/gstack-review-gate.sh"
 fi
-if [[ -x "$ROOT/Scripts/ocr-local-review.sh" ]]; then
-  exec "$ROOT/Scripts/ocr-local-review.sh"
+if [[ -x "$ROOT/Scripts/gstack-review-gate.sh" ]]; then
+  exec "$ROOT/Scripts/gstack-review-gate.sh"
 fi
 
-echo "error: ocr-local-review.sh not found under scripts/ or Scripts/" >&2
+echo "error: gstack-review-gate.sh not found under scripts/ or Scripts/" >&2
 exit 1
-
