@@ -33,6 +33,7 @@ First-wave scope: `docs/00_开发入口与第一波范围.md`
 - `POST /api/v1/auth/guest`
 - `POST /api/v1/account/merge`
 - `POST /api/v1/sessions`
+- `GET /api/v1/sessions/:id/review` (pending | ready | failed)
 - `POST /internal/v1/tickets/consume` (voice-gateway only; `X-Internal-Token`)
 - `POST /internal/v1/sessions/activate` / `POST /internal/v1/sessions/end` (voice-gateway session lifecycle)
 - async `session.finished` outbox + `cmd/worker` stub review pipeline (B5)

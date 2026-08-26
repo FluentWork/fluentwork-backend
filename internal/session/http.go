@@ -19,9 +19,10 @@ func NewHandler(svc *Service, accounts *account.Handler) *Handler {
 	return &Handler{svc: svc, accounts: accounts}
 }
 
-// RegisterRoutes mounts B2 session routes under /api/v1.
+// RegisterRoutes mounts session routes under /api/v1.
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/sessions", h.accounts.RequireAuth(), h.PostCreate)
+	rg.GET("/sessions/:id/review", h.accounts.RequireAuth(), h.GetReview)
 }
 
 // PostCreate handles POST /sessions.
@@ -46,6 +47,27 @@ func (h *Handler) PostCreate(c *gin.Context) {
 	}
 
 	result, err := h.svc.Create(c.Request.Context(), actorID, req)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// GetReview handles GET /sessions/:id/review.
+func (h *Handler) GetReview(c *gin.Context) {
+	userID, ok := c.Get(account.ContextUserIDKey)
+	if !ok {
+		httpjson.Error(c, apierr.Unauthenticated("missing authenticated user"))
+		return
+	}
+	actorID, ok := userID.(string)
+	if !ok || actorID == "" {
+		httpjson.Error(c, apierr.Unauthenticated("invalid authenticated user"))
+		return
+	}
+
+	result, err := h.svc.GetReview(c.Request.Context(), actorID, c.Param("id"))
 	if err != nil {
 		httpjson.Error(c, err)
 		return

@@ -4,7 +4,10 @@
 // session_id + wss_url + a one-time ticket (default TTL 60s) for voice-gateway.
 package session
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Session statuses for the first-wave session lifecycle.
 const (
@@ -145,4 +148,19 @@ type CreateResponse struct {
 	TicketExpiresAt time.Time `json:"ticket_expires_at"`
 	SceneType       string    `json:"scene_type"`
 	Status          string    `json:"status"`
+}
+
+// Review poll statuses for GET /sessions/:id/review (B6).
+const (
+	ReviewPollPending = "pending"
+	ReviewPollReady   = "ready"
+	ReviewPollFailed  = "failed"
+)
+
+// ReviewPollResponse is returned by GET /sessions/:id/review.
+type ReviewPollResponse struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	// Review is the review_json document when Status is ready.
+	Review json.RawMessage `json:"review,omitempty"`
 }

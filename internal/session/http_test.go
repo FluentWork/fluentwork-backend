@@ -95,6 +95,31 @@ func TestCreateSessionHTTPContract(t *testing.T) {
 	if body.Status != session.StatusCreated || body.SceneType != "demo" {
 		t.Fatalf("unexpected metadata: %+v", body)
 	}
+
+	reviewRec := httptest.NewRecorder()
+	reviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+body.SessionID+"/review", nil)
+	reviewReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(reviewRec, reviewReq)
+	if reviewRec.Code != http.StatusOK {
+		t.Fatalf("review status = %d body = %s", reviewRec.Code, reviewRec.Body.String())
+	}
+	var reviewBody session.ReviewPollResponse
+	if err := json.Unmarshal(reviewRec.Body.Bytes(), &reviewBody); err != nil {
+		t.Fatalf("decode review: %v", err)
+	}
+	if reviewBody.Status != session.ReviewPollPending || reviewBody.SessionID != body.SessionID {
+		t.Fatalf("unexpected review body: %+v", reviewBody)
+	}
+}
+
+func TestGetReviewHTTPRequiresAuth(t *testing.T) {
+	server, _ := setupServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/s1/review", nil)
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestCreateSessionHTTPAllowsEmptyBody(t *testing.T) {
@@ -165,5 +190,8 @@ func TestOpenAPIDiscoveryEndpoints(t *testing.T) {
 	}
 	if !bytes.Contains(spec.Body.Bytes(), []byte("/sessions")) {
 		t.Fatal("openapi missing /sessions path")
+	}
+	if !bytes.Contains(spec.Body.Bytes(), []byte("/sessions/{id}/review")) {
+		t.Fatal("openapi missing /sessions/{id}/review path")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -245,6 +246,62 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		DurationSec:    session.DurationSec,
 		UtteranceCount: len(saved),
 		AlreadyEnded:   alreadyEnded,
+	}, nil
+}
+
+// GetReview returns the review poll payload for the session owner (B6).
+// Status is pending | ready | failed.
+func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (ReviewPollResponse, error) {
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" {
+		return ReviewPollResponse{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	if sessionID == "" {
+		return ReviewPollResponse{}, apierr.InvalidArgument("session_id is required")
+	}
+
+	session, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ReviewPollResponse{}, apierr.NotFound("session not found")
+		}
+		return ReviewPollResponse{}, err
+	}
+	if session.UserID != userID {
+		// Hide existence from non-owners.
+		return ReviewPollResponse{}, apierr.NotFound("session not found")
+	}
+	if session.Status == StatusAbandoned {
+		return ReviewPollResponse{}, apierr.NotFound("session not found")
+	}
+
+	if session.Status == StatusReviewed {
+		review := json.RawMessage(append([]byte(nil), session.ReviewJSON...))
+		if len(review) == 0 {
+			review = json.RawMessage(`{}`)
+		}
+		return ReviewPollResponse{
+			SessionID: session.ID,
+			Status:    ReviewPollReady,
+			Review:    review,
+		}, nil
+	}
+
+	failed, err := s.store.HasSessionJob(ctx, sessionID, JobTypeSessionFinished, JobStatusFailed)
+	if err != nil {
+		return ReviewPollResponse{}, err
+	}
+	if failed {
+		return ReviewPollResponse{
+			SessionID: session.ID,
+			Status:    ReviewPollFailed,
+		}, nil
+	}
+
+	return ReviewPollResponse{
+		SessionID: session.ID,
+		Status:    ReviewPollPending,
 	}, nil
 }
 
