@@ -23,6 +23,7 @@ func NewHandler(svc *Service, accounts *account.Handler) *Handler {
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/sessions", h.accounts.RequireAuth(), h.PostCreate)
 	rg.GET("/sessions/:id/review", h.accounts.RequireAuth(), h.GetReview)
+	rg.POST("/sessions/:id/messages", h.accounts.RequireAuth(), h.PostMessage)
 }
 
 // PostCreate handles POST /sessions.
@@ -68,6 +69,32 @@ func (h *Handler) GetReview(c *gin.Context) {
 	}
 
 	result, err := h.svc.GetReview(c.Request.Context(), actorID, c.Param("id"))
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostMessage handles POST /sessions/:id/messages (text degrade stub).
+func (h *Handler) PostMessage(c *gin.Context) {
+	userID, ok := c.Get(account.ContextUserIDKey)
+	if !ok {
+		httpjson.Error(c, apierr.Unauthenticated("missing authenticated user"))
+		return
+	}
+	actorID, ok := userID.(string)
+	if !ok || actorID == "" {
+		httpjson.Error(c, apierr.Unauthenticated("invalid authenticated user"))
+		return
+	}
+
+	var req PostMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.PostMessage(c.Request.Context(), actorID, c.Param("id"), req)
 	if err != nil {
 		httpjson.Error(c, err)
 		return

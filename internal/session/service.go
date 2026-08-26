@@ -305,6 +305,56 @@ func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (Revi
 	}, nil
 }
 
+// PostMessage handles the degraded text channel stub (B7).
+// Voice-preferred clients (channel != "text") receive CONFLICT.
+func (s *Service) PostMessage(ctx context.Context, userID, sessionID string, req PostMessageRequest) (PostMessageResponse, error) {
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" {
+		return PostMessageResponse{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	if sessionID == "" {
+		return PostMessageResponse{}, apierr.InvalidArgument("session_id is required")
+	}
+
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		return PostMessageResponse{}, apierr.InvalidArgument("text is required")
+	}
+	if len(text) > 4*1024 {
+		return PostMessageResponse{}, apierr.InvalidArgument("text is too long")
+	}
+
+	channel := strings.TrimSpace(strings.ToLower(req.Channel))
+	if channel != MessageChannelText {
+		return PostMessageResponse{}, apierr.Conflict("voice channel is available")
+	}
+
+	session, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return PostMessageResponse{}, apierr.NotFound("session not found")
+		}
+		return PostMessageResponse{}, err
+	}
+	if session.UserID != userID {
+		return PostMessageResponse{}, apierr.NotFound("session not found")
+	}
+	switch session.Status {
+	case StatusCreated, StatusActive:
+		// open for degrade stub
+	default:
+		return PostMessageResponse{}, apierr.Conflict("session is not open for messages")
+	}
+
+	return PostMessageResponse{
+		SessionID: session.ID,
+		Reply:     "Text fallback is active. Full model replies land with the production degrade path.",
+		Channel:   MessageChannelText,
+		Generator: "stub-text-v1",
+	}, nil
+}
+
 func (s *Service) ensureSessionFinishedEnqueued(ctx context.Context, sessionID string, now time.Time) error {
 	exists, err := s.store.HasSessionJob(ctx, sessionID, JobTypeSessionFinished,
 		JobStatusPending, JobStatusProcessing, JobStatusDone)

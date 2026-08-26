@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Point this clone at the repo-managed hooks (local OCR pre-commit gate).
+# Point this clone at the repo-managed hooks.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -11,5 +11,5 @@ fi
 
 git config core.hooksPath .githooks
 echo "Enabled core.hooksPath=.githooks for $(basename "$ROOT")"
-echo "Pre-commit will run local OpenCodeReview (SKIP_OCR=1 to bypass)."
-
+echo "OpenCodeReview pre-commit gate is PAUSED; use gstack /review before merge."
+echo "Optional manual OCR: FORCE_OCR=1 ./scripts/ocr-local-review.sh"

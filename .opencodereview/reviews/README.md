@@ -15,17 +15,17 @@ This folder stores **exported** review artifacts for this repository.
 
 Raw session JSONL remains in `~/.opencodereview/sessions/` and is not copied here (it can be large and may contain prompt/tool payloads).
 
-## Local commit gate
+## Local review gate
+
+OpenCodeReview pre-commit is **paused**. Prefer **gstack `/review`** before PR open/merge.
 
 ```bash
-# one-time per clone
+# optional hooks install
 ./scripts/setup-git-hooks.sh
 
-# pre-commit runs this automatically; or run manually:
-./scripts/ocr-local-review.sh
+# optional manual OCR (gate still fails on high/critical when forced)
+FORCE_OCR=1 ./scripts/ocr-local-review.sh
 ```
-
-Emergency bypass: `SKIP_OCR=1` (justify in commit/PR body).
 
 ## Export after a review
 

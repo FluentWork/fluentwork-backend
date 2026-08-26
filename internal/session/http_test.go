@@ -122,6 +122,75 @@ func TestGetReviewHTTPRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestPostMessageHTTPRequiresAuth(t *testing.T) {
+	server, _ := setupServer(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/s1/messages", bytes.NewReader([]byte(`{"text":"hi","channel":"text"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostMessageHTTPTextAndVoiceConflict(t *testing.T) {
+	server, _ := setupServer(t)
+
+	guestRec := httptest.NewRecorder()
+	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"device-msg-1"}`)))
+	guestReq.Header.Set("Content-Type", "application/json")
+	server.Handler().ServeHTTP(guestRec, guestReq)
+	var guestBody account.TokenResponse
+	if err := json.Unmarshal(guestRec.Body.Bytes(), &guestBody); err != nil {
+		t.Fatalf("decode guest: %v", err)
+	}
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewReader([]byte(`{}`)))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create status = %d body = %s", createRec.Code, createRec.Body.String())
+	}
+	var created session.CreateResponse
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	voiceRec := httptest.NewRecorder()
+	voiceReq := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+created.SessionID+"/messages", bytes.NewReader([]byte(`{"text":"hi"}`)))
+	voiceReq.Header.Set("Content-Type", "application/json")
+	voiceReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(voiceRec, voiceReq)
+	if voiceRec.Code != http.StatusConflict {
+		t.Fatalf("voice status = %d body = %s", voiceRec.Code, voiceRec.Body.String())
+	}
+	var voiceErr apierr.Error
+	if err := json.Unmarshal(voiceRec.Body.Bytes(), &voiceErr); err != nil {
+		t.Fatalf("decode voice err: %v", err)
+	}
+	if voiceErr.Code != "CONFLICT" {
+		t.Fatalf("voice err code = %s", voiceErr.Code)
+	}
+
+	okRec := httptest.NewRecorder()
+	okReq := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+created.SessionID+"/messages", bytes.NewReader([]byte(`{"text":"hello","channel":"text"}`)))
+	okReq.Header.Set("Content-Type", "application/json")
+	okReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(okRec, okReq)
+	if okRec.Code != http.StatusOK {
+		t.Fatalf("text status = %d body = %s", okRec.Code, okRec.Body.String())
+	}
+	var msgBody session.PostMessageResponse
+	if err := json.Unmarshal(okRec.Body.Bytes(), &msgBody); err != nil {
+		t.Fatalf("decode message: %v", err)
+	}
+	if msgBody.SessionID != created.SessionID || msgBody.Channel != session.MessageChannelText || msgBody.Generator != "stub-text-v1" || msgBody.Reply == "" {
+		t.Fatalf("unexpected message body: %+v", msgBody)
+	}
+}
+
 func TestCreateSessionHTTPAllowsEmptyBody(t *testing.T) {
 	server, _ := setupServer(t)
 	guestRec := httptest.NewRecorder()
@@ -193,5 +262,8 @@ func TestOpenAPIDiscoveryEndpoints(t *testing.T) {
 	}
 	if !bytes.Contains(spec.Body.Bytes(), []byte("/sessions/{id}/review")) {
 		t.Fatal("openapi missing /sessions/{id}/review path")
+	}
+	if !bytes.Contains(spec.Body.Bytes(), []byte("/sessions/{id}/messages")) {
+		t.Fatal("openapi missing /sessions/{id}/messages path")
 	}
 }

@@ -34,6 +34,7 @@ First-wave scope: `docs/00_开发入口与第一波范围.md`
 - `POST /api/v1/account/merge`
 - `POST /api/v1/sessions`
 - `GET /api/v1/sessions/:id/review` (pending | ready | failed)
+- `POST /api/v1/sessions/:id/messages` (text degrade stub; `channel: text`)
 - `POST /internal/v1/tickets/consume` (voice-gateway only; `X-Internal-Token`)
 - `POST /internal/v1/sessions/activate` / `POST /internal/v1/sessions/end` (voice-gateway session lifecycle)
 - async `session.finished` outbox + `cmd/worker` stub review pipeline (B5)
@@ -95,7 +96,7 @@ test/
 - migration checks
 - Docker image build
 - agent entry file validation
-- local OpenCodeReview pre-commit gate (`high`/`critical` block commit; `medium`/`low` do not)
+- pre-merge review via **gstack `/review`** (OpenCodeReview pre-commit gate paused)
 
 ## Upstream Source of Truth
 
@@ -104,8 +105,8 @@ Product rules, service boundaries, and milestone priorities should be aligned wi
 ## Agent Tooling
 
 - `gstack` can be used locally for deeper `/review` and later `/setup-deploy` or `/ship`
-- OpenCodeReview CLI (`ocr`) is the **commit gate**: enable hooks once with `./scripts/setup-git-hooks.sh`
-- pre-commit runs `./scripts/ocr-local-review.sh` (uses `.opencodereview/rule.json` + `ocr-fail-on-high.sh`)
+- **gstack `/review`** is the primary pre-merge review path
+- OpenCodeReview pre-commit gate is **paused**; optional `FORCE_OCR=1 ./scripts/ocr-local-review.sh`
 - after a review, optionally run `./scripts/ocr-export-review.sh` to save findings under `.opencodereview/reviews/` (see `latest.md`)
 - Matt Pocock style skills may be used as helpers under FluentWork shared governance
-- GitHub CI no longer runs OpenCodeReview; keep review local before commit
+- GitHub CI does not run OpenCodeReview; use gstack `/review` before merge
