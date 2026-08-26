@@ -42,11 +42,12 @@ Shared topics:
 
 ## Local Review Gate
 
-1. Preferred: **gstack `/review`** (Cursor skill) before PR open/merge.
-2. OpenCodeReview pre-commit gate is **paused** (`scripts/ocr-local-review.sh` exits 0 with a reminder).
-3. Optional one-time hooks: `./scripts/setup-git-hooks.sh`.
-4. Optional manual OCR only: `FORCE_OCR=1 ./scripts/ocr-local-review.sh`.
+1. Required before commit: run **gstack `/review`**, then `GSTACK_REVIEWED=1 git commit ...`.
+2. pre-commit → `scripts/gstack-review-gate.sh` (attestation; skill cannot run in bash).
+3. One-time hooks: `./scripts/setup-git-hooks.sh` (sets `core.hooksPath=.githooks`).
+4. Emergency bypass: `SKIP_GSTACK_REVIEW=1` (justify in commit/PR body).
+5. OCR scripts are optional/manual only; not part of the default gate.
 
 ## CI Boundary
 
-CI validates fmt, vet, tests, builds, and configuration. CI does not run OpenCodeReview or a full interactive skills runtime.
+CI validates fmt, vet, tests, builds, and configuration. CI does not run code review or a full interactive skills runtime.
