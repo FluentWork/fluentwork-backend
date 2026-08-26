@@ -45,4 +45,4 @@ This file only adds backend-specific constraints.
 
 1. `gstack` may be used locally for review and deploy-planning assistance.
 2. Matt Pocock style skills may be used as helpers under FluentWork shared policy.
-3. Local OpenCodeReview runs on pre-commit (`scripts/ocr-local-review.sh`): any `high`/`critical` finding blocks the commit until fixed; no `high`/`critical` means the commit may proceed (see `fluentwork-meta/agents/shared/review-gate.md`).
+3. **gstack `/review`** is the primary pre-merge review path; OpenCodeReview pre-commit is **paused** (see `fluentwork-meta/agents/shared/review-gate.md`).

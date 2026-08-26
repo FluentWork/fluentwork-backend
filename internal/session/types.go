@@ -164,3 +164,21 @@ type ReviewPollResponse struct {
 	// Review is the review_json document when Status is ready.
 	Review json.RawMessage `json:"review,omitempty"`
 }
+
+// MessageChannelText is the only channel accepted by POST /sessions/:id/messages (B7).
+const MessageChannelText = "text"
+
+// PostMessageRequest is the body of POST /sessions/:id/messages.
+type PostMessageRequest struct {
+	Text string `json:"text"`
+	// Channel must be "text" for the degraded path; other/empty values mean voice is preferred → 409.
+	Channel string `json:"channel"`
+}
+
+// PostMessageResponse is the stub AI reply for text degrade mode.
+type PostMessageResponse struct {
+	SessionID string `json:"session_id"`
+	Reply     string `json:"reply"`
+	Channel   string `json:"channel"`
+	Generator string `json:"generator"`
+}

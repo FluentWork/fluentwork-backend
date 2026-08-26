@@ -2,11 +2,13 @@ package session
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 )
 
@@ -412,6 +414,70 @@ func TestClaimNextJobReclaimsStaleProcessing(t *testing.T) {
 	}
 	if claimed.LockedBy == nil || *claimed.LockedBy != "worker-2" {
 		t.Fatalf("locked_by = %v", claimed.LockedBy)
+	}
+}
+
+func TestPostMessageTextDegradeAndVoiceConflict(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = svc.PostMessage(context.Background(), "user-1", created.SessionID, PostMessageRequest{
+		Text: "hello",
+	})
+	var ae *apierr.Error
+	if !errors.As(err, &ae) || ae.Code != "CONFLICT" {
+		t.Fatalf("expected voice conflict, got %v", err)
+	}
+
+	out, err := svc.PostMessage(context.Background(), "user-1", created.SessionID, PostMessageRequest{
+		Text:    "hello",
+		Channel: MessageChannelText,
+	})
+	if err != nil {
+		t.Fatalf("PostMessage text: %v", err)
+	}
+	if out.Channel != MessageChannelText || out.Reply == "" || out.Generator != "stub-text-v1" {
+		t.Fatalf("unexpected response: %+v", out)
+	}
+
+	if _, err := svc.PostMessage(context.Background(), "other", created.SessionID, PostMessageRequest{
+		Text: "x", Channel: MessageChannelText,
+	}); err == nil {
+		t.Fatal("expected not found for non-owner")
+	}
+	if _, err := svc.PostMessage(context.Background(), "user-1", created.SessionID, PostMessageRequest{
+		Text: "", Channel: MessageChannelText,
+	}); err == nil {
+		t.Fatal("expected empty text error")
+	}
+
+	if _, err := svc.Activate(context.Background(), created.SessionID); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if _, err := svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID,
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "ready"},
+		},
+	}); err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	_, err = svc.PostMessage(context.Background(), "user-1", created.SessionID, PostMessageRequest{
+		Text: "after end", Channel: MessageChannelText,
+	})
+	if !errors.As(err, &ae) || ae.Code != "CONFLICT" {
+		t.Fatalf("expected closed-session conflict, got %v", err)
 	}
 }
 

@@ -125,6 +125,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /sessions/{id}/messages:
+    post:
+      summary: Send a degraded text message (stub AI reply)
+      description: |
+        Non-streaming text fallback. Requires `channel: text`.
+        Omitting channel or using a non-text channel returns CONFLICT while voice is preferred.
+        Only the session owner may post; session must be `created` or `active`.
+      operationId: postSessionMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostMessageRequest"
+      responses:
+        "200":
+          description: Stub AI reply for text degrade mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostMessageResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -176,6 +211,26 @@ components:
           type: object
           additionalProperties: true
           description: Present when status is ready
+    PostMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 4096
+        channel:
+          type: string
+          description: Must be "text" for degrade path; omit or non-text yields CONFLICT while voice is preferred
+    PostMessageResponse:
+      type: object
+      required: [session_id, reply, channel, generator]
+      properties:
+        session_id: { type: string }
+        reply: { type: string }
+        channel:
+          type: string
+          enum: [text]
+        generator: { type: string }
     Error:
       type: object
       required: [code, message, request_id]

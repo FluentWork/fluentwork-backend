@@ -29,7 +29,7 @@ Shared topics:
 1. Read current backend and architecture docs before editing.
 2. Keep changes scoped to the active service or contract.
 3. Do not bypass review, CI, or owner approval requirements.
-4. Before each commit, local OpenCodeReview must pass: fix any `high` / `critical` findings (see `scripts/ocr-local-review.sh`); `medium` / `low` may remain as follow-ups.
+4. Before opening or merging a PR, run **gstack `/review`** on the branch diff; fix must-fix findings (see `fluentwork-meta/agents/shared/review-gate.md`).
 5. Do not perform destructive git operations without explicit approval.
 6. Surface data safety, migration, and deploy implications clearly.
 
@@ -42,10 +42,10 @@ Shared topics:
 
 ## Local Review Gate
 
-1. One-time per clone: `./scripts/setup-git-hooks.sh` (sets `core.hooksPath=.githooks`).
-2. Pre-commit runs `scripts/ocr-local-review.sh` (OCR CLI + `ocr-fail-on-high.sh`).
-3. Emergency bypass only: `SKIP_OCR=1`, and justify in the commit/PR body.
-4. Optional archive: `./scripts/ocr-export-review.sh` after a review.
+1. Preferred: **gstack `/review`** (Cursor skill) before PR open/merge.
+2. OpenCodeReview pre-commit gate is **paused** (`scripts/ocr-local-review.sh` exits 0 with a reminder).
+3. Optional one-time hooks: `./scripts/setup-git-hooks.sh`.
+4. Optional manual OCR only: `FORCE_OCR=1 ./scripts/ocr-local-review.sh`.
 
 ## CI Boundary
 
