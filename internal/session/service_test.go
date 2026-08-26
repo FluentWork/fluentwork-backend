@@ -258,6 +258,69 @@ func TestActivateAndEndPersistUtterances(t *testing.T) {
 	if ok {
 		t.Fatal("expected empty queue")
 	}
+
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview: %v", err)
+	}
+	if poll.Status != ReviewPollReady || len(poll.Review) == 0 {
+		t.Fatalf("expected ready review, got %+v", poll)
+	}
+}
+
+func TestGetReviewPendingAndFailedAndAuthz(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	pending, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview pending: %v", err)
+	}
+	if pending.Status != ReviewPollPending || pending.Review != nil {
+		t.Fatalf("expected pending without review, got %+v", pending)
+	}
+
+	if _, err := svc.GetReview(context.Background(), "other-user", created.SessionID); err == nil {
+		t.Fatal("expected not found for non-owner")
+	}
+
+	now := time.Now().UTC()
+	locked := now
+	if err := store.EnqueueJob(context.Background(), Job{
+		ID:          "job-fail",
+		SessionID:   created.SessionID,
+		JobType:     JobTypeSessionFinished,
+		Status:      JobStatusProcessing,
+		Attempts:    MaxJobAttempts,
+		AvailableAt: now,
+		LockedAt:    &locked,
+		LockedBy:    strPtr("w"),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("EnqueueJob: %v", err)
+	}
+	if err := store.FailJob(context.Background(), "job-fail", now, "boom", time.Second); err != nil {
+		t.Fatalf("FailJob: %v", err)
+	}
+	failed, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview failed: %v", err)
+	}
+	if failed.Status != ReviewPollFailed {
+		t.Fatalf("expected failed, got %+v", failed)
+	}
 }
 
 func TestEndReenqueuesMissingFinishedJob(t *testing.T) {

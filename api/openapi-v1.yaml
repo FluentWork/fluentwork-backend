@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.2.0
-  description: First-wave contracts for guest auth, merge, and session creation.
+  version: 0.3.0
+  description: First-wave contracts for guest auth, merge, sessions, and review polling.
 servers:
   - url: /api/v1
 paths:
@@ -100,6 +100,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /sessions/{id}/review:
+    get:
+      summary: Poll review readiness for a practice session
+      operationId: getSessionReview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Review poll payload (pending, ready, or failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewPollResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -139,6 +164,18 @@ components:
         ticket_expires_at: { type: string, format: date-time }
         scene_type: { type: string }
         status: { type: string }
+    ReviewPollResponse:
+      type: object
+      required: [session_id, status]
+      properties:
+        session_id: { type: string }
+        status:
+          type: string
+          enum: [pending, ready, failed]
+        review:
+          type: object
+          additionalProperties: true
+          description: Present when status is ready
     Error:
       type: object
       required: [code, message, request_id]
