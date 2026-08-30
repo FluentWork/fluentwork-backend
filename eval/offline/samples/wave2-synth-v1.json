@@ -1,0 +1,127 @@
+[
+  {
+    "id": "syn-standup-01",
+    "transcript": "Yesterday I finished the login bug. Today I will sync up with the team about the cache invalidation plan. I am blocked on the API review.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Covered yesterday / today / blocker."
+      },
+      "issues": [
+        {
+          "type": "idiomatic",
+          "original_quote": "sync up with the team",
+          "hint": "Prefer touch base / sync with."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Replace 'sync up with the team' with 'touch base with the team'."
+        }
+      ],
+      "comparisons": [
+        {"user": "sync up with the team", "better": "touch base with the team"},
+        {"user": "I am blocked on the API review", "better": "I'm blocked waiting on the API review"},
+        {"user": "finished the login bug", "better": "fixed the login bug"}
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "同步进度",
+          "expression_en": "I'll touch base with the team about the cache invalidation plan.",
+          "anchor_user_said": "sync up with the team",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        },
+        {
+          "intent_zh": "说明阻塞",
+          "expression_en": "I'm blocked waiting on the API review.",
+          "anchor_user_said": "I am blocked on the API review",
+          "scene_tag": "standup",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-review-01",
+    "transcript": "We should defer the discussion until Friday. Also can you clarify the rollout risk?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Deferred decision and asked for clarification."
+      },
+      "issues": [],
+      "suggestions": [],
+      "comparisons": [
+        {"user": "defer the discussion", "better": "table this until Friday"},
+        {"user": "clarify the rollout risk", "better": "walk me through the rollout risk"},
+        {"user": "until Friday", "better": "until Friday's review"}
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "推迟讨论",
+          "expression_en": "Let's table this until Friday.",
+          "anchor_user_said": "defer the discussion",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        },
+        {
+          "intent_zh": "请求澄清",
+          "expression_en": "Could you walk me through the rollout risk?",
+          "anchor_user_said": "clarify the rollout risk",
+          "scene_tag": "review",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-1on1-01",
+    "transcript": "I want to propose we split the migration into two phases. Do you agree with the timeline?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Proposal and alignment ask were clear."
+      },
+      "issues": [
+        {
+          "type": "missing_info",
+          "original_quote": "split the migration into two phases",
+          "hint": "Name the phases briefly."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Add phase names when proposing the split."
+        }
+      ],
+      "comparisons": [
+        {"user": "propose we split", "better": "I'd propose we split"},
+        {"user": "Do you agree with the timeline", "better": "Does this timeline work for you"},
+        {"user": "two phases", "better": "two phases: prep and cutover"}
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提出方案",
+          "expression_en": "I'd propose we split the migration into two phases: prep and cutover.",
+          "anchor_user_said": "propose we split the migration into two phases",
+          "scene_tag": "1on1",
+          "function_tag": "propose"
+        },
+        {
+          "intent_zh": "确认共识",
+          "expression_en": "Does this timeline work for you?",
+          "anchor_user_said": "Do you agree with the timeline",
+          "scene_tag": "1on1",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  }
+]
