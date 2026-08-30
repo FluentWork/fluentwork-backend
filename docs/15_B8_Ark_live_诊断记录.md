@@ -57,11 +57,12 @@
 | Go 代理彻底坏了 | **否**（最小请求可通） |
 | live review 过慢主因是 thinking | **是** |
 | prompt/schema 已可过 B15 | **是（Go smoke）** — `validated_b15=true` |
-| worker 可切 live | **可以进入接线** — live generator 已绿；仍建议先观察 cost/时延再全量切换 |
+| worker 可切 live | **已接线** — 配置齐则用 Ark；失败回 stub；成功写 `ai_cost_logs` |
 
 ## 推荐下一刀
 
-1. `zsh -ic 'proxy_on && ./scripts/smoke-review-ark-curl.sh'`
-2. `zsh -ic 'proxy_on && ./scripts/smoke-review-ark.sh'`（必须 `validated_b15=true`）
-3. 通过后再把 worker 从 stub 切到 `ArkGenerator`
-4. 若仍偶发 >15s：考虑把 review 接到非 thinking 的 endpoint，或拆 refine 二次调用
+1. ~~curl / Go live smoke~~ — 已绿（thinking disabled）
+2. ~~worker 接入 `ArkGenerator`（保留 stub fallback）~~ — 已合入本批接线
+3. 本地完整 worker 路径确认 `generator` + `ai_cost_logs`；盯 P90 ≤ 15s（日志字段 `duration_ms`）
+4. 若仍偶发超慢：确认请求始终带 `thinking.disabled`，或换非 thinking endpoint
+5. 通过后进入 `B9` / `B10` 边界外工作

@@ -15,6 +15,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("VOICE_GATEWAY_WSS_URL", "")
 	t.Setenv("SESSION_TICKET_TTL", "")
 	t.Setenv("INTERNAL_API_TOKEN", "")
+	t.Setenv("ARK_BASE_URL", "")
+	t.Setenv("ARK_API_KEY", "")
+	t.Setenv("ARK_API_KEY_DEV", "")
+	t.Setenv("ARK_EP_REVIEW_REFINE", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -40,6 +44,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.InternalAPIToken != DevInternalAPIToken {
 		t.Fatalf("InternalAPIToken = %q", cfg.InternalAPIToken)
+	}
+	if cfg.ArkBaseURL != "https://ark.cn-beijing.volces.com/api/v3" {
+		t.Fatalf("ArkBaseURL = %q", cfg.ArkBaseURL)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
@@ -118,5 +125,20 @@ func TestLoadRejectsDevSecretDefaultOutsideDevelopment(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected Validate to reject missing secrets outside development")
+	}
+}
+
+func TestLoadArkPrefersExplicitAPIKey(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("ARK_API_KEY", "explicit-key")
+	t.Setenv("ARK_API_KEY_DEV", "dev-key")
+	t.Setenv("ARK_EP_REVIEW_REFINE", "ep-review")
+
+	cfg := Load()
+	if cfg.ArkAPIKey != "explicit-key" {
+		t.Fatalf("ArkAPIKey = %q", cfg.ArkAPIKey)
+	}
+	if cfg.ArkReviewRefineEP != "ep-review" {
+		t.Fatalf("ArkReviewRefineEP = %q", cfg.ArkReviewRefineEP)
 	}
 }

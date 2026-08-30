@@ -33,6 +33,9 @@ type Config struct {
 	VoiceGatewayWSSURL string
 	SessionTicketTTL   time.Duration
 	InternalAPIToken   string
+	ArkBaseURL         string
+	ArkAPIKey          string
+	ArkReviewRefineEP  string
 }
 
 // Load reads configuration from environment variables.
@@ -51,6 +54,9 @@ func Load() Config {
 		VoiceGatewayWSSURL: envOr("VOICE_GATEWAY_WSS_URL", defaultVoiceGatewayWSSURL),
 		SessionTicketTTL:   durationOr("SESSION_TICKET_TTL", defaultSessionTicketTTL),
 		InternalAPIToken:   secretOr("INTERNAL_API_TOKEN", DevInternalAPIToken, appEnv),
+		ArkBaseURL:         envOr("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+		ArkAPIKey:          firstNonEmpty(strings.TrimSpace(os.Getenv("ARK_API_KEY")), strings.TrimSpace(os.Getenv("ARK_API_KEY_DEV"))),
+		ArkReviewRefineEP:  strings.TrimSpace(os.Getenv("ARK_EP_REVIEW_REFINE")),
 	}
 }
 
@@ -140,4 +146,13 @@ func durationOr(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

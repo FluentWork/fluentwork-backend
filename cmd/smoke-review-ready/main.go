@@ -25,6 +25,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -71,6 +72,15 @@ func run() error {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
+	reviewGenerator := reviewgen.ArkGenerator{
+		BaseURL:  cfg.ArkBaseURL,
+		APIKey:   cfg.ArkAPIKey,
+		Endpoint: cfg.ArkReviewRefineEP,
+		Logger:   logger.With("component", "reviewgen.ark"),
+	}
+	if reviewGenerator.Enabled() {
+		sessionSvc.SetReviewGenerator(reviewGenerator)
+	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
 

@@ -19,6 +19,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 )
 
 var (
@@ -32,6 +33,7 @@ type Service struct {
 	cfg          config.Config
 	logger       *slog.Logger
 	costRecorder CostRecorder
+	reviewGen    ReviewGenerator
 	now          func() time.Time
 	newID        func() string
 }
@@ -39,6 +41,11 @@ type Service struct {
 // CostRecorder writes ai_cost_logs entries for real AI calls.
 type CostRecorder interface {
 	Record(ctx context.Context, req aicost.RecordRequest) (aicost.Log, error)
+}
+
+// ReviewGenerator upgrades stub review generation to a real provider-backed call.
+type ReviewGenerator interface {
+	Generate(ctx context.Context, req reviewgen.Request) (reviewgen.Result, error)
 }
 
 // NewService constructs the session service.
@@ -51,6 +58,7 @@ func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
 		cfg:          cfg,
 		logger:       logger.With("component", "session.service"),
 		costRecorder: nil,
+		reviewGen:    nil,
 		now:          time.Now,
 		newID:        uuid.NewString,
 	}
@@ -59,6 +67,11 @@ func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
 // SetCostRecorder attaches the ai_cost_logs writer used by async review jobs.
 func (s *Service) SetCostRecorder(recorder CostRecorder) {
 	s.costRecorder = recorder
+}
+
+// SetReviewGenerator attaches the real review/refine generator used by the worker.
+func (s *Service) SetReviewGenerator(gen ReviewGenerator) {
+	s.reviewGen = gen
 }
 
 // Reassigner adapts Store to account.Reassigner for guest merge.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
+	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
@@ -127,7 +128,7 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		pipelineErr = err
 		return pipelineErr
 	}
-	artifacts, err := buildStubReviewArtifacts(session, utterances)
+	artifacts, err := s.buildReviewArtifacts(ctx, session, utterances)
 	if err != nil {
 		pipelineErr = err
 		return pipelineErr
@@ -153,6 +154,7 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 
 type reviewArtifacts struct {
 	ReviewJSON []byte
+	RefineJSON []byte
 	Generator  string
 	Cost       *aicost.RecordRequest
 }
@@ -183,8 +185,44 @@ func buildStubReviewArtifacts(session Session, utterances []Utterance) (reviewAr
 	}
 	return reviewArtifacts{
 		ReviewJSON: reviewJSON,
+		RefineJSON: json.RawMessage(`{"blocks":[]}`),
 		Generator:  stubReviewGenerator,
 		Cost:       nil,
+	}, nil
+}
+
+func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utterances []Utterance) (reviewArtifacts, error) {
+	if s.reviewGen == nil {
+		return buildStubReviewArtifacts(session, utterances)
+	}
+
+	result, err := s.reviewGen.Generate(ctx, reviewgen.Request{
+		SessionID:  session.ID,
+		UserID:     session.UserID,
+		SceneType:  session.SceneType,
+		Transcript: renderTranscript(utterances),
+	})
+	if err != nil {
+		s.logger.Warn("review generator failed; falling back to stub",
+			"session_id", session.ID,
+			"user_id", session.UserID,
+			"scene_type", session.SceneType,
+			"stage", "orchestration",
+			"err", err,
+		)
+		return buildStubReviewArtifacts(session, utterances)
+	}
+	return reviewArtifacts{
+		ReviewJSON: mustAttachReviewMetadata(result.Review, session, result.Generator),
+		RefineJSON: append([]byte(nil), result.Refine...),
+		Generator:  result.Generator,
+		Cost: &aicost.RecordRequest{
+			TaskType:  "review.eval",
+			Model:     result.Model,
+			TokensIn:  result.TokensIn,
+			TokensOut: result.TokensOut,
+			CostFen:   0,
+		},
 	}, nil
 }
 
@@ -211,4 +249,43 @@ func (s *Service) recordReviewCost(ctx context.Context, session Session, artifac
 		return fmt.Errorf("record ai cost: %w", err)
 	}
 	return nil
+}
+
+func renderTranscript(utterances []Utterance) string {
+	if len(utterances) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, utterance := range utterances {
+		text := strings.TrimSpace(utterance.Text)
+		if text == "" {
+			continue
+		}
+		speaker := strings.TrimSpace(utterance.Speaker)
+		if speaker == "" {
+			speaker = SpeakerUser
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", speaker, text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func mustAttachReviewMetadata(review []byte, session Session, generator string) []byte {
+	var doc map[string]any
+	if err := json.Unmarshal(review, &doc); err != nil {
+		// buildReviewArtifacts only calls this for provider output that already passed JSON validation.
+		return append([]byte(nil), review...)
+	}
+	doc["generator"] = strings.TrimSpace(generator)
+	if _, ok := doc["duration_sec"]; !ok && session.DurationSec > 0 {
+		doc["duration_sec"] = session.DurationSec
+	}
+	if _, ok := doc["status"]; !ok {
+		doc["status"] = "ready"
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		return append([]byte(nil), review...)
+	}
+	return encoded
 }

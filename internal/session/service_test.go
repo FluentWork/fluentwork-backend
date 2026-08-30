@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 )
 
 func TestCreateSessionIssuesTicket(t *testing.T) {
@@ -504,6 +506,56 @@ func TestRecordReviewCostWritesLedgerWhenRecorderPresent(t *testing.T) {
 	}
 }
 
+func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
+	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetReviewGenerator(fakeReviewGenerator{
+		result: reviewgen.Result{
+			Review:    json.RawMessage(`{"goal_achievement":{},"issues":[],"suggestions":[],"comparisons":[{},{},{}]}`),
+			Refine:    json.RawMessage(`{"blocks":[{"intent_zh":"同步","expression_en":"I'll follow up.","anchor_user_said":"follow up","scene_tag":"standup","function_tag":"report"}]}`),
+			Generator: "ark-review-refine-v1",
+			Model:     "ep-review",
+			TokensIn:  11,
+			TokensOut: 22,
+		},
+	})
+
+	artifacts, err := svc.buildReviewArtifacts(context.Background(), Session{
+		ID:        "s1",
+		UserID:    "u1",
+		SceneType: "standup",
+	}, []Utterance{{Speaker: SpeakerUser, Text: "I will follow up."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifacts.Generator != "ark-review-refine-v1" || artifacts.Cost == nil || artifacts.Cost.Model != "ep-review" {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+	var reviewDoc map[string]any
+	if err := json.Unmarshal(artifacts.ReviewJSON, &reviewDoc); err != nil {
+		t.Fatal(err)
+	}
+	if reviewDoc["generator"] != "ark-review-refine-v1" {
+		t.Fatalf("generator metadata missing: %+v", reviewDoc)
+	}
+}
+
+func TestBuildReviewArtifactsFallsBackToStubOnGeneratorError(t *testing.T) {
+	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetReviewGenerator(fakeReviewGenerator{err: errors.New("boom")})
+
+	artifacts, err := svc.buildReviewArtifacts(context.Background(), Session{
+		ID:        "s1",
+		UserID:    "u1",
+		SceneType: "standup",
+	}, []Utterance{{Speaker: SpeakerUser, Text: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifacts.Generator != stubReviewGenerator || artifacts.Cost != nil {
+		t.Fatalf("unexpected fallback artifacts: %+v", artifacts)
+	}
+}
+
 func TestPostMessageTextDegradeAndVoiceConflict(t *testing.T) {
 	store := NewMemoryStore()
 	cfg := config.Config{
@@ -569,3 +621,15 @@ func TestPostMessageTextDegradeAndVoiceConflict(t *testing.T) {
 }
 
 func strPtr(v string) *string { return &v }
+
+type fakeReviewGenerator struct {
+	result reviewgen.Result
+	err    error
+}
+
+func (f fakeReviewGenerator) Generate(context.Context, reviewgen.Request) (reviewgen.Result, error) {
+	if f.err != nil {
+		return reviewgen.Result{}, f.err
+	}
+	return f.result, nil
+}

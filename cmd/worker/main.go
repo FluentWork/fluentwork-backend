@@ -13,6 +13,7 @@ import (
 
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -56,6 +57,16 @@ func run() error {
 
 	svc := session.NewService(store, cfg, logger)
 	svc.SetCostRecorder(aicost.NewService(costStore, logger))
+	reviewGenerator := reviewgen.ArkGenerator{
+		BaseURL:  cfg.ArkBaseURL,
+		APIKey:   cfg.ArkAPIKey,
+		Endpoint: cfg.ArkReviewRefineEP,
+		Logger:   logger.With("component", "reviewgen.ark"),
+	}
+	arkReviewEnabled := reviewGenerator.Enabled()
+	if arkReviewEnabled {
+		svc.SetReviewGenerator(reviewGenerator)
+	}
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
 
@@ -66,6 +77,8 @@ func run() error {
 		"service", "worker",
 		"worker_id", workerID,
 		"poll_interval", pollEvery.String(),
+		"ark_review_enabled", arkReviewEnabled,
+		"ark_review_endpoint", cfg.ArkReviewRefineEP,
 		"repository", buildinfo.Repository,
 	)
 
