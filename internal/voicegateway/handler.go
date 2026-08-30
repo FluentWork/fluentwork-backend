@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 var errSessionEnded = errors.New("voice session ended")
@@ -61,7 +62,7 @@ func NewHandler(consumer TicketConsumer, lifecycle SessionLifecycle, logger *slo
 	return &Handler{
 		consumer:           consumer,
 		lifecycle:          lifecycle,
-		logger:             logger,
+		logger:             logger.With("component", "voicegateway.handler"),
 		now:                time.Now,
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
 		idleTimeout:        idle,
@@ -121,47 +122,67 @@ func (h *Handler) serveVoice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handshake(ctx context.Context, conn *websocket.Conn) (ConsumedTicket, error) {
+	seg := logx.Begin(h.logger, "voice.handshake")
+	var handshakeErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(handshakeErr, endAttrs...)
+	}()
+
 	authCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	typ, data, err := conn.Read(authCtx)
 	if err != nil {
-		return ConsumedTicket{}, fmt.Errorf("read auth frame: %w", err)
+		handshakeErr = fmt.Errorf("read auth frame: %w", err)
+		return ConsumedTicket{}, handshakeErr
 	}
 	if typ != websocket.MessageText {
-		return ConsumedTicket{}, errors.New("first frame must be text auth")
+		handshakeErr = errors.New("first frame must be text auth")
+		return ConsumedTicket{}, handshakeErr
 	}
 
 	frameType, err := voiceproto.DecodeType(data)
 	if err != nil {
-		return ConsumedTicket{}, err
+		handshakeErr = err
+		return ConsumedTicket{}, handshakeErr
 	}
 	if frameType != voiceproto.TypeAuth {
-		return ConsumedTicket{}, fmt.Errorf("expected auth, got %s", frameType)
+		handshakeErr = fmt.Errorf("expected auth, got %s", frameType)
+		return ConsumedTicket{}, handshakeErr
 	}
 
 	var auth voiceproto.Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
-		return ConsumedTicket{}, fmt.Errorf("decode auth: %w", err)
+		handshakeErr = fmt.Errorf("decode auth: %w", err)
+		return ConsumedTicket{}, handshakeErr
 	}
 	ticket := strings.TrimSpace(auth.Ticket)
 	if ticket == "" {
-		return ConsumedTicket{}, errors.New("ticket is required")
+		handshakeErr = errors.New("ticket is required")
+		return ConsumedTicket{}, handshakeErr
 	}
 	if h.consumer == nil {
-		return ConsumedTicket{}, errors.New("ticket consumer is not configured")
+		handshakeErr = errors.New("ticket consumer is not configured")
+		return ConsumedTicket{}, handshakeErr
 	}
 
 	consumed, err := h.consumer.Consume(authCtx, ticket)
 	if err != nil {
-		return ConsumedTicket{}, err
+		handshakeErr = err
+		return ConsumedTicket{}, handshakeErr
 	}
 	if err := writeJSON(authCtx, conn, voiceproto.SessionReady{
 		Type:      voiceproto.TypeSessionReady,
 		SessionID: consumed.SessionID,
 		UserID:    consumed.UserID,
 	}); err != nil {
-		return ConsumedTicket{}, err
+		handshakeErr = err
+		return ConsumedTicket{}, handshakeErr
+	}
+	endAttrs = []any{
+		"session_id", consumed.SessionID,
+		"user_id", consumed.UserID,
 	}
 	return consumed, nil
 }
@@ -248,6 +269,7 @@ func (h *Handler) handleControl(
 		h.logger.Info("session.start accepted",
 			"session_id", session.SessionID,
 			"user_id", session.UserID,
+			"stage", "orchestration",
 		)
 		const stub = "ready"
 		rt.turns = append(rt.turns, EndUtterance{
@@ -270,10 +292,15 @@ func (h *Handler) handleControl(
 				Message: "send session.start first",
 			})
 		}
+		h.logger.Info("voice user speech frame",
+			"session_id", session.SessionID,
+			"type", frameType,
+			"stage", "asr",
+		)
 		return nil
 
 	case voiceproto.TypeInterrupt:
-		h.logger.Info("interrupt received", "session_id", session.SessionID)
+		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
 		return nil
 
 	case voiceproto.TypeSessionEnd:
@@ -313,6 +340,7 @@ func (h *Handler) handleControl(
 			"session_id", session.SessionID,
 			"duration_sec", durationSec,
 			"utterance_count", len(rt.turns),
+			"stage", "orchestration",
 		)
 		_ = writeJSON(ctx, conn, map[string]any{
 			"type":   voiceproto.TypeSessionEnd,

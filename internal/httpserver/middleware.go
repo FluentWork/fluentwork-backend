@@ -23,6 +23,11 @@ func RequestID() gin.HandlerFunc {
 			id = uuid.NewString()
 		}
 		c.Set(httpjson.RequestIDContextKey, id)
+		if value, ok := c.Get(httpjson.LoggerContextKey); ok {
+			if logger, ok := value.(*slog.Logger); ok && logger != nil {
+				c.Set(httpjson.LoggerContextKey, logger.With("request_id", id))
+			}
+		}
 		c.Header(requestIDHeader, id)
 		c.Next()
 	}
@@ -51,7 +56,13 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		if logger == nil {
+		lg := logger
+		if value, ok := c.Get(httpjson.LoggerContextKey); ok {
+			if scoped, ok := value.(*slog.Logger); ok && scoped != nil {
+				lg = scoped
+			}
+		}
+		if lg == nil {
 			return
 		}
 		attrs := []any{
@@ -60,7 +71,6 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 			"route", c.FullPath(),
 			"status", c.Writer.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
-			"request_id", httpjson.RequestID(c),
 		}
 		if value, ok := c.Get(account.ContextUserIDKey); ok {
 			attrs = append(attrs, "user_id", value)
@@ -68,6 +78,6 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 		if value, ok := c.Get(account.ContextIsGuestKey); ok {
 			attrs = append(attrs, "is_guest", value)
 		}
-		logger.Info("http", attrs...)
+		lg.Info("http", attrs...)
 	}
 }

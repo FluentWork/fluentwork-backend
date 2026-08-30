@@ -42,7 +42,7 @@ func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
 	return &Service{
 		store:  store,
 		cfg:    cfg,
-		logger: logger,
+		logger: logger.With("component", "session.service"),
 		now:    time.Now,
 		newID:  uuid.NewString,
 	}

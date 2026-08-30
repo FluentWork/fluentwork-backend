@@ -20,15 +20,18 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 func main() {
+	slog.SetDefault(logx.New("smoke-volc-realtime"))
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "smoke-volc-realtime FAILED: %v\n", err)
 		os.Exit(1)
@@ -66,6 +69,7 @@ func run() error {
 		Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
 		Model:    firstNonEmpty(os.Getenv("VOLC_DUPLEX_MODEL"), "1.2.6.0"),
 		Voice:    firstNonEmpty(os.Getenv("VOLC_DUPLEX_VOICE"), "zh_female_vv_jupiter_bigtts"),
+		Logger:   slog.Default().With("component", "voicepoc.cli"),
 	}
 
 	wavPath := strings.TrimSpace(*wav)

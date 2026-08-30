@@ -5,12 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 const defaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
@@ -27,6 +30,7 @@ type DuplexConfig struct {
 	Endpoint string
 	Model    string
 	Voice    string
+	Logger   *slog.Logger
 	// Instructions is the session system prompt (inject target for B14 V2).
 	Instructions string
 }
@@ -63,6 +67,18 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 		cfg.Instructions = "你是 FluentWork 注入 POC 助手。用简短中文回复。"
 	}
 
+	seg := logx.Begin(cfg.Logger, "voice.duplex.open",
+		"module", "voicepoc.duplex",
+		"provider", "volc-duplex",
+		"endpoint", firstNonEmpty(cfg.Endpoint, defaultDuplexEndpoint),
+		"stage", "transport",
+	)
+	var openErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(openErr, endAttrs...)
+	}()
+
 	header := http.Header{}
 	header.Set("X-Api-Key", cfg.APIKey)
 	header.Set("X-Api-Connect-Id", uuid.NewString())
@@ -70,9 +86,11 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 	conn, resp, err := websocket.Dial(ctx, cfg.Endpoint, &websocket.DialOptions{HTTPHeader: header})
 	if err != nil {
 		if resp != nil {
-			return nil, fmt.Errorf("duplex dial: %w (http=%d logid=%s)", err, resp.StatusCode, resp.Header.Get("X-Tt-Logid"))
+			openErr = fmt.Errorf("duplex dial: %w (http=%d logid=%s)", err, resp.StatusCode, resp.Header.Get("X-Tt-Logid"))
+			return nil, openErr
 		}
-		return nil, fmt.Errorf("duplex dial: %w", err)
+		openErr = fmt.Errorf("duplex dial: %w", err)
+		return nil, openErr
 	}
 
 	s := &DuplexSession{conn: conn, cfg: cfg}
@@ -86,7 +104,8 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 		"session":  s.sessionPayload(cfg.Instructions),
 	}); err != nil {
 		_ = s.Close(ctx)
-		return nil, err
+		openErr = err
+		return nil, openErr
 	}
 
 	for {
@@ -100,12 +119,20 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 			s.sessionID = evt.SessionID
 			if s.sessionID == "" {
 				_ = s.Close(ctx)
-				return nil, fmt.Errorf("session.created missing session.id")
+				openErr = fmt.Errorf("session.created missing session.id")
+				return nil, openErr
+			}
+			endAttrs = []any{
+				"session_id", s.sessionID,
+				"log_id", s.logID,
+				"model", s.cfg.Model,
+				"voice", s.cfg.Voice,
 			}
 			return s, nil
 		case "error":
 			_ = s.Close(ctx)
-			return nil, fmt.Errorf("duplex error after create: %s", evt.Raw)
+			openErr = fmt.Errorf("duplex error after create: %s", evt.Raw)
+			return nil, openErr
 		default:
 			// ignore stray events before session.created
 		}
@@ -118,12 +145,26 @@ func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions str
 	if s == nil || s.conn == nil {
 		return nil, fmt.Errorf("duplex session is nil")
 	}
+	seg := logx.Begin(s.cfg.Logger, "voice.duplex.update_instructions",
+		"module", "voicepoc.duplex",
+		"provider", "volc-duplex",
+		"session_id", s.sessionID,
+		"log_id", s.logID,
+		"stage", "orchestration",
+	)
+	var updateErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(updateErr, endAttrs...)
+	}()
+
 	if err := s.send(ctx, map[string]any{
 		"type":     "session.update",
 		"event_id": uuid.NewString(),
 		"session":  s.sessionPayload(instructions),
 	}); err != nil {
-		return nil, err
+		updateErr = err
+		return nil, updateErr
 	}
 	var skipped []duplexEvent
 	deadline := time.Now().Add(8 * time.Second)
@@ -132,18 +173,25 @@ func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions str
 		evt, err := s.recv(readCtx)
 		cancel()
 		if err != nil {
-			return skipped, fmt.Errorf("wait session.updated: %w", err)
+			updateErr = fmt.Errorf("wait session.updated: %w", err)
+			return skipped, updateErr
 		}
 		switch evt.Type {
 		case "session.updated":
+			endAttrs = []any{
+				"skipped_event_count", len(skipped),
+				"instruction_len", len(strings.TrimSpace(instructions)),
+			}
 			return skipped, nil
 		case "error":
-			return skipped, fmt.Errorf("duplex error after update: %s", evt.Raw)
+			updateErr = fmt.Errorf("duplex error after update: %s", evt.Raw)
+			return skipped, updateErr
 		default:
 			skipped = append(skipped, evt)
 		}
 	}
-	return skipped, fmt.Errorf("timeout waiting for session.updated")
+	updateErr = fmt.Errorf("timeout waiting for session.updated")
+	return skipped, updateErr
 }
 
 // SendPCM streams 16 kHz mono s16le PCM as 20ms input_audio_buffer.append frames.
@@ -151,6 +199,21 @@ func (s *DuplexSession) SendPCM(ctx context.Context, pcm []byte) error {
 	if s == nil || s.conn == nil {
 		return fmt.Errorf("duplex session is nil")
 	}
+	seg := logx.Begin(s.cfg.Logger, "voice.duplex.send_pcm",
+		"module", "voicepoc.duplex",
+		"provider", "volc-duplex",
+		"session_id", s.sessionID,
+		"log_id", s.logID,
+		"stage", "asr",
+		"pcm_bytes", len(pcm),
+	)
+	var sendErr error
+	defer func() {
+		seg.End(sendErr,
+			"chunk_count", chunkCount(len(pcm), pcm16kChunkBytes),
+			"audio_sec", pcmAudioSeconds(len(pcm)),
+		)
+	}()
 	for i := 0; i < len(pcm); i += pcm16kChunkBytes {
 		end := i + pcm16kChunkBytes
 		if end > len(pcm) {
@@ -168,7 +231,8 @@ func (s *DuplexSession) SendPCM(ctx context.Context, pcm []byte) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			sendErr = ctx.Err()
+			return sendErr
 		case <-timer.C:
 		}
 	}
@@ -272,6 +336,25 @@ func (s *DuplexSession) sendUserPCMInject(ctx context.Context, pcm []byte, injec
 
 func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, preload []duplexEvent, wait time.Duration) (TurnResult, error) {
 	var out TurnResult
+	seg := logx.Begin(s.cfg.Logger, "voice.duplex.collect_turn",
+		"module", "voicepoc.duplex",
+		"provider", "volc-duplex",
+		"session_id", s.sessionID,
+		"log_id", s.logID,
+		"stage", "tts",
+	)
+	var collectErr error
+	var endAttrs []any
+	defer func() {
+		endAttrs = append(endAttrs,
+			"event_count", len(out.EventTypes),
+			"transcript_len", len(strings.TrimSpace(out.Transcript)),
+			"assistant_text_len", len(strings.TrimSpace(out.AssistantText)),
+			"asr_started_ms", out.ASRStartedAtMS,
+			"asr_done_ms", out.ASRDoneAtMS,
+		)
+		seg.End(collectErr, endAttrs...)
+	}()
 	if wait <= 0 {
 		wait = 25 * time.Second
 	}
@@ -333,11 +416,13 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	for _, evt := range preload {
 		if evt.Type == "error" {
 			out.AssistantText = strings.TrimSpace(text.String())
-			return out, fmt.Errorf("duplex error during turn: %s", evt.Raw)
+			collectErr = fmt.Errorf("duplex error during turn: %s", evt.Raw)
+			return out, collectErr
 		}
 		if apply(evt) {
 			if evt.Type == "error" {
-				return out, fmt.Errorf("duplex error during turn: %s", evt.Raw)
+				collectErr = fmt.Errorf("duplex error during turn: %s", evt.Raw)
+				return out, collectErr
 			}
 			return out, nil
 		}
@@ -356,11 +441,13 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			if text.Len() > 0 || out.Transcript != "" {
 				break
 			}
-			return out, err
+			collectErr = err
+			return out, collectErr
 		}
 		if evt.Type == "error" {
 			out.AssistantText = strings.TrimSpace(text.String())
-			return out, fmt.Errorf("duplex error during turn: %s", evt.Raw)
+			collectErr = fmt.Errorf("duplex error during turn: %s", evt.Raw)
+			return out, collectErr
 		}
 		if apply(evt) {
 			return out, nil
@@ -672,6 +759,20 @@ func tierHint(sameTurn, nextTurn bool) string {
 
 func containsFold(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+func chunkCount(total, size int) int {
+	if total <= 0 || size <= 0 {
+		return 0
+	}
+	return (total + size - 1) / size
+}
+
+func pcmAudioSeconds(bytes int) int {
+	if bytes <= 0 {
+		return 0
+	}
+	return bytes / (16000 * 2)
 }
 
 func firstNonEmpty(values ...string) string {

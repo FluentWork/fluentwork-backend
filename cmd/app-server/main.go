@@ -19,6 +19,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 func main() {
@@ -34,7 +35,7 @@ func run() error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := logx.New("app-server")
 	slog.SetDefault(logger)
 	gin.SetMode(gin.ReleaseMode)
 

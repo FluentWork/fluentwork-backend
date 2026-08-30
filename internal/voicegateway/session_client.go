@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 // SessionLifecycle notifies app-server of session.start / session.end.
@@ -37,6 +40,7 @@ type HTTPSessionClient struct {
 	BaseURL    string
 	Token      string
 	HTTPClient *http.Client
+	Logger     *slog.Logger
 }
 
 type activateBody struct {
@@ -80,29 +84,43 @@ func (c *HTTPSessionClient) post(ctx context.Context, path string, payload any) 
 	if base == "" {
 		return fmt.Errorf("app-server base URL is required")
 	}
+	seg := logx.Begin(c.Logger, "voice.session_lifecycle",
+		"component", "voicegateway.session_client",
+		"path", path,
+		"base_url", base,
+	)
+	var reqErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(reqErr, endAttrs...)
+	}()
 	client := c.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		reqErr = err
+		return reqErr
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(raw))
 	if err != nil {
-		return err
+		reqErr = err
+		return reqErr
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Token", c.Token)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("session lifecycle request: %w", err)
+		reqErr = fmt.Errorf("session lifecycle request: %w", err)
+		return reqErr
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return err
+		reqErr = err
+		return reqErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var eb errorBody
@@ -114,7 +132,11 @@ func (c *HTTPSessionClient) post(ctx context.Context, path string, payload any) 
 		if msg == "" {
 			msg = resp.Status
 		}
-		return fmt.Errorf("%s", msg)
+		reqErr = fmt.Errorf("%s", msg)
+		return reqErr
+	}
+	endAttrs = []any{
+		"status", resp.StatusCode,
 	}
 	return nil
 }

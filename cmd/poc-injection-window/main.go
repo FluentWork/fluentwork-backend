@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 func main() {
+	slog.SetDefault(logx.New("poc-injection-window"))
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "poc-injection-window FAILED: %v\n", err)
 		os.Exit(1)
@@ -40,6 +43,7 @@ func run() error {
 		smoke, err := voicepoc.SmokeDuplex(ctx, voicepoc.DuplexConfig{
 			APIKey:       apiKey,
 			Endpoint:     strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
+			Logger:       slog.Default().With("component", "voicepoc.cli"),
 			Instructions: "你是 FluentWork B14 harness 助手。",
 		})
 		if err != nil {
@@ -64,6 +68,7 @@ func run() error {
 		provider := voicepoc.VolcDuplexInjectionProvider{Config: voicepoc.DuplexConfig{
 			APIKey:   apiKey,
 			Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
+			Logger:   slog.Default().With("component", "voicepoc.cli"),
 		}, WavPath: wavPath}
 		// Sparse gradient for live cost control; full ≥6×5 after audio observation lands.
 		delays := []time.Duration{

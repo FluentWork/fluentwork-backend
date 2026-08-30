@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 // HTTPTicketConsumer calls app-server POST /internal/v1/tickets/consume.
@@ -16,6 +19,7 @@ type HTTPTicketConsumer struct {
 	BaseURL    string
 	Token      string
 	HTTPClient *http.Client
+	Logger     *slog.Logger
 }
 
 type consumeRequest struct {
@@ -56,6 +60,15 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 	if base == "" {
 		return ConsumedTicket{}, fmt.Errorf("app-server base URL is required")
 	}
+	seg := logx.Begin(c.Logger, "voice.ticket_consume",
+		"component", "voicegateway.ticket_client",
+		"base_url", base,
+	)
+	var consumeErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(consumeErr, endAttrs...)
+	}()
 	client := c.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
@@ -74,7 +87,8 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return ConsumedTicket{}, fmt.Errorf("ticket consume request: %w", err)
+		consumeErr = fmt.Errorf("ticket consume request: %w", err)
+		return ConsumedTicket{}, consumeErr
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -92,19 +106,27 @@ func (c *HTTPTicketConsumer) Consume(ctx context.Context, rawTicket string) (Con
 		if msg == "" {
 			msg = resp.Status
 		}
-		return ConsumedTicket{}, &ConsumeError{
+		consumeErr = &ConsumeError{
 			StatusCode: resp.StatusCode,
 			Code:       eb.Code,
 			Message:    msg,
 		}
+		return ConsumedTicket{}, consumeErr
 	}
 
 	var out consumeResponse
 	if err := json.Unmarshal(body, &out); err != nil {
-		return ConsumedTicket{}, fmt.Errorf("decode consume response: %w", err)
+		consumeErr = fmt.Errorf("decode consume response: %w", err)
+		return ConsumedTicket{}, consumeErr
 	}
 	if out.SessionID == "" || out.UserID == "" {
-		return ConsumedTicket{}, fmt.Errorf("consume response missing session_id/user_id")
+		consumeErr = fmt.Errorf("consume response missing session_id/user_id")
+		return ConsumedTicket{}, consumeErr
+	}
+	endAttrs = []any{
+		"status", resp.StatusCode,
+		"session_id", out.SessionID,
+		"user_id", out.UserID,
 	}
 	return ConsumedTicket(out), nil
 }

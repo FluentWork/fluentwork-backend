@@ -52,7 +52,7 @@ func NewService(store Store, reassigner Reassigner, cfg config.Config, logger *s
 		store:      store,
 		reassigner: reassigner,
 		cfg:        cfg,
-		logger:     logger,
+		logger:     logger.With("component", "account.service"),
 		now:        time.Now,
 		newID:      uuid.NewString,
 	}

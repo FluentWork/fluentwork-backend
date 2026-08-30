@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 const defaultJobRetryDelay = 2 * time.Second
@@ -31,6 +33,15 @@ func (s *Service) ProcessNextJob(ctx context.Context, workerID string) (ok bool,
 	// while still bounding the actual job work with a deadline.
 	jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultJobTimeout)
 	defer cancel()
+	seg := logx.Begin(s.logger, "session.job.process",
+		"job_id", job.ID,
+		"session_id", job.SessionID,
+		"job_type", job.JobType,
+		"attempts", job.Attempts,
+	)
+	defer func() {
+		seg.End(err)
+	}()
 
 	if err := s.runJob(jobCtx, job); err != nil {
 		s.logger.Warn("session job failed",
@@ -85,26 +96,52 @@ func (s *Service) runJob(ctx context.Context, job Job) error {
 }
 
 func (s *Service) processSessionFinished(ctx context.Context, sessionID string) error {
+	seg := logx.Begin(s.logger, "session.review.pipeline",
+		"session_id", sessionID,
+		"stage", "orchestration",
+	)
+	var pipelineErr error
+	var endAttrs []any
+	defer func() {
+		seg.End(pipelineErr, endAttrs...)
+	}()
+
 	session, err := s.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return err
+		pipelineErr = err
+		return pipelineErr
 	}
 	if session.Status == StatusReviewed {
+		endAttrs = []any{"status", session.Status}
 		return nil
 	}
 	if session.Status != StatusEnded {
-		return fmt.Errorf("session status %q is not ended", session.Status)
+		pipelineErr = fmt.Errorf("session status %q is not ended", session.Status)
+		return pipelineErr
 	}
 	utterances, err := s.store.ListUtterances(ctx, sessionID)
 	if err != nil {
-		return err
+		pipelineErr = err
+		return pipelineErr
 	}
 	reviewJSON, err := buildStubReviewJSON(session, utterances)
 	if err != nil {
-		return err
+		pipelineErr = err
+		return pipelineErr
 	}
 	_, err = s.store.MarkSessionReviewed(ctx, sessionID, reviewJSON, s.now().UTC())
-	return err
+	if err != nil {
+		pipelineErr = err
+		return pipelineErr
+	}
+	endAttrs = []any{
+		"status", StatusReviewed,
+		"duration_sec", session.DurationSec,
+		"utterance_count", len(utterances),
+		"review_bytes", len(reviewJSON),
+		"generator", "stub-v1",
+	}
+	return nil
 }
 
 type stubReview struct {
