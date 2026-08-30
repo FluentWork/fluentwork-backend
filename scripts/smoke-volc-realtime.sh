@@ -28,6 +28,7 @@ if [[ -z "${VOLC_SPEECH_API_KEY:-}${VOLC_POC_API_KEY:-}" ]]; then
   exit 1
 fi
 
-echo "=== Volcano realtime duplex smoke (B14 D2) ==="
+echo "=== Volcano realtime duplex smoke (B14) ==="
 echo "key_prefix=$(printf '%s' "${VOLC_POC_API_KEY:-$VOLC_SPEECH_API_KEY}" | cut -c1-12)..."
-go run ./cmd/smoke-volc-realtime
+# Pass-through args to the Go program (e.g. --asr).
+go run ./cmd/smoke-volc-realtime "$@"
