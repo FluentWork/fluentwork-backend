@@ -27,6 +27,7 @@ func run() error {
 	liveRequested := apiKey != "" || strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")) != ""
 	liveT9 := strings.EqualFold(os.Getenv("VOLC_POC_LIVE_T9"), "1") ||
 		strings.EqualFold(os.Getenv("VOLC_POC_LIVE_T9"), "true")
+	wavPath := resolveWavPath()
 
 	out := map[string]any{
 		"issue":   "B14",
@@ -63,7 +64,7 @@ func run() error {
 		provider := voicepoc.VolcDuplexInjectionProvider{Config: voicepoc.DuplexConfig{
 			APIKey:   apiKey,
 			Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
-		}}
+		}, WavPath: wavPath}
 		// Sparse gradient for live cost control; full ≥6×5 after audio observation lands.
 		delays := []time.Duration{
 			200 * time.Millisecond,
@@ -72,6 +73,7 @@ func run() error {
 		}
 		report, err = voicepoc.RunT9(ctx, provider, delays, 1)
 		out["t9_mode"] = "live-channel-probe"
+		out["fixture"] = wavPath
 		out["blocker"] = "live T9 currently probes session.update after delay only; same-turn audio observation not yet frozen for B12"
 	} else {
 		provider := voicepoc.MockInjectionProvider{ModelStartAfter: 900 * time.Millisecond}
@@ -110,4 +112,11 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func resolveWavPath() string {
+	if wavPath := strings.TrimSpace(os.Getenv("VOLC_POC_WAV")); wavPath != "" {
+		return wavPath
+	}
+	return voicepoc.DefaultFixtureWAVPath()
 }

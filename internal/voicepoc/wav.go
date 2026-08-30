@@ -4,7 +4,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 )
+
+const defaultFixtureWAVPath = "internal/voicepoc/testdata/cache_invalidation_16k.wav"
+
+// DefaultFixtureWAVPath returns the shared 16kHz mono PCM WAV fixture for B14 smokes.
+func DefaultFixtureWAVPath() string {
+	return filepath.Clean(defaultFixtureWAVPath)
+}
 
 // LoadWAVPCM16LE reads a mono PCM WAV and returns raw s16le samples (no header).
 func LoadWAVPCM16LE(path string) (pcm []byte, sampleRate int, err error) {

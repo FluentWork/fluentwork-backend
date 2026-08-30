@@ -591,31 +591,31 @@ func SmokeDuplexInject(ctx context.Context, cfg DuplexConfig, wavPath string) (m
 
 	transcript := strings.TrimSpace(turn1.Transcript)
 	out := map[string]any{
-		"ok":                    transcript != "" && (same.OK || next.OK),
-		"provider":              "volc-duplex",
-		"session_id":            session.SessionID(),
-		"log_id":                session.LogID(),
-		"inject_channel":        "session.update",
-		"inject_channel_ok":     true,
-		"inject_latency_ms":     injectLatency.Milliseconds(),
-		"v1_asr_text_ok":        transcript != "",
-		"v3_same_turn_ok":       same.OK,
-		"v3_next_turn_ok":       next.OK,
-		"v3_inject_effect_ok":   same.OK || next.OK,
-		"same_turn":             same,
-		"next_turn":             next,
-		"transcript":            transcript,
-		"assistant_text":        strings.TrimSpace(turn1.AssistantText),
-		"assistant_text_turn2":  strings.TrimSpace(turn2.AssistantText),
-		"asr_started_ms":        turn1.ASRStartedAtMS,
-		"asr_done_ms":           turn1.ASRDoneAtMS,
-		"event_types":           turn1.EventTypes,
-		"event_types_turn2":     turn2.EventTypes,
-		"pcm_bytes":             len(pcm),
-		"elapsed_ms":            time.Since(started).Milliseconds(),
-		"credential_mode":       "live",
-		"fixture":               wavPath,
-		"b7_tier_hint":          tierHint(same.OK, next.OK),
+		"ok":                   transcript != "" && (same.OK || next.OK),
+		"provider":             "volc-duplex",
+		"session_id":           session.SessionID(),
+		"log_id":               session.LogID(),
+		"inject_channel":       "session.update",
+		"inject_channel_ok":    true,
+		"inject_latency_ms":    injectLatency.Milliseconds(),
+		"v1_asr_text_ok":       transcript != "",
+		"v3_same_turn_ok":      same.OK,
+		"v3_next_turn_ok":      next.OK,
+		"v3_inject_effect_ok":  same.OK || next.OK,
+		"same_turn":            same,
+		"next_turn":            next,
+		"transcript":           transcript,
+		"assistant_text":       strings.TrimSpace(turn1.AssistantText),
+		"assistant_text_turn2": strings.TrimSpace(turn2.AssistantText),
+		"asr_started_ms":       turn1.ASRStartedAtMS,
+		"asr_done_ms":          turn1.ASRDoneAtMS,
+		"event_types":          turn1.EventTypes,
+		"event_types_turn2":    turn2.EventTypes,
+		"pcm_bytes":            len(pcm),
+		"elapsed_ms":           time.Since(started).Milliseconds(),
+		"credential_mode":      "live",
+		"fixture":              wavPath,
+		"b7_tier_hint":         tierHint(same.OK, next.OK),
 		"notes": []string{
 			"T3: session.update ack = inject channel exists (V2)",
 			"T4 same-turn: update before commit; control showed create-time instructions CAN force INJECT_OK",
@@ -652,7 +652,10 @@ func scoreInjectReply(assistant string) injectScore {
 			containsFold(assistant, "got it") || containsFold(assistant, "covered") ||
 			containsFold(assistant, "key point"),
 	}
-	s.OK = assistant != "" && (s.HitMarker || (s.HitTopic && s.HitConfirm))
+	// For B14 evidence we require the explicit inject marker. The fixture itself
+	// already talks about cache invalidation, so topic+confirm alone is not
+	// strong enough to prove the mid-session update actually took effect.
+	s.OK = assistant != "" && s.HitMarker
 	return s
 }
 

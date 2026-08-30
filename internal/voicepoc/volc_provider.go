@@ -44,13 +44,13 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 	}
 	defer session.Close(ctx)
 
-	commitAt := time.Now()
 	if err := session.SendPCM(ctx, pcm); err != nil {
 		return InjectTrial{}, err
 	}
 	if err := session.CommitAudio(ctx); err != nil {
 		return InjectTrial{}, err
 	}
+	commitAt := time.Now()
 
 	timer := time.NewTimer(delay)
 	defer timer.Stop()

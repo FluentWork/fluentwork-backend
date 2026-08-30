@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -71,7 +70,7 @@ func run() error {
 
 	wavPath := strings.TrimSpace(*wav)
 	if wavPath == "" {
-		wavPath = defaultFixtureWAV()
+		wavPath = voicepoc.DefaultFixtureWAVPath()
 	}
 
 	var (
@@ -166,10 +165,6 @@ func run() error {
 	}
 	fmt.Println(pass)
 	return nil
-}
-
-func defaultFixtureWAV() string {
-	return filepath.Clean(filepath.Join("internal", "voicepoc", "testdata", "cache_invalidation_16k.wav"))
 }
 
 func printJSON(v any) error {
