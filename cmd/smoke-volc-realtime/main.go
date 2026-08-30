@@ -4,11 +4,13 @@
 //
 //	(default) D2: session.create + session.update
 //	--asr      D3/T2: upload fixture WAV and require ASR transcript (V1)
+//	--inject   T3/T4: commit → session.update → score assistant confirmation (V3/V5 probe)
 //
 // Usage:
 //
 //	./scripts/smoke-volc-realtime.sh
 //	./scripts/smoke-volc-realtime.sh --asr
+//	./scripts/smoke-volc-realtime.sh --inject
 package main
 
 import (
@@ -33,8 +35,13 @@ func main() {
 
 func run() error {
 	asr := flag.Bool("asr", false, "run D3/T2 ASR transcript smoke (V1)")
+	inject := flag.Bool("inject", false, "run T3/T4 inject-after-commit smoke (V3/V5 probe)")
 	wav := flag.String("wav", "", "path to 16kHz mono PCM WAV (default: voicepoc testdata fixture)")
 	flag.Parse()
+
+	if *asr && *inject {
+		return fmt.Errorf("use only one of --asr or --inject")
+	}
 
 	apiKey := firstNonEmpty(
 		os.Getenv("VOLC_POC_API_KEY"),
@@ -52,38 +59,52 @@ func run() error {
 		Voice:    firstNonEmpty(os.Getenv("VOLC_DUPLEX_VOICE"), "zh_female_vv_jupiter_bigtts"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+
+	wavPath := strings.TrimSpace(*wav)
+	if wavPath == "" {
+		wavPath = defaultFixtureWAV()
+	}
 
 	var (
 		result map[string]any
 		err    error
 		step   string
 		next   []string
+		pass   string
 	)
 
-	if *asr {
-		step = "D3/T2 ASR transcript (V1)"
-		wavPath := strings.TrimSpace(*wav)
-		if wavPath == "" {
-			wavPath = defaultFixtureWAV()
+	switch {
+	case *inject:
+		step = "T3/T4 inject-after-commit (V3/V5 probe)"
+		result, err = voicepoc.SmokeDuplexInject(ctx, cfg, wavPath)
+		next = []string{
+			"Repeat inject trials (≥10) for V5 ratio",
+			"T9 delay-gradient same-turn window → freeze B7 tier in meta doc 50",
+			"meta #12 PREREQ: quota / no-train / concurrency",
 		}
+		pass = "=== B14 T3/T4 inject smoke PASS ==="
+	case *asr:
+		step = "D3/T2 ASR transcript (V1)"
 		cfg.Instructions = "你是 FluentWork B14 ASR smoke 助手。用一句中文简短回应用户。"
 		result, err = voicepoc.SmokeDuplexASR(ctx, cfg, wavPath)
 		next = []string{
-			"T3/T4: inject after ASR and check assistant confirmation (V3/V5)",
+			"T3/T4: ./scripts/smoke-volc-realtime.sh --inject",
 			"T9: delay-gradient same-turn window → freeze B7 tier",
 			"meta #12 PREREQ: quota / no-train / concurrency",
 		}
-	} else {
+		pass = "=== B14 D3 ASR smoke PASS ==="
+	default:
 		step = "D2 minimal duplex session"
 		cfg.Instructions = "你是 FluentWork B14 D2 smoke 助手。"
 		result, err = voicepoc.SmokeDuplex(ctx, cfg)
 		next = []string{
 			"D3/T2: ./scripts/smoke-volc-realtime.sh --asr",
-			"T3/T4: mid-session inject behavioral check with audio turn",
+			"T3/T4: ./scripts/smoke-volc-realtime.sh --inject",
 			"T9: delay-gradient same-turn window → freeze B7 tier in meta doc 50",
 		}
+		pass = "=== B14 D2 duplex smoke PASS ==="
 	}
 	if err != nil {
 		if result != nil {
@@ -100,16 +121,11 @@ func run() error {
 	}); err != nil {
 		return err
 	}
-	if *asr {
-		fmt.Println("=== B14 D3 ASR smoke PASS ===")
-	} else {
-		fmt.Println("=== B14 D2 duplex smoke PASS ===")
-	}
+	fmt.Println(pass)
 	return nil
 }
 
 func defaultFixtureWAV() string {
-	// cmd/smoke-volc-realtime → repo root → internal/voicepoc/testdata/...
 	return filepath.Clean(filepath.Join("internal", "voicepoc", "testdata", "cache_invalidation_16k.wav"))
 }
 

@@ -38,7 +38,7 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 		"【B14 T9 delay=%dms】下一句若用户提到目标表达，请自然确认并包含标记 INJECT_OK。",
 		delay/time.Millisecond,
 	)
-	if err := session.UpdateInstructions(ctx, inject); err != nil {
+	if _, err := session.UpdateInstructions(ctx, inject); err != nil {
 		return InjectTrial{
 			DelayMS:           int(delay / time.Millisecond),
 			AffectedSameTurn:  false,
