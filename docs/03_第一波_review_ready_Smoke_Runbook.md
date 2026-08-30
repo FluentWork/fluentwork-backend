@@ -49,6 +49,23 @@
 2. JSON evidence：`session_id` / `review_status` / `generator` / `utterance_count` / `steps`
 3. 当前 mode（memory 或 MySQL）
 
+若已配置 `.env.volc.local`（`ARK_API_KEY`/`ARK_API_KEY_DEV` + `ARK_EP_REVIEW_REFINE`）且代理可达方舟：
+
+1. `ark_review_enabled=true`
+2. evidence 断言 `generator=ark-review-refine-v1`
+3. 断言内存/`ai_cost_logs` 有 `task_type=review.eval` 行
+4. 断言 `ready_wait_ms ≤ 15000`（端到端就绪等待；日志另有 `review.generate.done.duration_ms`）
+
+2026-08-31 本地 live（thinking disabled，3 次）：
+
+| 次 | `review.generate.done` | `ready_wait_ms` | cost |
+|---|---|---|---|
+| 1 | 7269ms | 7393 | tokens 834/452 |
+| 2 | 8982ms | 9128 | tokens 831/396 |
+| 3 | 8053ms | 8248 | tokens 830/534 |
+
+均 `generator=ark-review-refine-v1`，稳定落在 P90 ≤ 15s 红线内。
+
 失败退出码非 0。排障顺序：
 
 1. app-server HTTP 路径（guest / sessions / review）
@@ -67,16 +84,17 @@
 4. 结束：`POST /internal/v1/sessions/end`（带 utterances）
 5. 轮询：`GET /api/v1/sessions/:id/review` 直到 `ready`
 
-当前第一波 generator 为 `stub-v1`；真实 LLM 由第二波 `B8` 承接。
+当前第一波无 Ark 凭证时 generator 为 `stub-v1`；配置齐后走第二波 `B8` 真实路径（见上表）。
 
 ---
 
 ## 五、通过标准
 
 1. 脚本可重复执行，不依赖手工改库
-2. 输出 `review_status=ready` 且 `generator` 非空（当前为 `stub-v1`）
+2. 输出 `review_status=ready` 且 `generator` 非空（无 Ark：`stub-v1`；有 Ark：`ark-review-refine-v1` + cost 行）
 3. `steps` 覆盖 guest → create → activate → end → ready
 4. 失败时日志能指向 HTTP / worker / store 之一
+5. Ark 路径：`ready_wait_ms` 与 `review.generate.done.duration_ms` 应 ≤ 15s（告警红线）
 
 ---
 

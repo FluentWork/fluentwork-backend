@@ -66,3 +66,6 @@
 3. 本地完整 worker 路径确认 `generator` + `ai_cost_logs`；盯 P90 ≤ 15s（日志字段 `duration_ms`）
 4. 若仍偶发超慢：确认请求始终带 `thinking.disabled`，或换非 thinking endpoint
 5. 通过后进入 `B9` / `B10` 边界外工作
+
+深度思考是否应对齐产品、以及未来如何开慢轨 / 是否展示 reasoning：见 meta  
+`docs/30_技术方案/35_FluentWork深度思考模型场景与落地讨论.md`（讨论文档，不驱动立刻改代码）。

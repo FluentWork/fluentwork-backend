@@ -17,7 +17,7 @@
 3. worker / app-server / smoke-review-ready 支持注入 `ReviewGenerator`
 4. 生成器失败时，自动回退到 `stub-v1`
 5. 真实生成成功时写入 `ai_cost_logs`（`task_type=review.eval`，`cost_fen=0` 占位）
-6. live 请求强制 `thinking.disabled`，避免深度思考模型拖垮时延
+6. live 请求强制 `thinking.disabled`，避免深度思考模型拖垮时延（产品/场景讨论见 meta `docs/30_技术方案/35_FluentWork深度思考模型场景与落地讨论.md`，暂不改主路径）
 
 本批**明确不做**：
 
@@ -53,6 +53,6 @@
 
 ## 下一步
 
-1. 本地带 Ark 凭证跑一轮完整 `smoke-review-ready` / worker，确认 `generator=ark-review-refine-v1` 且 `ai_cost_logs` 有行
-2. 观察 `duration_ms` 是否稳定 ≤ 15s
+1. ~~本地带 Ark 凭证跑完整 `smoke-review-ready`~~ — 2026-08-31 PASS（3/3，`generator=ark-review-refine-v1`，cost 有行，`duration_ms` ~7–9s）
+2. 继续观察线上/联调 `duration_ms` 是否稳定 ≤ 15s
 3. 再决定是否进入 `B9`（full model 返回）或 `B10`（炼化入库）

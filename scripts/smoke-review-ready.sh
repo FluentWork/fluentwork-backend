@@ -74,6 +74,17 @@ elif [[ -f "$ROOT/configs/app-server.env.example" ]]; then
   load_env_file "$ROOT/configs/app-server.env.example"
 fi
 
+# Optional Volcano/Ark credentials for B8 live generator path.
+if [[ -f "$ROOT/.env.volc.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env.volc.local"
+  set +a
+fi
+if [[ -z "${ARK_API_KEY:-}" && -n "${ARK_API_KEY_DEV:-}" ]]; then
+  export ARK_API_KEY="${ARK_API_KEY_DEV}"
+fi
+
 export APP_ENV="${APP_ENV:-development}"
 export AUTH_JWT_SECRET="${AUTH_JWT_SECRET:-fluentwork-dev-jwt-secret-change-me!!}"
 export INTERNAL_API_TOKEN="${INTERNAL_API_TOKEN:-fluentwork-dev-internal-token-change-me!!}"

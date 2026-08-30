@@ -71,16 +71,22 @@ func run() error {
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
-	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
+	costSvc := aicost.NewService(costStore, logger)
+	sessionSvc.SetCostRecorder(costSvc)
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
 		APIKey:   cfg.ArkAPIKey,
 		Endpoint: cfg.ArkReviewRefineEP,
 		Logger:   logger.With("component", "reviewgen.ark"),
 	}
-	if reviewGenerator.Enabled() {
+	arkEnabled := reviewGenerator.Enabled()
+	if arkEnabled {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
+	logger.Info("smoke review generator",
+		"ark_review_enabled", arkEnabled,
+		"ark_review_endpoint", cfg.ArkReviewRefineEP,
+	)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
 
@@ -117,9 +123,35 @@ func run() error {
 		return err
 	}
 
-	evidence, err := exerciseReviewReady(baseURL, cfg.InternalAPIToken)
+	evidence, err := exerciseReviewReady(baseURL, cfg.InternalAPIToken, arkEnabled)
 	if err != nil {
 		return err
+	}
+
+	if arkEnabled {
+		if evidence.Generator != "ark-review-refine-v1" {
+			return fmt.Errorf("expected generator ark-review-refine-v1 with Ark enabled, got %q", evidence.Generator)
+		}
+		logs, listErr := costSvc.ListRecent(context.Background(), "", 10)
+		if listErr != nil {
+			return fmt.Errorf("list ai cost logs: %w", listErr)
+		}
+		evidence.CostLogCount = len(logs)
+		for _, row := range logs {
+			if row.TaskType == "review.eval" {
+				evidence.CostTaskType = row.TaskType
+				evidence.CostModel = row.Model
+				evidence.CostTokensIn = row.TokensIn
+				evidence.CostTokensOut = row.TokensOut
+				break
+			}
+		}
+		if evidence.CostTaskType == "" {
+			return fmt.Errorf("expected ai_cost_logs row task_type=review.eval, got %d rows", len(logs))
+		}
+		if evidence.ReadyWaitMS > 15000 {
+			return fmt.Errorf("review ready wait %dms exceeds 15s SLA (duration_ms proxy)", evidence.ReadyWaitMS)
+		}
 	}
 
 	encoded, err := json.MarshalIndent(evidence, "", "  ")
@@ -132,6 +164,11 @@ func run() error {
 		fmt.Println("mode: in-process memory store (HTTP handlers + worker loop co-located)")
 	} else {
 		fmt.Println("mode: MySQL-backed store (MYSQL_DSN set)")
+	}
+	if arkEnabled {
+		fmt.Println("ark_path: enabled (asserted generator + ai_cost_logs + ready_wait_ms<=15000)")
+	} else {
+		fmt.Println("ark_path: disabled (stub-v1 fallback)")
 	}
 	return nil
 }
@@ -172,13 +209,19 @@ type smokeEvidence struct {
 	ReviewStatus   string          `json:"review_status"`
 	Generator      string          `json:"generator,omitempty"`
 	UtteranceCount any             `json:"utterance_count,omitempty"`
+	ReadyWaitMS    int64           `json:"ready_wait_ms,omitempty"`
+	CostLogCount   int             `json:"cost_log_count,omitempty"`
+	CostTaskType   string          `json:"cost_task_type,omitempty"`
+	CostModel      string          `json:"cost_model,omitempty"`
+	CostTokensIn   int             `json:"cost_tokens_in,omitempty"`
+	CostTokensOut  int             `json:"cost_tokens_out,omitempty"`
 	Review         json.RawMessage `json:"review,omitempty"`
 	Steps          []string        `json:"steps"`
 }
 
-func exerciseReviewReady(baseURL, internalToken string) (smokeEvidence, error) {
+func exerciseReviewReady(baseURL, internalToken string, arkEnabled bool) (smokeEvidence, error) {
 	steps := make([]string, 0, 8)
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	guest, err := postJSON(client, baseURL+"/api/v1/auth/guest", "", map[string]any{
 		"device_id": "smoke-review-ready-device",
@@ -192,8 +235,12 @@ func exerciseReviewReady(baseURL, internalToken string) (smokeEvidence, error) {
 	}
 	steps = append(steps, "guest auth")
 
+	sceneType := "demo"
+	if arkEnabled {
+		sceneType = "standup"
+	}
 	created, err := postJSON(client, baseURL+"/api/v1/sessions", token, map[string]any{
-		"scene_type": "demo",
+		"scene_type": sceneType,
 	})
 	if err != nil {
 		return smokeEvidence{}, fmt.Errorf("create session: %w", err)
@@ -220,21 +267,35 @@ func exerciseReviewReady(baseURL, internalToken string) (smokeEvidence, error) {
 	}
 	steps = append(steps, "review pending before end")
 
+	utterances := []map[string]any{
+		{"seq": 1, "speaker": "ai", "text": "ready"},
+		{"seq": 2, "speaker": "user", "text": "hello fluentwork smoke"},
+	}
+	if arkEnabled {
+		// Richer English transcript so B15 quote/schema checks can pass on live Ark.
+		utterances = []map[string]any{
+			{"seq": 1, "speaker": "ai", "text": "What is blocking you today?"},
+			{"seq": 2, "speaker": "user", "text": "I will sync up with the team tomorrow. I am blocked on the API review."},
+		}
+	}
+
 	if _, err := postJSON(client, baseURL+"/internal/v1/sessions/end", "", map[string]any{
 		"session_id":   sessionID,
 		"duration_sec": 18,
 		"reason":       "smoke",
-		"utterances": []map[string]any{
-			{"seq": 1, "speaker": "ai", "text": "ready"},
-			{"seq": 2, "speaker": "user", "text": "hello fluentwork smoke"},
-		},
+		"utterances":   utterances,
 	}, header{"X-Internal-Token", internalToken}); err != nil {
 		return smokeEvidence{}, fmt.Errorf("session end: %w", err)
 	}
 	steps = append(steps, "session.end persisted + job enqueued")
 
+	pollBudget := 15 * time.Second
+	if arkEnabled {
+		pollBudget = 45 * time.Second
+	}
+	waitStarted := time.Now()
 	var ready map[string]any
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := waitStarted.Add(pollBudget)
 	for time.Now().Before(deadline) {
 		ready, err = getJSON(client, baseURL+"/api/v1/sessions/"+sessionID+"/review", token)
 		if err != nil {
@@ -244,7 +305,7 @@ func exerciseReviewReady(baseURL, internalToken string) (smokeEvidence, error) {
 		switch status {
 		case session.ReviewPollReady:
 			steps = append(steps, "review ready")
-			return buildEvidence(sessionID, ready, steps)
+			return buildEvidence(sessionID, ready, steps, time.Since(waitStarted).Milliseconds())
 		case session.ReviewPollFailed:
 			return smokeEvidence{}, fmt.Errorf("review failed: %#v", ready)
 		}
@@ -253,7 +314,7 @@ func exerciseReviewReady(baseURL, internalToken string) (smokeEvidence, error) {
 	return smokeEvidence{}, fmt.Errorf("timed out waiting for review ready; last=%#v", ready)
 }
 
-func buildEvidence(sessionID string, ready map[string]any, steps []string) (smokeEvidence, error) {
+func buildEvidence(sessionID string, ready map[string]any, steps []string, readyWaitMS int64) (smokeEvidence, error) {
 	raw, err := json.Marshal(ready["review"])
 	if err != nil {
 		return smokeEvidence{}, err
@@ -269,6 +330,7 @@ func buildEvidence(sessionID string, ready map[string]any, steps []string) (smok
 		ReviewStatus:   session.ReviewPollReady,
 		Generator:      generator,
 		UtteranceCount: reviewDoc["utterance_count"],
+		ReadyWaitMS:    readyWaitMS,
 		Review:         raw,
 		Steps:          steps,
 	}, nil
