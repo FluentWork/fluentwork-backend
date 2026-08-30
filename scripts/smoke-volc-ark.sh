@@ -2,12 +2,20 @@
 # Smoke-test Volcano Ark text endpoints (FluentWork fw-* ep list).
 # Usage:
 #   cp configs/volc.env.example .env.volc.local   # fill ARK_API_KEY(_DEV)
-#   set -a && source .env.volc.local && set +a
 #   ./scripts/smoke-volc-ark.sh
+# Optional: export ARK_API_KEY / ARK_API_KEY_DEV in the shell (overrides file).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# Auto-load local secrets if present (does not override already-exported vars).
+if [[ -f "$ROOT/.env.volc.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env.volc.local"
+  set +a
+fi
 
 # Prefer explicit ARK_API_KEY; else Dev key for local smoke.
 if [[ -z "${ARK_API_KEY:-}" && -n "${ARK_API_KEY_DEV:-}" ]]; then
@@ -16,7 +24,7 @@ fi
 
 if [[ -z "${ARK_API_KEY:-}" ]]; then
   echo "ARK_API_KEY / ARK_API_KEY_DEV is empty." >&2
-  echo "Export it first, or: set -a; source .env.volc.local; set +a" >&2
+  echo "Create $ROOT/.env.volc.local from configs/volc.env.example and fill the Key." >&2
   exit 1
 fi
 
