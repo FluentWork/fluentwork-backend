@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke-test Volcano Ark text endpoints (FluentWork fw-* ep list).
 # Usage:
-#   cp configs/volc.env.example .env.volc.local   # fill ARK_API_KEY
+#   cp configs/volc.env.example .env.volc.local   # fill ARK_API_KEY(_DEV)
 #   set -a && source .env.volc.local && set +a
 #   ./scripts/smoke-volc-ark.sh
 set -euo pipefail
@@ -9,13 +9,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Prefer explicit ARK_API_KEY; else Dev key for local smoke.
+if [[ -z "${ARK_API_KEY:-}" && -n "${ARK_API_KEY_DEV:-}" ]]; then
+  ARK_API_KEY="${ARK_API_KEY_DEV}"
+fi
+
 if [[ -z "${ARK_API_KEY:-}" ]]; then
-  echo "ARK_API_KEY is empty." >&2
+  echo "ARK_API_KEY / ARK_API_KEY_DEV is empty." >&2
   echo "Export it first, or: set -a; source .env.volc.local; set +a" >&2
   exit 1
 fi
 
 BASE_URL="${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+PROJECT_HINT="${ARK_PROJECT:-unknown}"
 
 declare -a NAMES=(
   "fw-review-refine"
@@ -35,7 +41,8 @@ declare -a EPS=(
 )
 
 fail=0
-echo "=== Volcano Ark smoke ($BASE_URL) ==="
+echo "=== Volcano Ark smoke ($BASE_URL) project=${PROJECT_HINT} ==="
+echo "key_prefix=$(printf '%s' "$ARK_API_KEY" | cut -c1-12)..."
 
 for i in "${!NAMES[@]}"; do
   name="${NAMES[$i]}"
@@ -63,7 +70,7 @@ for i in "${!NAMES[@]}"; do
 
   if [[ "$code" != "200" ]]; then
     echo "[FAIL] $name ($ep) HTTP $code"
-    head -c 400 "$tmp"; echo
+    head -c 500 "$tmp"; echo
     fail=1
   else
     snippet="$(jq -r '.choices[0].message.content // .error.message // "ok"' "$tmp" 2>/dev/null || echo ok)"
@@ -74,7 +81,9 @@ done
 
 if [[ "$fail" -ne 0 ]]; then
   echo "=== Ark smoke FAILED ===" >&2
-  echo "Hint: 401/invalid key 通常是「语音 API Key」误用于方舟；请到「火山方舟 → API Key 管理」复制 ARK_API_KEY。" >&2
+  echo "Hints:" >&2
+  echo "  - 401: 用了语音 Key，或 Key 不属于该项目" >&2
+  echo "  - 404/InvalidEndpoint: Endpoint 与 API Key 不在同一项目（常见：ep 在 default，Key 在 FluentWork-Dev）" >&2
   exit 1
 fi
 
