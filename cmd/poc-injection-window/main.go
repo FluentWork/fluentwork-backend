@@ -1,9 +1,3 @@
-// Package main runs the B14 T9 injection-window harness.
-//
-// Default mode uses MockInjectionProvider (no Volcano credentials).
-// When VOLC_POC_ENDPOINT / VOLC_POC_API_KEY are both set, the harness refuses
-// to pretend live mode until a real adapter lands — it still runs mock and
-// prints the credential-ready status for the execution checklist.
 package main
 
 import (
@@ -25,35 +19,78 @@ func main() {
 }
 
 func run() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	apiKey := firstNonEmpty(
+		os.Getenv("VOLC_POC_API_KEY"),
+		os.Getenv("VOLC_SPEECH_API_KEY"),
+		os.Getenv("VOLC_SPEECH_API_KEY_DEV"),
+	)
+	liveRequested := apiKey != "" || strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")) != ""
+	liveT9 := strings.EqualFold(os.Getenv("VOLC_POC_LIVE_T9"), "1") ||
+		strings.EqualFold(os.Getenv("VOLC_POC_LIVE_T9"), "true")
+
+	out := map[string]any{
+		"issue":   "B14",
+		"harness": "T9 injection window",
+	}
+
+	if liveRequested && apiKey != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		smoke, err := voicepoc.SmokeDuplex(ctx, voicepoc.DuplexConfig{
+			APIKey:       apiKey,
+			Endpoint:     strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
+			Instructions: "你是 FluentWork B14 harness 助手。",
+		})
+		if err != nil {
+			return fmt.Errorf("live duplex smoke: %w", err)
+		}
+		out["live_adapter_ready"] = true
+		out["volcano_creds_set"] = true
+		out["d2_smoke"] = smoke
+	} else {
+		out["live_adapter_ready"] = false
+		out["volcano_creds_set"] = false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	credsReady := strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")) != "" &&
-		strings.TrimSpace(os.Getenv("VOLC_POC_API_KEY")) != ""
-
-	provider := voicepoc.MockInjectionProvider{ModelStartAfter: 900 * time.Millisecond}
-	report, err := voicepoc.RunT9(ctx, provider, nil, 6)
+	var (
+		report voicepoc.WindowReport
+		err    error
+	)
+	if liveT9 && apiKey != "" {
+		provider := voicepoc.VolcDuplexInjectionProvider{Config: voicepoc.DuplexConfig{
+			APIKey:   apiKey,
+			Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
+		}}
+		// Sparse gradient for live cost control; full ≥6×5 after audio observation lands.
+		delays := []time.Duration{
+			200 * time.Millisecond,
+			600 * time.Millisecond,
+			1000 * time.Millisecond,
+		}
+		report, err = voicepoc.RunT9(ctx, provider, delays, 1)
+		out["t9_mode"] = "live-channel-probe"
+		out["blocker"] = "live T9 currently probes session.update after delay only; same-turn audio observation not yet frozen for B12"
+	} else {
+		provider := voicepoc.MockInjectionProvider{ModelStartAfter: 900 * time.Millisecond}
+		report, err = voicepoc.RunT9(ctx, provider, nil, 6)
+		out["t9_mode"] = "mock"
+		if !liveRequested {
+			out["blocker"] = "Volcano POC credentials not set; mock tier is pipeline-only, not B12 freeze evidence"
+		} else {
+			out["blocker"] = "D2 live smoke available; set VOLC_POC_LIVE_T9=1 for live channel-delay probe (still not B12 freeze until audio T9)"
+		}
+	}
 	if err != nil {
 		return err
 	}
-
-	out := map[string]any{
-		"issue":              "B14",
-		"harness":            "T9 injection window",
-		"live_adapter_ready": false,
-		"volcano_creds_set":  credsReady,
-		"report":             report,
-		"blocker":            "",
-		"next": []string{
-			"complete meta #12 vendor PREREQ (quota / contract / concurrency)",
-			"implement Volcano InjectionProvider adapter behind voicepoc.InjectionProvider",
-			"re-run with live provider and write tier conclusion back to meta doc 50",
-		},
-	}
-	if !credsReady {
-		out["blocker"] = "Volcano POC credentials not set (VOLC_POC_ENDPOINT / VOLC_POC_API_KEY); mock tier is pipeline-only, not B12 freeze evidence"
-	} else {
-		out["blocker"] = "credentials present but live Volcano adapter not implemented yet; mock report must not freeze B12"
+	out["report"] = report
+	out["next"] = []string{
+		"complete meta #12 vendor PREREQ (quota / contract / concurrency)",
+		"add audio-turn same-turn observation to VolcDuplexInjectionProvider",
+		"re-run live T9 and write tier conclusion back to meta doc 50",
 	}
 
 	enc, err := json.MarshalIndent(out, "", "  ")
@@ -61,8 +98,16 @@ func run() error {
 		return err
 	}
 	fmt.Println(string(enc))
-	fmt.Println("=== B14 harness PASS (mock path) ===")
-	fmt.Printf("mock tier: %s (p90=%dms) — NOT a live freeze until Volcano adapter runs\n",
-		report.TierLabel, report.WindowP90MS)
+	fmt.Printf("=== B14 harness PASS (%s) ===\n", out["t9_mode"])
+	fmt.Printf("tier: %s (p90=%dms) credential_mode=%s\n", report.TierLabel, report.WindowP90MS, report.CredentialMode)
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
