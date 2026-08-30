@@ -39,22 +39,27 @@ func (t Tier) String() string {
 
 // InjectTrial is one delayed-injection observation for T9.
 type InjectTrial struct {
-	DelayMS           int  `json:"delay_ms"`
-	AffectedSameTurn  bool `json:"affected_same_turn"`
-	ModelStartAfterMS int  `json:"model_start_after_ms"`
+	DelayMS           int    `json:"delay_ms"`
+	AffectedSameTurn  bool   `json:"affected_same_turn"`
+	AffectedNextTurn  bool   `json:"affected_next_turn,omitempty"`
+	ModelStartAfterMS int    `json:"model_start_after_ms"`
+	SameTurnText      string `json:"same_turn_text,omitempty"`
+	NextTurnText      string `json:"next_turn_text,omitempty"`
 }
 
 // WindowReport aggregates T9 trials into P50/P90 and a frozen B7 tier.
 type WindowReport struct {
-	Trials          []InjectTrial `json:"trials"`
-	EffectiveMaxMS  int           `json:"effective_max_ms"`
-	WindowP50MS     int           `json:"window_p50_ms"`
-	WindowP90MS     int           `json:"window_p90_ms"`
-	Tier            Tier          `json:"tier"`
-	TierLabel       string        `json:"tier_label"`
-	Provider        string        `json:"provider"`
-	CredentialMode  string        `json:"credential_mode"`
-	Notes           []string      `json:"notes,omitempty"`
+	Trials             []InjectTrial `json:"trials"`
+	EffectiveMaxMS     int           `json:"effective_max_ms"`
+	WindowP50MS        int           `json:"window_p50_ms"`
+	WindowP90MS        int           `json:"window_p90_ms"`
+	SameTurnHitRate    float64       `json:"same_turn_hit_rate"`
+	NextTurnHitRate    float64       `json:"next_turn_hit_rate"`
+	Tier               Tier          `json:"tier"`
+	TierLabel          string        `json:"tier_label"`
+	Provider           string        `json:"provider"`
+	CredentialMode     string        `json:"credential_mode"`
+	Notes              []string      `json:"notes,omitempty"`
 }
 
 // InjectionProvider abstracts the vendor session used by the POC harness.
@@ -102,31 +107,47 @@ func RunT9(ctx context.Context, provider InjectionProvider, delays []time.Durati
 func SummarizeTrials(provider string, trials []InjectTrial) WindowReport {
 	effective := make([]int, 0, len(trials))
 	maxEffective := 0
-	anyAffect := false
+	sameHits := 0
+	nextHits := 0
 	for _, t := range trials {
 		if t.AffectedSameTurn {
-			anyAffect = true
+			sameHits++
 			effective = append(effective, t.DelayMS)
 			if t.DelayMS > maxEffective {
 				maxEffective = t.DelayMS
 			}
 		}
+		if t.AffectedNextTurn {
+			nextHits++
+		}
 	}
 
+	n := len(trials)
 	report := WindowReport{
 		Trials:         trials,
 		EffectiveMaxMS: maxEffective,
 		Provider:       provider,
 		CredentialMode: "mock",
 	}
-	if provider != "" && provider != "mock" {
+	if n > 0 {
+		report.SameTurnHitRate = float64(sameHits) / float64(n)
+		report.NextTurnHitRate = float64(nextHits) / float64(n)
+	}
+	if provider != "" && provider != "mock" && provider != "mock-closed" {
 		report.CredentialMode = "live"
 	}
 
-	if !anyAffect {
+	if sameHits == 0 {
+		if nextHits > 0 {
+			report.Tier = TierNextTurnConfirm
+			report.TierLabel = report.Tier.String()
+			report.Notes = append(report.Notes,
+				"no same-turn injection success; next-turn effect observed → tier ②")
+			return report
+		}
 		report.Tier = TierBadgeOnly
 		report.TierLabel = report.Tier.String()
-		report.Notes = append(report.Notes, "no same-turn injection success observed")
+		report.Notes = append(report.Notes, "no same-turn or next-turn injection success observed")
 		return report
 	}
 

@@ -64,12 +64,20 @@ func TestRunT9MockProvider(t *testing.T) {
 	}
 }
 
-func TestRunT9ClosedWindow(t *testing.T) {
-	report, err := RunT9(context.Background(), ClosedWindowProvider{}, []time.Duration{200 * time.Millisecond}, 3)
-	if err != nil {
-		t.Fatal(err)
+func TestSummarizeTrialsTierNextTurnFromNextTurnOnly(t *testing.T) {
+	trials := []InjectTrial{
+		{DelayMS: 200, AffectedSameTurn: false, AffectedNextTurn: true},
+		{DelayMS: 800, AffectedSameTurn: false, AffectedNextTurn: true},
 	}
-	if report.Tier != TierBadgeOnly {
-		t.Fatalf("tier = %v", report.Tier)
+	report := SummarizeTrials("volc-duplex", trials)
+	if report.Tier != TierNextTurnConfirm {
+		t.Fatalf("tier = %v want %v", report.Tier, TierNextTurnConfirm)
+	}
+	if report.CredentialMode != "live" {
+		t.Fatalf("credential mode = %q", report.CredentialMode)
+	}
+	if report.NextTurnHitRate != 1 {
+		t.Fatalf("next-turn hit rate = %v", report.NextTurnHitRate)
 	}
 }
+
