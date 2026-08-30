@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 const defaultJobRetryDelay = 2 * time.Second
+
+const stubReviewGenerator = "stub-v1"
 
 // ProcessNextJob claims and processes one pending session.finished job.
 // ok=false means the queue was empty.
@@ -124,13 +127,17 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		pipelineErr = err
 		return pipelineErr
 	}
-	reviewJSON, err := buildStubReviewJSON(session, utterances)
+	artifacts, err := buildStubReviewArtifacts(session, utterances)
 	if err != nil {
 		pipelineErr = err
 		return pipelineErr
 	}
-	_, err = s.store.MarkSessionReviewed(ctx, sessionID, reviewJSON, s.now().UTC())
+	_, err = s.store.MarkSessionReviewed(ctx, sessionID, artifacts.ReviewJSON, s.now().UTC())
 	if err != nil {
+		pipelineErr = err
+		return pipelineErr
+	}
+	if err := s.recordReviewCost(ctx, session, artifacts); err != nil {
 		pipelineErr = err
 		return pipelineErr
 	}
@@ -138,10 +145,16 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		"status", StatusReviewed,
 		"duration_sec", session.DurationSec,
 		"utterance_count", len(utterances),
-		"review_bytes", len(reviewJSON),
-		"generator", "stub-v1",
+		"review_bytes", len(artifacts.ReviewJSON),
+		"generator", artifacts.Generator,
 	}
 	return nil
+}
+
+type reviewArtifacts struct {
+	ReviewJSON []byte
+	Generator  string
+	Cost       *aicost.RecordRequest
 }
 
 type stubReview struct {
@@ -154,7 +167,7 @@ type stubReview struct {
 	Generator      string   `json:"generator"`
 }
 
-func buildStubReviewJSON(session Session, utterances []Utterance) ([]byte, error) {
+func buildStubReviewArtifacts(session Session, utterances []Utterance) (reviewArtifacts, error) {
 	doc := stubReview{
 		Version:        1,
 		Status:         "ready",
@@ -162,7 +175,40 @@ func buildStubReviewJSON(session Session, utterances []Utterance) ([]byte, error
 		UtteranceCount: len(utterances),
 		DurationSec:    session.DurationSec,
 		Highlights:     []string{},
-		Generator:      "stub-v1",
+		Generator:      stubReviewGenerator,
 	}
-	return json.Marshal(doc)
+	reviewJSON, err := json.Marshal(doc)
+	if err != nil {
+		return reviewArtifacts{}, err
+	}
+	return reviewArtifacts{
+		ReviewJSON: reviewJSON,
+		Generator:  stubReviewGenerator,
+		Cost:       nil,
+	}, nil
+}
+
+func (s *Service) recordReviewCost(ctx context.Context, session Session, artifacts reviewArtifacts) error {
+	if artifacts.Cost == nil {
+		s.logger.Info("ai cost skipped",
+			"session_id", session.ID,
+			"user_id", session.UserID,
+			"generator", artifacts.Generator,
+			"task_type", "review.eval",
+			"stage", "billing",
+			"reason", "no_ai_usage",
+		)
+		return nil
+	}
+	if s.costRecorder == nil {
+		return fmt.Errorf("aicost recorder is required for generator %q", artifacts.Generator)
+	}
+	req := *artifacts.Cost
+	if strings.TrimSpace(req.UserID) == "" {
+		req.UserID = session.UserID
+	}
+	if _, err := s.costRecorder.Record(ctx, req); err != nil {
+		return fmt.Errorf("record ai cost: %w", err)
+	}
+	return nil
 }

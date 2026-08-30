@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 )
@@ -414,6 +415,92 @@ func TestClaimNextJobReclaimsStaleProcessing(t *testing.T) {
 	}
 	if claimed.LockedBy == nil || *claimed.LockedBy != "worker-2" {
 		t.Fatalf("locked_by = %v", claimed.LockedBy)
+	}
+}
+
+func TestRecordReviewCostSkipsStubArtifacts(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	err := svc.recordReviewCost(context.Background(), Session{ID: "s1", UserID: "u1"}, reviewArtifacts{
+		Generator: stubReviewGenerator,
+		Cost:      nil,
+	})
+	if err != nil {
+		t.Fatalf("recordReviewCost(stub): %v", err)
+	}
+}
+
+func TestRecordReviewCostRequiresRecorderForRealUsage(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	err := svc.recordReviewCost(context.Background(), Session{ID: "s1", UserID: "u1"}, reviewArtifacts{
+		Generator: "ark-review-v1",
+		Cost: &aicost.RecordRequest{
+			TaskType:  "review.eval",
+			Model:     "ark-review-v1",
+			TokensIn:  120,
+			TokensOut: 80,
+			CostFen:   9,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected missing recorder error")
+	}
+}
+
+func TestRecordReviewCostWritesLedgerWhenRecorderPresent(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	costStore := aicost.NewMemoryStore()
+	recorder := aicost.NewService(costStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetCostRecorder(recorder)
+
+	err := svc.recordReviewCost(context.Background(), Session{ID: "s1", UserID: "u1"}, reviewArtifacts{
+		Generator: "ark-review-v1",
+		Cost: &aicost.RecordRequest{
+			TaskType:  "review.eval",
+			Model:     "ark-review-v1",
+			TokensIn:  120,
+			TokensOut: 80,
+			CostFen:   9,
+		},
+	})
+	if err != nil {
+		t.Fatalf("recordReviewCost: %v", err)
+	}
+
+	logs, err := recorder.ListRecent(context.Background(), "u1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("logs len = %d", len(logs))
+	}
+	if logs[0].TaskType != "review.eval" || logs[0].Model != "ark-review-v1" || logs[0].CostFen != 9 {
+		t.Fatalf("unexpected log: %+v", logs[0])
 	}
 }
 

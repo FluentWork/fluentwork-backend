@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -60,9 +61,16 @@ func run() error {
 	}
 	defer func() { _ = sessionCloser() }()
 
+	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = costCloser() }()
+
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
+	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
 
