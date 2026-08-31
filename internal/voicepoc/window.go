@@ -49,17 +49,17 @@ type InjectTrial struct {
 
 // WindowReport aggregates T9 trials into P50/P90 and a frozen B7 tier.
 type WindowReport struct {
-	Trials             []InjectTrial `json:"trials"`
-	EffectiveMaxMS     int           `json:"effective_max_ms"`
-	WindowP50MS        int           `json:"window_p50_ms"`
-	WindowP90MS        int           `json:"window_p90_ms"`
-	SameTurnHitRate    float64       `json:"same_turn_hit_rate"`
-	NextTurnHitRate    float64       `json:"next_turn_hit_rate"`
-	Tier               Tier          `json:"tier"`
-	TierLabel          string        `json:"tier_label"`
-	Provider           string        `json:"provider"`
-	CredentialMode     string        `json:"credential_mode"`
-	Notes              []string      `json:"notes,omitempty"`
+	Trials          []InjectTrial `json:"trials"`
+	EffectiveMaxMS  int           `json:"effective_max_ms"`
+	WindowP50MS     int           `json:"window_p50_ms"`
+	WindowP90MS     int           `json:"window_p90_ms"`
+	SameTurnHitRate float64       `json:"same_turn_hit_rate"`
+	NextTurnHitRate float64       `json:"next_turn_hit_rate"`
+	Tier            Tier          `json:"tier"`
+	TierLabel       string        `json:"tier_label"`
+	Provider        string        `json:"provider"`
+	CredentialMode  string        `json:"credential_mode"`
+	Notes           []string      `json:"notes,omitempty"`
 }
 
 // InjectionProvider abstracts the vendor session used by the POC harness.
@@ -175,7 +175,7 @@ func percentileNearestRank(sorted []int, p int) int {
 	if p >= 100 {
 		return sorted[len(sorted)-1]
 	}
-	rank := (p * len(sorted) + 99) / 100 // nearest-rank, 1-based
+	rank := (p*len(sorted) + 99) / 100 // nearest-rank, 1-based
 	if rank < 1 {
 		rank = 1
 	}
