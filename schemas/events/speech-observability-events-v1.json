@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fluentwork.app/schemas/events/speech-observability-events-v1.json",
+  "title": "FluentWork speech observability events v1",
+  "description": "Canonical domain and analytics event schema for speech-session observability across FluentWork runtimes.",
+  "oneOf": [
+    { "$ref": "#/$defs/speechSessionStarted" },
+    { "$ref": "#/$defs/speechSessionFailed" },
+    { "$ref": "#/$defs/speechSessionEnded" },
+    { "$ref": "#/$defs/speechInterruptLocal" },
+    { "$ref": "#/$defs/speechInterruptForwarded" },
+    { "$ref": "#/$defs/speechReconnectStarted" },
+    { "$ref": "#/$defs/speechReconnectSucceeded" },
+    { "$ref": "#/$defs/speechReconnectTimedOut" },
+    { "$ref": "#/$defs/speechAudioFirstChunkReceived" },
+    { "$ref": "#/$defs/speechTurnEnded" },
+    { "$ref": "#/$defs/speechTransportDisconnected" },
+    { "$ref": "#/$defs/speechTransportDegraded" }
+  ],
+  "$defs": {
+    "eventBase": {
+      "type": "object",
+      "required": ["event_name", "event_version", "event_time", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "event_name": { "type": "string" },
+        "event_version": { "type": "integer", "const": 1 },
+        "event_time": { "type": "string", "format": "date-time" },
+        "session_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "device_id": { "type": "string" },
+        "trace_id": { "type": "string" },
+        "platform": { "type": "string" },
+        "app_version": { "type": "string" },
+        "build_version": { "type": "string" },
+        "source": {
+          "type": "string",
+          "enum": ["ios", "backend", "voice_gateway", "worker"]
+        },
+        "phase": { "type": "string" },
+        "reason": { "type": "string" },
+        "error_code": { "type": "string" },
+        "error_message": { "type": "string" },
+        "elapsed_ms": { "type": "integer", "minimum": 0 },
+        "network_state": { "type": "string" },
+        "audio_route": { "type": "string" },
+        "is_reconnecting": { "type": "boolean" },
+        "interrupt_watermark": { "type": "integer", "minimum": 0 },
+        "turn_id": { "type": "string" },
+        "transport_type": { "type": "string" }
+      }
+    },
+    "speechSessionStarted": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "platform"],
+          "properties": {
+            "event_name": { "const": "speech_session_started" }
+          }
+        }
+      ]
+    },
+    "speechSessionFailed": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "reason"],
+          "properties": {
+            "event_name": { "const": "speech_session_failed" }
+          }
+        }
+      ]
+    },
+    "speechSessionEnded": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "elapsed_ms"],
+          "properties": {
+            "event_name": { "const": "speech_session_ended" }
+          }
+        }
+      ]
+    },
+    "speechInterruptLocal": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id"],
+          "properties": {
+            "event_name": { "const": "speech_interrupt_local" }
+          }
+        }
+      ]
+    },
+    "speechInterruptForwarded": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id"],
+          "properties": {
+            "event_name": { "const": "speech_interrupt_forwarded" }
+          }
+        }
+      ]
+    },
+    "speechReconnectStarted": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "is_reconnecting"],
+          "properties": {
+            "event_name": { "const": "speech_reconnect_started" }
+          }
+        }
+      ]
+    },
+    "speechReconnectSucceeded": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "elapsed_ms"],
+          "properties": {
+            "event_name": { "const": "speech_reconnect_succeeded" }
+          }
+        }
+      ]
+    },
+    "speechReconnectTimedOut": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "reason", "elapsed_ms"],
+          "properties": {
+            "event_name": { "const": "speech_reconnect_timed_out" }
+          }
+        }
+      ]
+    },
+    "speechAudioFirstChunkReceived": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "turn_id"],
+          "properties": {
+            "event_name": { "const": "speech_audio_first_chunk_received" }
+          }
+        }
+      ]
+    },
+    "speechTurnEnded": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id"],
+          "properties": {
+            "event_name": { "const": "speech_turn_ended" }
+          }
+        }
+      ]
+    },
+    "speechTransportDisconnected": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "network_state", "transport_type"],
+          "properties": {
+            "event_name": { "const": "speech_transport_disconnected" }
+          }
+        }
+      ]
+    },
+    "speechTransportDegraded": {
+      "allOf": [
+        { "$ref": "#/$defs/eventBase" },
+        {
+          "type": "object",
+          "required": ["event_name", "session_id", "network_state", "transport_type"],
+          "properties": {
+            "event_name": { "const": "speech_transport_degraded" }
+          }
+        }
+      ]
+    }
+  }
+}
