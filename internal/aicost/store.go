@@ -1,3 +1,4 @@
+// Package aicost persists AI usage cost ledger rows.
 package aicost
 
 import (

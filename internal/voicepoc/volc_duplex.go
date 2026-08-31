@@ -143,7 +143,7 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 
 // UpdateInstructions sends session.update — B14 V2 mid-session inject channel.
 // Non-update events observed while waiting are returned so callers can keep ASR/text.
-func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions string) ([]duplexEvent, error) {
+func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions string) ([]DuplexEvent, error) {
 	if s == nil || s.conn == nil {
 		return nil, fmt.Errorf("duplex session is nil")
 	}
@@ -168,7 +168,7 @@ func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions str
 		updateErr = err
 		return nil, updateErr
 	}
-	var skipped []duplexEvent
+	var skipped []DuplexEvent
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		readCtx, cancel := context.WithTimeout(ctx, time.Until(deadline))
@@ -288,7 +288,7 @@ func (s *DuplexSession) sendUserPCMInject(ctx context.Context, pcm []byte, injec
 		return TurnResult{}, 0, err
 	}
 
-	var preload []duplexEvent
+	var preload []DuplexEvent
 	if !injectAfterCommit {
 		// Drain early ASR events buffered during upload, then inject before commit.
 		drainCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -336,7 +336,7 @@ func (s *DuplexSession) sendUserPCMInject(ctx context.Context, pcm []byte, injec
 	return turn, injectLatency, err
 }
 
-func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, preload []duplexEvent, wait time.Duration) (TurnResult, error) {
+func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, preload []DuplexEvent, wait time.Duration) (TurnResult, error) {
 	var out TurnResult
 	seg := logx.Begin(s.cfg.Logger, "voice.duplex.collect_turn",
 		"module", "voicepoc.duplex",
@@ -363,7 +363,7 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	var text strings.Builder
 	seenUserProgress := false
 	seenResponse := false
-	apply := func(evt duplexEvent) bool {
+	apply := func(evt DuplexEvent) bool {
 		out.EventTypes = append(out.EventTypes, evt.Type)
 		switch evt.Type {
 		case "conversation.item.input_audio_transcription.started":
@@ -519,7 +519,8 @@ func (s *DuplexSession) send(ctx context.Context, v any) error {
 	return s.conn.Write(ctx, websocket.MessageText, b)
 }
 
-type duplexEvent struct {
+// DuplexEvent is one server-sent event from a Volcano duplex session.
+type DuplexEvent struct {
 	Type       string
 	SessionID  string
 	Delta      string
@@ -528,10 +529,10 @@ type duplexEvent struct {
 	Raw        string
 }
 
-func (s *DuplexSession) recv(ctx context.Context) (duplexEvent, error) {
+func (s *DuplexSession) recv(ctx context.Context) (DuplexEvent, error) {
 	_, data, err := s.conn.Read(ctx)
 	if err != nil {
-		return duplexEvent{}, err
+		return DuplexEvent{}, err
 	}
 	var envelope struct {
 		Type       string `json:"type"`
@@ -543,7 +544,7 @@ func (s *DuplexSession) recv(ctx context.Context) (duplexEvent, error) {
 		} `json:"session"`
 	}
 	_ = json.Unmarshal(data, &envelope)
-	evt := duplexEvent{
+	evt := DuplexEvent{
 		Type:       envelope.Type,
 		Delta:      envelope.Delta,
 		Text:       envelope.Text,
@@ -564,7 +565,7 @@ func SmokeDuplex(ctx context.Context, cfg DuplexConfig) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer session.Close(ctx)
+	defer func() { _ = session.Close(ctx) }()
 
 	inject := "【B14注入探针】请在后续回复中自然确认用户提到的目标表达；标记词 INJECT_OK。"
 	if _, err := session.UpdateInstructions(ctx, inject); err != nil {
@@ -605,7 +606,7 @@ func SmokeDuplexASR(ctx context.Context, cfg DuplexConfig, wavPath string) (map[
 	if err != nil {
 		return nil, err
 	}
-	defer session.Close(ctx)
+	defer func() { _ = session.Close(ctx) }()
 
 	turn, err := session.SendUserPCMAndWait(ctx, pcm, 30*time.Second)
 	if err != nil {
@@ -656,7 +657,7 @@ func SmokeDuplexInject(ctx context.Context, cfg DuplexConfig, wavPath string) (m
 	if err != nil {
 		return nil, err
 	}
-	defer session.Close(ctx)
+	defer func() { _ = session.Close(ctx) }()
 
 	turn1, injectLatency, err := session.SendUserPCMInjectBeforeCommit(ctx, pcm, defaultInjectPrompt, 35*time.Second)
 	if err != nil {

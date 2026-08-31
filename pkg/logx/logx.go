@@ -1,3 +1,4 @@
+// Package logx provides structured logging helpers for FluentWork services.
 package logx
 
 import (

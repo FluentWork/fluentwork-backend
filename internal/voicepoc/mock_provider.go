@@ -33,8 +33,10 @@ func (m MockInjectionProvider) RunDelayedInject(_ context.Context, delay time.Du
 // ClosedWindowProvider never lets injection affect the same turn (forces tier ③).
 type ClosedWindowProvider struct{}
 
+// Name implements InjectionProvider.
 func (ClosedWindowProvider) Name() string { return "mock-closed" }
 
+// RunDelayedInject implements InjectionProvider.
 func (ClosedWindowProvider) RunDelayedInject(_ context.Context, delay time.Duration) (InjectTrial, error) {
 	return InjectTrial{
 		DelayMS:           int(delay / time.Millisecond),

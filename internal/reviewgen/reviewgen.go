@@ -1,3 +1,4 @@
+// Package reviewgen calls Ark chat-completions for session review/refine generation.
 package reviewgen
 
 import (

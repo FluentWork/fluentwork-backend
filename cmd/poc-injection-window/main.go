@@ -1,3 +1,4 @@
+// Package main runs the B14 mock T9 injection-window POC harness.
 package main
 
 import (
