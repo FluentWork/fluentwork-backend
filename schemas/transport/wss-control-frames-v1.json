@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://fluentwork.app/schemas/wss-control-frames-v1.json",
+  "$id": "https://fluentwork.app/schemas/transport/wss-control-frames-v1.json",
   "title": "FluentWork WSS control frames v1",
-  "description": "JSON control frames for voice-gateway ↔ iOS. Binary Opus audio frames are out of band.",
+  "description": "JSON control frames for voice-gateway <-> iOS. Binary Opus audio frames are out of band.",
   "oneOf": [
     { "$ref": "#/$defs/auth" },
     { "$ref": "#/$defs/sessionReady" },

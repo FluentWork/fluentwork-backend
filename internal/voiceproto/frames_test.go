@@ -2,12 +2,10 @@ package voiceproto_test
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
+        sharedschemas "github.com/FluentWork/fluentwork-backend/schemas"
 )
 
 func TestControlFrameRoundTrip(t *testing.T) {
@@ -41,18 +39,8 @@ func TestControlFrameRoundTrip(t *testing.T) {
 
 func TestSchemaFilePresent(t *testing.T) {
 	t.Parallel()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	schemaPath := filepath.Join(root, "api", "wss-control-frames-v1.json")
-	raw, err := os.ReadFile(schemaPath)
-	if err != nil {
-		t.Fatalf("read schema: %v", err)
-	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
+        if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
 		t.Fatalf("schema json: %v", err)
 	}
 	if doc["title"] == nil {
@@ -67,4 +55,31 @@ func TestSchemaFilePresent(t *testing.T) {
 			t.Fatalf("schema missing $defs.%s", name)
 		}
 	}
+}
+
+func TestSpeechObservabilityEventSchemaMirrorPresent(t *testing.T) {
+        t.Parallel()
+
+        var doc map[string]any
+        if err := json.Unmarshal(sharedschemas.SpeechObservabilityEventsV1, &doc); err != nil {
+                t.Fatalf("schema json: %v", err)
+        }
+        if doc["title"] == nil {
+                t.Fatal("schema missing title")
+        }
+        defs, ok := doc["$defs"].(map[string]any)
+        if !ok {
+                t.Fatal("schema missing $defs")
+        }
+        for _, name := range []string{
+                "eventBase",
+                "speechSessionStarted",
+                "speechSessionFailed",
+                "speechTurnEnded",
+                "speechTransportDisconnected",
+        } {
+                if _, ok := defs[name]; !ok {
+                        t.Fatalf("schema missing $defs.%s", name)
+                }
+        }
 }

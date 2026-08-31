@@ -34,6 +34,7 @@ Local checks:
 
 Full local run details: `docs/01_本地启动.md`  
 First-wave scope: `docs/00_开发入口与第一波范围.md`
+Shared schema mirrors: `./scripts/sync-shared-schemas.sh`
 
 ## Current surface
 
@@ -46,7 +47,7 @@ First-wave scope: `docs/00_开发入口与第一波范围.md`
 - `POST /internal/v1/tickets/consume` (voice-gateway only; `X-Internal-Token`)
 - `POST /internal/v1/sessions/activate` / `POST /internal/v1/sessions/end` (voice-gateway session lifecycle)
 - async `session.finished` outbox + `cmd/worker` stub review pipeline (B5)
-- voice-gateway WSS `GET /v1/voice` (JSON control frames; schema in `api/wss-control-frames-v1.json`)
+- voice-gateway WSS `GET /v1/voice` (JSON control frames; mirror schema in `schemas/transport/wss-control-frames-v1.json`, canonical source in `fluentwork-infra`)
 - error envelope `{code, message, request_id}`
 - OpenAPI: `api/openapi-v1.yaml`
 
@@ -71,6 +72,7 @@ cmd/
 internal/
 pkg/
 api/
+schemas/
 migrations/
 deploy/
 scripts/
