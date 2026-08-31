@@ -271,6 +271,16 @@ func TestActivateAndEndPersistUtterances(t *testing.T) {
 	if poll.Status != ReviewPollReady || len(poll.Review) == 0 {
 		t.Fatalf("expected ready review, got %+v", poll)
 	}
+	var payload map[string]any
+	if err := json.Unmarshal(poll.Review, &payload); err != nil {
+		t.Fatalf("decode poll review: %v", err)
+	}
+	if _, ok := payload["review"]; !ok {
+		t.Fatalf("expected full model review payload, got %+v", payload)
+	}
+	if _, ok := payload["refine"]; !ok {
+		t.Fatalf("expected refine in full model payload, got %+v", payload)
+	}
 }
 
 func TestGetReviewPendingAndFailedAndAuthz(t *testing.T) {
@@ -537,6 +547,12 @@ func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
 	if reviewDoc["generator"] != "ark-review-refine-v1" {
 		t.Fatalf("generator metadata missing: %+v", reviewDoc)
 	}
+	if _, ok := reviewDoc["review"]; !ok {
+		t.Fatalf("missing nested review payload: %+v", reviewDoc)
+	}
+	if _, ok := reviewDoc["refine"]; !ok {
+		t.Fatalf("missing nested refine payload: %+v", reviewDoc)
+	}
 }
 
 func TestBuildReviewArtifactsFallsBackToStubOnGeneratorError(t *testing.T) {
@@ -553,6 +569,105 @@ func TestBuildReviewArtifactsFallsBackToStubOnGeneratorError(t *testing.T) {
 	}
 	if artifacts.Generator != stubReviewGenerator || artifacts.Cost != nil {
 		t.Fatalf("unexpected fallback artifacts: %+v", artifacts)
+	}
+	var reviewDoc map[string]any
+	if err := json.Unmarshal(artifacts.ReviewJSON, &reviewDoc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reviewDoc["review"]; !ok {
+		t.Fatalf("missing stub full-model review wrapper: %+v", reviewDoc)
+	}
+	if _, ok := reviewDoc["refine"]; !ok {
+		t.Fatalf("missing stub refine wrapper: %+v", reviewDoc)
+	}
+}
+
+func TestGetReviewCanonicalizesLegacyReviewPayload(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[{},{},{}],"generator":"ark-review-refine-v1","status":"ready","duration_sec":18}`)
+	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, legacy, time.Now().UTC()); err != nil {
+		t.Fatalf("MarkSessionReviewed: %v", err)
+	}
+
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(poll.Review, &payload); err != nil {
+		t.Fatalf("decode review: %v", err)
+	}
+	if payload["generator"] != "ark-review-refine-v1" {
+		t.Fatalf("unexpected generator: %+v", payload)
+	}
+	reviewSection, ok := payload["review"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing wrapped review section: %+v", payload)
+	}
+	if _, ok := reviewSection["goal_achievement"]; !ok {
+		t.Fatalf("legacy review fields not preserved: %+v", reviewSection)
+	}
+	refineSection, ok := payload["refine"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing wrapped refine section: %+v", payload)
+	}
+	blocks, ok := refineSection["blocks"].([]any)
+	if !ok || len(blocks) != 0 {
+		t.Fatalf("expected empty refine blocks for legacy payload: %+v", refineSection)
+	}
+}
+
+func TestGetReviewCanonicalizesLegacyReviewPayloadWithoutGenerator(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[],"status":"ready","duration_sec":18}`)
+	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, legacy, time.Now().UTC()); err != nil {
+		t.Fatalf("MarkSessionReviewed: %v", err)
+	}
+
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(poll.Review, &payload); err != nil {
+		t.Fatalf("decode review: %v", err)
+	}
+	if payload["generator"] != legacyReviewGenerator {
+		t.Fatalf("expected legacy fallback generator, got %+v", payload)
 	}
 }
 

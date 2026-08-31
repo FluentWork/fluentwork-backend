@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: FluentWork app-server
   version: 0.3.0
-  description: First-wave contracts for guest auth, merge, sessions, and review polling.
+  description: Contracts for guest auth, merge, sessions, and second-wave review full model.
 servers:
   - url: /api/v1
 paths:
@@ -357,9 +357,156 @@ components:
           type: string
           enum: [pending, ready, failed]
         review:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/ReviewReadyPayload"
           description: Present when status is ready
+    ReviewReadyPayload:
+      type: object
+      required: [generator, status, transcript, overview, evaluation, dual_column, refine_cards, review, refine]
+      properties:
+        generator:
+          type: string
+        status:
+          type: string
+          enum: [ready]
+        duration_sec:
+          type: integer
+        transcript:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptTurn"
+        overview:
+          type: object
+          required: [goal_achievement, issue_count, suggestion_count, comparison_count]
+          properties:
+            goal_achievement:
+              $ref: "#/components/schemas/GoalAchievement"
+            issue_count:
+              type: integer
+            suggestion_count:
+              type: integer
+            comparison_count:
+              type: integer
+        evaluation:
+          type: array
+          description: Three-layer presentation slices for goal, issues, and suggestions
+          items:
+            $ref: "#/components/schemas/EvaluationLayer"
+        dual_column:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComparisonRow"
+        refine_cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/RefineCard"
+        review:
+          $ref: "#/components/schemas/ReviewDoc"
+        refine:
+          $ref: "#/components/schemas/RefineDoc"
+    TranscriptTurn:
+      type: object
+      required: [seq, speaker, text]
+      properties:
+        seq: { type: integer }
+        speaker:
+          type: string
+          enum: [user, ai]
+        text: { type: string }
+    GoalAchievement:
+      type: object
+      required: [met, note]
+      properties:
+        met: { type: boolean }
+        note: { type: string }
+    ReviewIssue:
+      type: object
+      required: [type, original_quote, hint]
+      properties:
+        type:
+          type: string
+          enum: [grammar, idiomatic, missing_info]
+        original_quote:
+          type: string
+        hint:
+          type: string
+    SuggestionItem:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+    ComparisonRow:
+      type: object
+      required: [user, better]
+      properties:
+        user:
+          type: string
+        better:
+          type: string
+    RefineCard:
+      type: object
+      required: [intent_zh, expression_en, anchor_user_said, scene_tag, function_tag]
+      properties:
+        intent_zh:
+          type: string
+        expression_en:
+          type: string
+        anchor_user_said:
+          type: string
+        scene_tag:
+          type: string
+          enum: [standup, review, 1on1, interview, casual]
+        function_tag:
+          type: string
+          enum: [object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit]
+    RefineDoc:
+      type: object
+      required: [blocks]
+      properties:
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/RefineCard"
+    ReviewDoc:
+      type: object
+      required: [goal_achievement, issues, suggestions, comparisons]
+      properties:
+        goal_achievement:
+          $ref: "#/components/schemas/GoalAchievement"
+        issues:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/ReviewIssue"
+        suggestions:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/SuggestionItem"
+        comparisons:
+          type: array
+          minItems: 0
+          items:
+            $ref: "#/components/schemas/ComparisonRow"
+    EvaluationLayer:
+      type: object
+      required: [layer, title, content]
+      properties:
+        layer:
+          type: string
+          enum: [goal, issues, suggestions]
+        title:
+          type: string
+        content:
+          description: Presentation payload for the layer
+          oneOf:
+            - $ref: "#/components/schemas/GoalAchievement"
+            - type: array
+              items:
+                $ref: "#/components/schemas/ReviewIssue"
+            - type: array
+              items:
+                $ref: "#/components/schemas/SuggestionItem"
     PostMessageRequest:
       type: object
       required: [text]

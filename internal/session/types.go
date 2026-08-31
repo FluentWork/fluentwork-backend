@@ -161,7 +161,9 @@ const (
 type ReviewPollResponse struct {
 	SessionID string `json:"session_id"`
 	Status    string `json:"status"`
-	// Review is the review_json document when Status is ready.
+	// Review is the canonical review_json document when Status is ready.
+	// Since B9-R1/R2 it includes transcript + presentation slices + raw review/refine:
+	// {generator,status,duration_sec,transcript,overview,evaluation,dual_column,refine_cards,review,refine}.
 	Review json.RawMessage `json:"review,omitempty"`
 }
 
