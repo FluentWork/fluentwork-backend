@@ -45,6 +45,7 @@ type Handler struct {
 	consumer           TicketConsumer
 	lifecycle          SessionLifecycle
 	provider           VoiceProvider
+	badgeEmitter       *BadgeEmitter
 	logger             *slog.Logger
 	now                func() time.Time
 	insecureSkipOrigin bool
@@ -78,6 +79,12 @@ func NewHandler(
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
 		idleTimeout:        idle,
 	}
+}
+
+// SetBadgeEmitter wires the optional B12 feedback.badge emitter. Passing nil
+// disables hit-detection (the user.speech.end branch becomes a passthrough).
+func (h *Handler) SetBadgeEmitter(emitter *BadgeEmitter) {
+	h.badgeEmitter = emitter
 }
 
 // Mount registers health and voice WSS routes on mux.
@@ -361,7 +368,24 @@ func (h *Handler) handleControl(
 				Message: err.Error(),
 			})
 		}
-		return writeProviderOutbound(ctx, conn, outbound)
+		if err := writeProviderOutbound(ctx, conn, outbound); err != nil {
+			return err
+		}
+		// B12 — fire-and-forget hit detection on user.speech.end so the
+		// client ASR transcript can be matched against stored phrase blocks.
+		// Never blocks the control frame; failures are logged by the emitter.
+		if frameType == voiceproto.TypeUserSpeechEnd && h.badgeEmitter != nil {
+			var end voiceproto.UserSpeechEnd
+			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
+				turnID := strings.TrimSpace(end.TurnID)
+				if turnID == "" {
+					// No client-supplied turn id → scope dedupe by session.
+					turnID = session.SessionID
+				}
+				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, end.Text)
+			}
+		}
+		return nil
 
 	case voiceproto.TypeInterrupt:
 		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")

@@ -27,7 +27,10 @@ func (s *MemoryStore) Ping(context.Context) error {
 }
 
 // ListBlocks implements Store.
-func (s *MemoryStore) ListBlocks(_ context.Context, filter ListFilter) ([]PhraseBlock, error) {
+func (s *MemoryStore) ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := make([]PhraseBlock, 0, len(s.blocks))
@@ -217,7 +220,9 @@ func compareBlocks(left, right PhraseBlock) int {
 	case left.ID < right.ID:
 		return 1
 	default:
-		return 0
+		// Same timestamp + same ID (extremely rare in practice; guards against
+		// test flakes when blocks are inserted in the same call with random UUIDs).
+		return strings.Compare(left.ExpressionEN, right.ExpressionEN)
 	}
 }
 

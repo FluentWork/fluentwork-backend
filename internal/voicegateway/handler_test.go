@@ -7,11 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
@@ -356,6 +359,265 @@ func TestVoiceBinaryAudioReturnsProviderAudioFailure(t *testing.T) {
 	}
 	if frame["message"] != "pcm required" {
 		t.Fatalf("unexpected message: %#v", frame)
+	}
+}
+
+func TestVoiceSessionEndFiresBadgeOnHit(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t1",
+			SessionID: "s1",
+			UserID:    "u1",
+		},
+	}
+	life := &stubLifecycle{}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	src := &integrationSource{candidates: []session.BlockCandidate{
+		{ID: "block-1", ExpressionEN: "ship it", IntentZH: "推进"},
+	}}
+	det := session.NewHitDetector(src)
+
+	var wg sync.WaitGroup
+	emitter := voicegateway.NewBadgeEmitter(det, nil, voicegateway.BadgeEmitterOptions{
+		Timeout: 500 * time.Millisecond,
+	}, &wg)
+
+	h := voicegateway.NewHandler(consumer, life, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetBadgeEmitter(emitter)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	// No defer Close here — the async badge goroutine needs the connection
+	// to stay open until it has written the badge frame. We close it after
+	// reading the badge below.
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "let's ship it today",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	// Wait for the async badge goroutine to complete so the badge is definitely
+	// written to the connection before we read it.
+	wgDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(wgDone)
+	}()
+	select {
+	case <-wgDone:
+		// Badge goroutine ran; now read the frame.
+	case <-time.After(3 * time.Second):
+		t.Fatalf("badge goroutine did not complete in time")
+	}
+
+	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer readCancel()
+	badgeFrame := waitForType(readCtx, t, conn, voiceproto.TypeFeedbackBadge)
+	badge, ok := badgeFrame.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object frame, got %#v", badgeFrame)
+	}
+	if badge["phrase_block_id"] != "block-1" {
+		t.Fatalf("phrase_block_id: got %v", badge["phrase_block_id"])
+	}
+	if badge["dedupe_key"] != "s1|s1|block-1" {
+		t.Fatalf("dedupe_key: got %v", badge["dedupe_key"])
+	}
+
+	if got := atomic.LoadInt32(&src.calls); got != 1 {
+		t.Fatalf("source calls: got %d want 1", got)
+	}
+	// Close the connection after the badge goroutine has finished writing.
+	_ = conn.Close(websocket.StatusNormalClosure, "")
+}
+
+func TestVoiceSessionEndEmitsNoBadgeOnMiss(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	src := &integrationSource{candidates: []session.BlockCandidate{
+		{ID: "block-1", ExpressionEN: "ship it"},
+	}}
+	emitter := voicegateway.NewBadgeEmitter(session.NewHitDetector(src), nil, voicegateway.BadgeEmitterOptions{
+		Timeout: 500 * time.Millisecond,
+	})
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetBadgeEmitter(emitter)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd, Text: "totally unrelated content here",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	readCtx, readCancel := context.WithTimeout(ctx, 600*time.Millisecond)
+	defer readCancel()
+	if _, _, err := conn.Read(readCtx); err == nil {
+		t.Fatal("expected no badge frame on miss")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+}
+
+func TestVoiceSessionEndWithoutTextSkipsDetection(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	src := &integrationSource{candidates: []session.BlockCandidate{
+		{ID: "block-1", ExpressionEN: "ship it"},
+	}}
+	emitter := voicegateway.NewBadgeEmitter(session.NewHitDetector(src), nil, voicegateway.BadgeEmitterOptions{
+		Timeout: 500 * time.Millisecond,
+	})
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetBadgeEmitter(emitter)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd, // Text intentionally omitted.
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&src.calls); got != 0 {
+		t.Fatalf("source calls when text empty: got %d want 0", got)
+	}
+}
+
+// integrationSource is a session.BlockSource with an atomic counter and
+// snapshot-on-call semantics, used by the handler-level integration tests.
+type integrationSource struct {
+	candidates []session.BlockCandidate
+	calls      int32
+}
+
+func (s *integrationSource) CandidatesForUser(ctx context.Context, _ string) ([]session.BlockCandidate, error) {
+	atomic.AddInt32(&s.calls, 1)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]session.BlockCandidate, len(s.candidates))
+	copy(out, s.candidates)
+	return out, nil
+}
+
+// waitForType reads frames until one with the requested type arrives or the
+// context expires.
+func waitForType(ctx context.Context, t *testing.T, conn *websocket.Conn, want string) any {
+	t.Helper()
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("waitForType(%s): %v", want, err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		if raw["type"] == want {
+			return raw
+		}
 	}
 }
 
