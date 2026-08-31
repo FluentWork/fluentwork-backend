@@ -3,22 +3,23 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
+if [[ -x "$ROOT/scripts/gstack-review-gate.sh" ]]; then
+  "$ROOT/scripts/gstack-review-gate.sh"
+elif [[ -x "$ROOT/Scripts/gstack-review-gate.sh" ]]; then
+  "$ROOT/Scripts/gstack-review-gate.sh"
+else
+  echo "error: gstack-review-gate.sh not found under scripts/ or Scripts/" >&2
+  exit 1
+fi
+
 if [[ "${SKIP_DEV_CHECK:-}" == "1" ]]; then
   echo "warning: SKIP_DEV_CHECK=1 — bypassing format/lint/test pre-commit gate" >&2
-else
-  if [[ ! -x "$ROOT/scripts/dev-check.sh" ]]; then
-    echo "error: scripts/dev-check.sh not found or not executable" >&2
-    exit 1
-  fi
-  "$ROOT/scripts/dev-check.sh"
+  exit 0
 fi
 
-if [[ -x "$ROOT/scripts/gstack-review-gate.sh" ]]; then
-  exec "$ROOT/scripts/gstack-review-gate.sh"
-fi
-if [[ -x "$ROOT/Scripts/gstack-review-gate.sh" ]]; then
-  exec "$ROOT/Scripts/gstack-review-gate.sh"
+if [[ ! -x "$ROOT/scripts/dev-check.sh" ]]; then
+  echo "error: scripts/dev-check.sh not found or not executable" >&2
+  exit 1
 fi
 
-echo "error: gstack-review-gate.sh not found under scripts/ or Scripts/" >&2
-exit 1
+exec "$ROOT/scripts/dev-check.sh"

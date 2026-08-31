@@ -2,7 +2,8 @@
 # Local review helper (pre-commit / manual).
 # Policy: fluentwork-meta/agents/shared/review-gate.md
 #
-# OpenCodeReview pre-commit gate is PAUSED. Use gstack /review before
+# OpenCodeReview pre-commit gate is PAUSED. Use the interactive gstack review
+# skill before
 # opening or merging PRs. OCR scripts remain for optional manual use.
 #
 # Usage:
@@ -16,7 +17,7 @@ if [[ "${FORCE_OCR:-}" == "1" ]]; then
   echo "FORCE_OCR=1: running paused OpenCodeReview path..."
 else
   echo "OpenCodeReview local gate is PAUSED."
-  echo "Use gstack /review (Cursor skill) against the PR/base diff before merge."
+  echo "Use the interactive gstack review skill against the PR/base diff before merge."
   echo "Optional manual OCR: FORCE_OCR=1 ./scripts/ocr-local-review.sh"
   exit 0
 fi

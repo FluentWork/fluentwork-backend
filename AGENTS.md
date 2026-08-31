@@ -29,7 +29,7 @@ Shared topics:
 1. Read current backend and architecture docs before editing.
 2. Keep changes scoped to the active service or contract.
 3. Do not bypass review, CI, or owner approval requirements.
-4. Before opening or merging a PR, run **gstack `/review`** on the branch diff; fix must-fix findings (see `fluentwork-meta/agents/shared/review-gate.md`).
+4. Before opening or merging a PR, run the interactive gstack review skill on the branch diff, normally **`/review`** and **`/gstack-review`** when skill prefixes are enabled; fix must-fix findings (see `fluentwork-meta/agents/shared/review-gate.md`).
 5. Do not perform destructive git operations without explicit approval.
 6. Surface data safety, migration, and deploy implications clearly.
 
@@ -42,7 +42,7 @@ Shared topics:
 
 ## Local Review Gate
 
-1. Required before commit: run **gstack `/review`**, then `GSTACK_REVIEWED=1 git commit ...`.
+1. Required before commit: run the interactive gstack review skill, normally **`/review`** in Codex/Cursor/Claude. If your gstack config enables skill prefixes, use **`/gstack-review`** instead. Then commit with `GSTACK_REVIEWED=1 git commit ...`.
 2. pre-commit → `scripts/gstack-review-gate.sh` (attestation; skill cannot run in bash).
 3. One-time hooks: `./scripts/setup-git-hooks.sh` (sets `core.hooksPath=.githooks`).
 4. Emergency bypass: `SKIP_GSTACK_REVIEW=1` (justify in commit/PR body).
