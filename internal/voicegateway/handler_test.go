@@ -87,12 +87,19 @@ func (s *stubProviderSession) Start(_ context.Context, _ voiceproto.SessionStart
 		return nil, s.startErr
 	}
 	s.utterances = []voicegateway.EndUtterance{{Seq: 1, Speaker: "ai", Text: "provider-ready"}}
-	return []voicegateway.ProviderOutbound{{
-		Control: map[string]any{
-			"type": voiceproto.TypeAITextDelta,
-			"text": "provider-ready",
+	return []voicegateway.ProviderOutbound{
+		{
+			Control: map[string]any{
+				"type": voiceproto.TypeAITextDelta,
+				"text": "provider-ready",
+			},
 		},
-	}}, nil
+		{
+			Control: voiceproto.AITurnEnd{
+				Type: voiceproto.TypeAITurnEnd,
+			},
+		},
+	}, nil
 }
 
 func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
@@ -171,6 +178,10 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	}
 	if delta["text"] != "provider-ready" {
 		t.Fatalf("unexpected provider delta: %#v", delta)
+	}
+	turnEnd := readFrame(ctx, t, conn)
+	if turnEnd["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end, got %#v", turnEnd)
 	}
 
 	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Ping{
@@ -332,6 +343,7 @@ func TestVoiceBinaryAudioReturnsProviderAudioFailure(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("write session.start: %v", err)
 	}
+	_ = readFrame(ctx, t, conn)
 	_ = readFrame(ctx, t, conn)
 
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte{1, 2, 3, 4}); err != nil {

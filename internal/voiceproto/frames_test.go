@@ -17,6 +17,7 @@ func TestControlFrameRoundTrip(t *testing.T) {
 		voiceproto.Auth{Type: voiceproto.TypeAuth, Ticket: "abc"},
 		voiceproto.SessionReady{Type: voiceproto.TypeSessionReady, SessionID: "s1", UserID: "u1"},
 		voiceproto.SessionStart{Type: voiceproto.TypeSessionStart, SceneType: "demo"},
+		voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "turn-1"},
 		voiceproto.Interrupt{Type: voiceproto.TypeInterrupt},
 		voiceproto.SessionEnd{Type: voiceproto.TypeSessionEnd, Reason: "user"},
 		voiceproto.ErrorFrame{Type: voiceproto.TypeError, Code: "unauthenticated", Message: "bad ticket"},
@@ -61,7 +62,7 @@ func TestSchemaFilePresent(t *testing.T) {
 	if !ok {
 		t.Fatal("schema missing $defs")
 	}
-	for _, name := range []string{"auth", "sessionReady", "sessionStart", "sessionEnd", "interrupt", "error", "ping", "pong"} {
+	for _, name := range []string{"auth", "sessionReady", "sessionStart", "aiTurnEnd", "sessionEnd", "interrupt", "error", "ping", "pong"} {
 		if _, ok := defs[name]; !ok {
 			t.Fatalf("schema missing $defs.%s", name)
 		}

@@ -51,13 +51,21 @@ func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.Session
 		Text:    stub,
 	})
 	s.nextSeq++
-	return []ProviderOutbound{{
-		Control: map[string]any{
-			"type":    voiceproto.TypeAITextDelta,
-			"text":    stub,
-			"turn_id": "bootstrap",
+	return []ProviderOutbound{
+		{
+			Control: map[string]any{
+				"type":    voiceproto.TypeAITextDelta,
+				"text":    stub,
+				"turn_id": "bootstrap",
+			},
 		},
-	}}, nil
+		{
+			Control: voiceproto.AITurnEnd{
+				Type:   voiceproto.TypeAITurnEnd,
+				TurnID: "bootstrap",
+			},
+		},
+	}, nil
 }
 
 func (s *mockVoiceProviderSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]ProviderOutbound, error) {

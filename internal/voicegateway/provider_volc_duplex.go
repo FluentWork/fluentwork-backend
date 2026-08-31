@@ -177,6 +177,12 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				"turn_id": turnID,
 			},
 		})
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.AITurnEnd{
+				Type:   voiceproto.TypeAITurnEnd,
+				TurnID: turnID,
+			},
+		})
 		s.utterances = append(s.utterances, EndUtterance{
 			Seq:     s.nextSeq,
 			Speaker: "ai",
