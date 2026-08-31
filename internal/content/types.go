@@ -13,9 +13,9 @@ const (
 )
 
 const (
-	GeneratorPreset      = "preset-v1"
-	GeneratorCorpusStub  = "corpus-stub-v1"
-	GeneratorFollowRead  = "follow-read-stub-v1"
+	GeneratorPreset       = "preset-v1"
+	GeneratorCorpusStub   = "corpus-stub-v1"
+	GeneratorFollowRead   = "follow-read-stub-v1"
 	GeneratorArkDailyRead = "ark-daily-read-v1"
 )
 
@@ -38,9 +38,9 @@ type DailyRead struct {
 
 // TodayPollResponse is returned by GET /daily-reads/today.
 type TodayPollResponse struct {
-	GenDate   string          `json:"gen_date"`
-	Status    string          `json:"status"`
-	DailyRead *DailyReadView  `json:"daily_read,omitempty"`
+	GenDate   string         `json:"gen_date"`
+	Status    string         `json:"status"`
+	DailyRead *DailyReadView `json:"daily_read,omitempty"`
 }
 
 // DailyReadView is the client-facing daily read payload.
