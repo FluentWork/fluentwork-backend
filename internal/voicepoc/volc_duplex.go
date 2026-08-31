@@ -249,6 +249,18 @@ func (s *DuplexSession) CommitAudio(ctx context.Context) error {
 	})
 }
 
+// AppendPCMChunk forwards one raw 16kHz mono PCM s16le chunk to the live duplex session.
+func (s *DuplexSession) AppendPCMChunk(ctx context.Context, chunk []byte) error {
+	if s == nil || s.conn == nil {
+		return fmt.Errorf("duplex session is nil")
+	}
+	return s.send(ctx, map[string]any{
+		"type":     "input_audio_buffer.append",
+		"event_id": uuid.NewString(),
+		"audio":    base64.StdEncoding.EncodeToString(chunk),
+	})
+}
+
 // TurnResult captures one user-audio turn observation for B14 V1/V3 probes.
 type TurnResult struct {
 	Transcript     string   `json:"transcript"`
@@ -267,6 +279,11 @@ func (s *DuplexSession) SendUserPCMAndWait(ctx context.Context, pcm []byte, wait
 	if err := s.CommitAudio(ctx); err != nil {
 		return TurnResult{}, err
 	}
+	return s.collectTurn(ctx, started, nil, waitAfterCommit)
+}
+
+// WaitTurnResult blocks until one live user turn has produced transcript and/or assistant output.
+func (s *DuplexSession) WaitTurnResult(ctx context.Context, started time.Time, waitAfterCommit time.Duration) (TurnResult, error) {
 	return s.collectTurn(ctx, started, nil, waitAfterCommit)
 }
 

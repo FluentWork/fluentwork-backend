@@ -21,6 +21,12 @@ type Config struct {
 	AppEnv               string
 	AppServerInternalURL string
 	InternalAPIToken     string
+	Provider             string
+	ClientAudioFormat    string
+	VolcSpeechAPIKey     string
+	VolcDuplexEndpoint   string
+	VolcDuplexModel      string
+	VolcDuplexVoice      string
 	IdleTimeout          time.Duration
 }
 
@@ -37,7 +43,27 @@ func LoadConfig() Config {
 		AppEnv:               appEnv,
 		AppServerInternalURL: envOr("APP_SERVER_INTERNAL_URL", defaultAppServerURL),
 		InternalAPIToken:     token,
-		IdleTimeout:          durationOr("VOICE_GATEWAY_IDLE_TIMEOUT", defaultIdleTimeout),
+		Provider:             envOr("VOICE_GATEWAY_PROVIDER", "mock"),
+		ClientAudioFormat:    envOr("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed"),
+		VolcSpeechAPIKey: envFirst(
+			"VOICE_GATEWAY_VOLC_SPEECH_API_KEY",
+			"VOLC_POC_API_KEY",
+			"VOLC_SPEECH_API_KEY",
+			"VOLC_SPEECH_API_KEY_DEV",
+		),
+		VolcDuplexEndpoint: envFirst(
+			"VOICE_GATEWAY_VOLC_DUPLEX_ENDPOINT",
+			"VOLC_POC_ENDPOINT",
+		),
+		VolcDuplexModel: envFirst(
+			"VOICE_GATEWAY_VOLC_DUPLEX_MODEL",
+			"VOLC_DUPLEX_MODEL",
+		),
+		VolcDuplexVoice: envFirst(
+			"VOICE_GATEWAY_VOLC_DUPLEX_VOICE",
+			"VOLC_DUPLEX_VOICE",
+		),
+		IdleTimeout: durationOr("VOICE_GATEWAY_IDLE_TIMEOUT", defaultIdleTimeout),
 	}
 }
 
@@ -56,6 +82,21 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.AppServerInternalURL) == "" {
 		return fmt.Errorf("APP_SERVER_INTERNAL_URL is required")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Provider)) {
+	case "mock", "volc-duplex":
+	default:
+		return fmt.Errorf("VOICE_GATEWAY_PROVIDER must be one of mock, volc-duplex")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.ClientAudioFormat)) {
+	case "opus-framed", "pcm-s16le":
+	default:
+		return fmt.Errorf("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT must be one of opus-framed, pcm-s16le")
+	}
+	if strings.EqualFold(strings.TrimSpace(c.Provider), "volc-duplex") {
+		if strings.TrimSpace(c.VolcSpeechAPIKey) == "" {
+			return fmt.Errorf("VOICE_GATEWAY_PROVIDER=volc-duplex requires VOLC speech API key")
+		}
 	}
 	if len(strings.TrimSpace(c.InternalAPIToken)) < 16 {
 		return fmt.Errorf("INTERNAL_API_TOKEN must be at least 16 characters")
@@ -87,6 +128,15 @@ func durationOr(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func envFirst(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func isDevelopmentEnv(appEnv string) bool {

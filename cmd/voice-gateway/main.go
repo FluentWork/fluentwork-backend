@@ -43,10 +43,17 @@ func run() error {
 		Token:   cfg.InternalAPIToken,
 		Logger:  logger,
 	}
-	handler := voicegateway.NewHandler(consumer, lifecycle, logger, voicegateway.Options{
-		InsecureSkipOrigin: cfg.IsDevelopment(),
-		IdleTimeout:        cfg.IdleTimeout,
-	})
+	provider := voicegateway.NewVoiceProvider(cfg, logger)
+	handler := voicegateway.NewHandler(
+		consumer,
+		lifecycle,
+		provider,
+		logger,
+		voicegateway.Options{
+			InsecureSkipOrigin: cfg.IsDevelopment(),
+			IdleTimeout:        cfg.IdleTimeout,
+		},
+	)
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 

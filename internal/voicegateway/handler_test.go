@@ -53,6 +53,67 @@ func (s *stubLifecycle) End(_ context.Context, req voicegateway.EndSessionReques
 	return s.endErr
 }
 
+type stubProvider struct {
+	session *stubProviderSession
+	err     error
+	calls   int
+}
+
+func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.session == nil {
+		s.session = &stubProviderSession{}
+	}
+	return s.session, nil
+}
+
+type stubProviderSession struct {
+	startCalls   int
+	controlTypes []string
+	audioPayload [][]byte
+	closed       bool
+	utterances   []voicegateway.EndUtterance
+	startErr     error
+	controlErr   error
+	audioErr     error
+}
+
+func (s *stubProviderSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+	s.startCalls++
+	if s.startErr != nil {
+		return nil, s.startErr
+	}
+	s.utterances = []voicegateway.EndUtterance{{Seq: 1, Speaker: "ai", Text: "provider-ready"}}
+	return []voicegateway.ProviderOutbound{{
+		Control: map[string]any{
+			"type": voiceproto.TypeAITextDelta,
+			"text": "provider-ready",
+		},
+	}}, nil
+}
+
+func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
+	s.controlTypes = append(s.controlTypes, frameType)
+	return nil, s.controlErr
+}
+
+func (s *stubProviderSession) HandleClientAudio(_ context.Context, payload []byte) ([]voicegateway.ProviderOutbound, error) {
+	s.audioPayload = append(s.audioPayload, append([]byte(nil), payload...))
+	return nil, s.audioErr
+}
+
+func (s *stubProviderSession) SnapshotUtterances() []voicegateway.EndUtterance {
+	return append([]voicegateway.EndUtterance(nil), s.utterances...)
+}
+
+func (s *stubProviderSession) Close(_ context.Context) error {
+	s.closed = true
+	return nil
+}
+
 func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	t.Parallel()
 
@@ -65,7 +126,9 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 		},
 	}
 	life := &stubLifecycle{}
-	h := voicegateway.NewHandler(consumer, life, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+	h := voicegateway.NewHandler(consumer, life, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -106,6 +169,9 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	if delta["type"] != voiceproto.TypeAITextDelta {
 		t.Fatalf("expected ai.text.delta, got %#v", delta)
 	}
+	if delta["text"] != "provider-ready" {
+		t.Fatalf("unexpected provider delta: %#v", delta)
+	}
 
 	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Ping{
 		Type: voiceproto.TypePing,
@@ -135,7 +201,10 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	if life.activateCalls != 1 || life.endCalls != 1 {
 		t.Fatalf("lifecycle activate=%d end=%d", life.activateCalls, life.endCalls)
 	}
-	if life.lastEnd.SessionID != "s1" || len(life.lastEnd.Utterances) != 1 || life.lastEnd.Utterances[0].Text != "ready" {
+	if provider.calls != 1 || providerSession.startCalls != 1 {
+		t.Fatalf("provider open=%d start=%d", provider.calls, providerSession.startCalls)
+	}
+	if life.lastEnd.SessionID != "s1" || len(life.lastEnd.Utterances) != 1 || life.lastEnd.Utterances[0].Text != "provider-ready" {
 		t.Fatalf("unexpected end request: %+v", life.lastEnd)
 	}
 }
@@ -144,7 +213,7 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	t.Parallel()
 
 	consumer := &stubConsumer{err: errors.New("invalid ticket")}
-	h := voicegateway.NewHandler(consumer, nil, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h := voicegateway.NewHandler(consumer, nil, nil, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
 	h.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -170,6 +239,111 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	frame := readFrame(ctx, t, conn)
 	if frame["type"] != voiceproto.TypeError {
 		t.Fatalf("expected error, got %#v", frame)
+	}
+}
+
+func TestVoiceSessionStartFailsWhenProviderOpenFails(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t1",
+			SessionID: "s1",
+			UserID:    "u1",
+		},
+	}
+	provider := &stubProvider{err: errors.New("provider unavailable")}
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type:   voiceproto.TypeAuth,
+		Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+
+	frame := readFrame(ctx, t, conn)
+	if frame["code"] != "provider_open_failed" {
+		t.Fatalf("expected provider_open_failed, got %#v", frame)
+	}
+}
+
+func TestVoiceBinaryAudioReturnsProviderAudioFailure(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t1",
+			SessionID: "s1",
+			UserID:    "u1",
+		},
+	}
+	providerSession := &stubProviderSession{audioErr: errors.New("pcm required")}
+	provider := &stubProvider{session: providerSession}
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type:   voiceproto.TypeAuth,
+		Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte{1, 2, 3, 4}); err != nil {
+		t.Fatalf("write binary audio: %v", err)
+	}
+
+	frame := readFrame(ctx, t, conn)
+	if frame["code"] != "provider_audio_failed" {
+		t.Fatalf("expected provider_audio_failed, got %#v", frame)
+	}
+	if frame["message"] != "pcm required" {
+		t.Fatalf("unexpected message: %#v", frame)
 	}
 }
 

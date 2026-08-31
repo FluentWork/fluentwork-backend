@@ -44,6 +44,7 @@ type Options struct {
 type Handler struct {
 	consumer           TicketConsumer
 	lifecycle          SessionLifecycle
+	provider           VoiceProvider
 	logger             *slog.Logger
 	now                func() time.Time
 	insecureSkipOrigin bool
@@ -51,9 +52,18 @@ type Handler struct {
 }
 
 // NewHandler constructs the voice gateway HTTP/WSS handler.
-func NewHandler(consumer TicketConsumer, lifecycle SessionLifecycle, logger *slog.Logger, opts Options) *Handler {
+func NewHandler(
+	consumer TicketConsumer,
+	lifecycle SessionLifecycle,
+	provider VoiceProvider,
+	logger *slog.Logger,
+	opts Options,
+) *Handler {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if provider == nil {
+		provider = MockVoiceProvider{}
 	}
 	idle := opts.IdleTimeout
 	if idle <= 0 {
@@ -62,6 +72,7 @@ func NewHandler(consumer TicketConsumer, lifecycle SessionLifecycle, logger *slo
 	return &Handler{
 		consumer:           consumer,
 		lifecycle:          lifecycle,
+		provider:           provider,
 		logger:             logger.With("component", "voicegateway.handler"),
 		now:                time.Now,
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
@@ -190,12 +201,12 @@ func (h *Handler) handshake(ctx context.Context, conn *websocket.Conn) (Consumed
 type sessionRuntime struct {
 	started   bool
 	startedAt time.Time
-	nextSeq   int
-	turns     []EndUtterance
+	provider  VoiceProviderSession
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
-	rt := &sessionRuntime{nextSeq: 1}
+	rt := &sessionRuntime{}
+	defer rt.close(ctx)
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, h.idleTimeout)
 		typ, data, err := conn.Read(readCtx)
@@ -205,6 +216,9 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		}
 		switch typ {
 		case websocket.MessageBinary:
+			if err := h.handleAudio(ctx, conn, data, rt); err != nil {
+				return err
+			}
 			continue
 		case websocket.MessageText:
 			if err := h.handleControl(ctx, conn, session, data, rt); err != nil {
@@ -217,6 +231,27 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 			continue
 		}
 	}
+}
+
+func (h *Handler) handleAudio(
+	ctx context.Context,
+	conn *websocket.Conn,
+	data []byte,
+	rt *sessionRuntime,
+) error {
+	if !rt.started || rt.provider == nil {
+		return nil
+	}
+	outbound, err := rt.provider.HandleClientAudio(ctx, data)
+	if err != nil {
+		h.logger.Warn("provider audio forward failed", "err", err)
+		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			Type:    voiceproto.TypeError,
+			Code:    "provider_audio_failed",
+			Message: err.Error(),
+		})
+	}
+	return writeProviderOutbound(ctx, conn, outbound)
 }
 
 func (h *Handler) handleControl(
@@ -252,6 +287,14 @@ func (h *Handler) handleControl(
 		return writeJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
 
 	case voiceproto.TypeSessionStart:
+		var start voiceproto.SessionStart
+		if err := json.Unmarshal(data, &start); err != nil {
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "invalid_frame",
+				Message: err.Error(),
+			})
+		}
 		if !rt.started {
 			if h.lifecycle != nil {
 				if err := h.lifecycle.Activate(ctx, session.SessionID); err != nil {
@@ -263,6 +306,16 @@ func (h *Handler) handleControl(
 					})
 				}
 			}
+			provider, err := h.provider.Open(ctx, session)
+			if err != nil {
+				h.logger.Warn("provider open failed", "session_id", session.SessionID, "err", err)
+				return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+					Type:    voiceproto.TypeError,
+					Code:    "provider_open_failed",
+					Message: err.Error(),
+				})
+			}
+			rt.provider = provider
 			rt.started = true
 			rt.startedAt = h.now().UTC()
 		}
@@ -271,18 +324,16 @@ func (h *Handler) handleControl(
 			"user_id", session.UserID,
 			"stage", "orchestration",
 		)
-		const stub = "ready"
-		rt.turns = append(rt.turns, EndUtterance{
-			Seq:     rt.nextSeq,
-			Speaker: "ai",
-			Text:    stub,
-		})
-		rt.nextSeq++
-		return writeJSON(ctx, conn, map[string]any{
-			"type":    voiceproto.TypeAITextDelta,
-			"text":    stub,
-			"turn_id": "bootstrap",
-		})
+		outbound, err := rt.provider.Start(ctx, start)
+		if err != nil {
+			h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "provider_start_failed",
+				Message: err.Error(),
+			})
+		}
+		return writeProviderOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd:
 		if !rt.started {
@@ -297,11 +348,36 @@ func (h *Handler) handleControl(
 			"type", frameType,
 			"stage", "asr",
 		)
-		return nil
+		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
+		if err != nil {
+			h.logger.Warn("provider control forward failed",
+				"session_id", session.SessionID,
+				"type", frameType,
+				"err", err,
+			)
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "provider_control_failed",
+				Message: err.Error(),
+			})
+		}
+		return writeProviderOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeInterrupt:
 		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
-		return nil
+		if !rt.started || rt.provider == nil {
+			return nil
+		}
+		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
+		if err != nil {
+			h.logger.Warn("provider interrupt forward failed", "session_id", session.SessionID, "err", err)
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "provider_interrupt_failed",
+				Message: err.Error(),
+			})
+		}
+		return writeProviderOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeSessionEnd:
 		var end voiceproto.SessionEnd
@@ -322,11 +398,12 @@ func (h *Handler) handleControl(
 		if h.lifecycle != nil {
 			endCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+			utterances := append([]EndUtterance(nil), rt.snapshotUtterances()...)
 			if err := h.lifecycle.End(endCtx, EndSessionRequest{
 				SessionID:   session.SessionID,
 				DurationSec: durationSec,
 				Reason:      reason,
-				Utterances:  append([]EndUtterance(nil), rt.turns...),
+				Utterances:  utterances,
 			}); err != nil {
 				h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
 				return writeJSON(ctx, conn, voiceproto.ErrorFrame{
@@ -336,10 +413,11 @@ func (h *Handler) handleControl(
 				})
 			}
 		}
+		utterances := rt.snapshotUtterances()
 		h.logger.Info("session.end persisted",
 			"session_id", session.SessionID,
 			"duration_sec", durationSec,
-			"utterance_count", len(rt.turns),
+			"utterance_count", len(utterances),
 			"stage", "orchestration",
 		)
 		_ = writeJSON(ctx, conn, map[string]any{
@@ -371,4 +449,36 @@ func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 		return err
 	}
 	return conn.Write(ctx, websocket.MessageText, raw)
+}
+
+func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
+	for _, item := range outbound {
+		switch {
+		case item.Control != nil:
+			if err := writeJSON(ctx, conn, item.Control); err != nil {
+				return err
+			}
+		case len(item.Binary) > 0:
+			if err := conn.Write(ctx, websocket.MessageBinary, item.Binary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *sessionRuntime) snapshotUtterances() []EndUtterance {
+	if r.provider == nil {
+		return nil
+	}
+	return r.provider.SnapshotUtterances()
+}
+
+func (r *sessionRuntime) close(ctx context.Context) {
+	if r.provider == nil {
+		return
+	}
+	closeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_ = r.provider.Close(closeCtx)
 }
