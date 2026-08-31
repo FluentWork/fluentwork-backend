@@ -33,11 +33,11 @@ func main() {
 }
 
 type smokeEvidence struct {
-	GenDate    string   `json:"gen_date"`
-	Status     string   `json:"status"`
-	Generator  string   `json:"generator"`
-	DailyReadID string  `json:"daily_read_id"`
-	Steps      []string `json:"steps"`
+	GenDate     string   `json:"gen_date"`
+	Status      string   `json:"status"`
+	Generator   string   `json:"generator"`
+	DailyReadID string   `json:"daily_read_id"`
+	Steps       []string `json:"steps"`
 }
 
 func run() error {
