@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -61,6 +62,16 @@ func run() error {
 		}
 	}()
 
+	corpusStore, corpusCloser, err := corpus.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := corpusCloser(); closeErr != nil {
+			logger.Error("closing corpus store", "err", closeErr)
+		}
+	}()
+
 	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
 	if err != nil {
 		return err
@@ -71,8 +82,13 @@ func run() error {
 		}
 	}()
 
-	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
+	accountSvc := account.NewService(accountStore, account.ChainReassigner{
+		session.Reassigner{Store: sessionStore},
+		corpus.Reassigner{Store: corpusStore},
+	}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
+	corpusSvc := corpus.NewService(corpusStore, logger)
+	corpusHandler := corpus.NewHandler(corpusSvc, accountHandler)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
 	reviewGenerator := reviewgen.ArkGenerator{
@@ -85,7 +101,7 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, sessionHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

@@ -30,6 +30,22 @@ func (NopReassigner) ReassignFromGuest(context.Context, string, string) error {
 	return nil
 }
 
+// ChainReassigner fans guest merge out to multiple business modules.
+type ChainReassigner []Reassigner
+
+// ReassignFromGuest implements Reassigner.
+func (r ChainReassigner) ReassignFromGuest(ctx context.Context, guestUserID, targetUserID string) error {
+	for _, item := range r {
+		if item == nil {
+			continue
+		}
+		if err := item.ReassignFromGuest(ctx, guestUserID, targetUserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Service implements guest issuance and account merge.
 type Service struct {
 	store      Store

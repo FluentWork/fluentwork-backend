@@ -160,6 +160,155 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /corpus/blocks:
+    get:
+      summary: List corpus phrase blocks
+      operationId: listCorpusBlocks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: scene
+          schema: { type: string }
+        - in: query
+          name: func
+          schema: { type: string }
+        - in: query
+          name: kw
+          schema: { type: string }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: favorite_only
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Corpus phrase block page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPhraseBlocksResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /corpus/blocks/batch-accept:
+    post:
+      summary: Batch accept refine blocks into corpus
+      operationId: batchAcceptCorpusBlocks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchAcceptBlocksRequest"
+      responses:
+        "200":
+          description: Accepted phrase blocks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchAcceptBlocksResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /corpus/blocks/{id}:
+    put:
+      summary: Update one phrase block
+      operationId: updateCorpusBlock
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePhraseBlockRequest"
+      responses:
+        "200":
+          description: Updated phrase block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseBlock"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Soft delete one phrase block
+      operationId: deleteCorpusBlock
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: boolean }
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /corpus/blocks/{id}/favorite:
+    post:
+      summary: Toggle favorite and pin state
+      operationId: favoriteCorpusBlock
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FavoritePhraseBlockRequest"
+      responses:
+        "200":
+          description: Updated phrase block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseBlock"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -231,6 +380,96 @@ components:
           type: string
           enum: [text]
         generator: { type: string }
+    PhraseBlock:
+      type: object
+      required: [id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, is_favorite, created_at, updated_at]
+      properties:
+        id: { type: string }
+        intent_zh: { type: string }
+        expression_en: { type: string }
+        anchor_user_said: { type: string }
+        scene_tag:
+          type: string
+          enum: [standup, review, 1on1, interview, casual]
+        function_tag:
+          type: string
+          enum: [object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit]
+        state:
+          type: string
+          enum: [new, training, automated]
+        success_streak: { type: integer }
+        next_due_at: { type: string, format: date-time }
+        ease_factor: { type: number }
+        real_use_count: { type: integer }
+        is_favorite: { type: boolean }
+        pinned_at:
+          type: string
+          format: date-time
+          nullable: true
+        source_session_id:
+          type: string
+          nullable: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ListPhraseBlocksResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhraseBlock"
+        next_cursor:
+          type: string
+    UpdatePhraseBlockRequest:
+      type: object
+      required: [intent_zh, expression_en, anchor_user_said, scene_tag, function_tag]
+      properties:
+        intent_zh: { type: string }
+        expression_en: { type: string }
+        anchor_user_said: { type: string }
+        scene_tag:
+          type: string
+          enum: [standup, review, 1on1, interview, casual]
+        function_tag:
+          type: string
+          enum: [object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit]
+    FavoritePhraseBlockRequest:
+      type: object
+      required: [is_favorite, pinned]
+      properties:
+        is_favorite: { type: boolean }
+        pinned: { type: boolean }
+    BatchAcceptBlocksRequest:
+      type: object
+      required: [source_session_id, blocks]
+      properties:
+        source_session_id: { type: string }
+        blocks:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [intent_zh, expression_en, anchor_user_said, scene_tag, function_tag]
+            properties:
+              intent_zh: { type: string }
+              expression_en: { type: string }
+              anchor_user_said: { type: string }
+              scene_tag:
+                type: string
+                enum: [standup, review, 1on1, interview, casual]
+              function_tag:
+                type: string
+                enum: [object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit]
+    BatchAcceptBlocksResponse:
+      type: object
+      required: [accepted_count, items]
+      properties:
+        accepted_count: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhraseBlock"
     Error:
       type: object
       required: [code, message, request_id]
