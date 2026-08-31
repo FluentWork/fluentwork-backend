@@ -16,9 +16,11 @@ import (
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
-const defaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
-const defaultDuplexModel = "1.2.6.0"
-const defaultDuplexVoice = "zh_female_vv_jupiter_bigtts"
+const (
+	defaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
+	defaultDuplexModel    = "1.2.6.0"
+	defaultDuplexVoice    = "zh_female_vv_jupiter_bigtts"
+)
 
 // 20ms of 16 kHz mono s16le.
 const pcm16kChunkBytes = 640
