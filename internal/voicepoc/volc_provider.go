@@ -42,7 +42,7 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 	if err != nil {
 		return InjectTrial{}, err
 	}
-	defer session.Close(ctx)
+	defer func() { _ = session.Close(ctx) }()
 
 	if err := session.SendPCM(ctx, pcm); err != nil {
 		return InjectTrial{}, err

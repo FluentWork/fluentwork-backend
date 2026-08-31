@@ -33,7 +33,7 @@ func run() error {
 		Logger:   logger.With("component", "reviewgen.ark"),
 	}
 	if !gen.Enabled() {
-		return fmt.Errorf("Ark review generator is not configured; require ARK_API_KEY/ARK_API_KEY_DEV and ARK_EP_REVIEW_REFINE")
+		return fmt.Errorf("ark review generator is not configured; require ARK_API_KEY/ARK_API_KEY_DEV and ARK_EP_REVIEW_REFINE")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

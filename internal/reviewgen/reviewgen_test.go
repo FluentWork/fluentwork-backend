@@ -26,7 +26,7 @@ func TestArkGeneratorGenerateParsesAndValidates(t *testing.T) {
 		Endpoint: "ep-review",
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTPClient: &http.Client{
-			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 				body := `{"choices":[{"message":{"role":"assistant","content":"{\"review\":{\"goal_achievement\":{\"met\":true,\"note\":\"ok\"},\"issues\":[{\"type\":\"idiomatic\",\"original_quote\":\"sync up with the team\",\"hint\":\"Prefer touch base.\"}],\"suggestions\":[{\"text\":\"Use touch base with the team.\"}],\"comparisons\":[{\"user\":\"sync up with the team\",\"better\":\"touch base with the team\"},{\"user\":\"I am blocked on the API review\",\"better\":\"I'm blocked waiting on the API review\"},{\"user\":\"finished the login bug\",\"better\":\"fixed the login bug\"}]},\"refine\":{\"blocks\":[{\"intent_zh\":\"同步进度\",\"expression_en\":\"I'll touch base with the team.\",\"anchor_user_said\":\"sync up with the team\",\"scene_tag\":\"standup\",\"function_tag\":\"report\"}]}}"}}],"usage":{"prompt_tokens":111,"completion_tokens":222}}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
@@ -57,7 +57,7 @@ func TestArkGeneratorGenerateRejectsInvalidOutput(t *testing.T) {
 		Endpoint: "ep-review",
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTPClient: &http.Client{
-			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 				body := `{"choices":[{"message":{"role":"assistant","content":"{\"review\":{\"goal_achievement\":{},\"issues\":[{\"type\":\"grammar\",\"original_quote\":\"not present\"}],\"suggestions\":[],\"comparisons\":[{},{},{}]},\"refine\":{\"blocks\":[{\"intent_zh\":\"x\",\"expression_en\":\"y\",\"anchor_user_said\":\"also missing\",\"scene_tag\":\"standup\",\"function_tag\":\"report\"}]}}"}}]}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
