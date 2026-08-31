@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
-        sharedschemas "github.com/FluentWork/fluentwork-backend/schemas"
+	sharedschemas "github.com/FluentWork/fluentwork-backend/schemas"
 )
 
 func TestControlFrameRoundTrip(t *testing.T) {
@@ -40,7 +40,7 @@ func TestControlFrameRoundTrip(t *testing.T) {
 func TestSchemaFilePresent(t *testing.T) {
 	t.Parallel()
 	var doc map[string]any
-        if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
 		t.Fatalf("schema json: %v", err)
 	}
 	if doc["title"] == nil {
@@ -58,28 +58,28 @@ func TestSchemaFilePresent(t *testing.T) {
 }
 
 func TestSpeechObservabilityEventSchemaMirrorPresent(t *testing.T) {
-        t.Parallel()
+	t.Parallel()
 
-        var doc map[string]any
-        if err := json.Unmarshal(sharedschemas.SpeechObservabilityEventsV1, &doc); err != nil {
-                t.Fatalf("schema json: %v", err)
-        }
-        if doc["title"] == nil {
-                t.Fatal("schema missing title")
-        }
-        defs, ok := doc["$defs"].(map[string]any)
-        if !ok {
-                t.Fatal("schema missing $defs")
-        }
-        for _, name := range []string{
-                "eventBase",
-                "speechSessionStarted",
-                "speechSessionFailed",
-                "speechTurnEnded",
-                "speechTransportDisconnected",
-        } {
-                if _, ok := defs[name]; !ok {
-                        t.Fatalf("schema missing $defs.%s", name)
-                }
-        }
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.SpeechObservabilityEventsV1, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	if doc["title"] == nil {
+		t.Fatal("schema missing title")
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	for _, name := range []string{
+		"eventBase",
+		"speechSessionStarted",
+		"speechSessionFailed",
+		"speechTurnEnded",
+		"speechTransportDisconnected",
+	} {
+		if _, ok := defs[name]; !ok {
+			t.Fatalf("schema missing $defs.%s", name)
+		}
+	}
 }

@@ -1,3 +1,4 @@
+// Package schemas embeds backend-local mirrors of shared cross-repository schema assets.
 package schemas
 
 import _ "embed"
