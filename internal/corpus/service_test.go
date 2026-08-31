@@ -112,6 +112,53 @@ func TestListBlocksSupportsFavoriteAndCursor(t *testing.T) {
 	}
 }
 
+func TestListBlocksKeywordMatchesAnchorUserSaid(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	fixed := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return fixed }
+	id := 0
+	svc.newID = func() string {
+		id++
+		return "block-" + string(rune('0'+id))
+	}
+
+	if _, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{
+		SourceSessionID: "session-1",
+		Blocks: []BatchAcceptBlock{{
+			IntentZH:       "说明阻塞",
+			ExpressionEN:   "I'm blocked on the API review.",
+			AnchorUserSaid: "I am blocked on the API review.",
+			SceneTag:       "standup",
+			FunctionTag:    "report",
+		}},
+	}); err != nil {
+		t.Fatalf("BatchAccept: %v", err)
+	}
+
+	matched, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:  "user-1",
+		Keyword: "blocked on the API review",
+	})
+	if err != nil {
+		t.Fatalf("ListBlocks matched: %v", err)
+	}
+	if len(matched.Items) != 1 {
+		t.Fatalf("expected keyword match on anchor_user_said, got %+v", matched)
+	}
+
+	missed, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:  "user-1",
+		Keyword: "touch base",
+	})
+	if err != nil {
+		t.Fatalf("ListBlocks missed: %v", err)
+	}
+	if len(missed.Items) != 0 {
+		t.Fatalf("expected no match, got %+v", missed)
+	}
+}
+
 func TestReassignerMovesGuestBlocks(t *testing.T) {
 	store := NewMemoryStore()
 	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
