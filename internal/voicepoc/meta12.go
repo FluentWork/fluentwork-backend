@@ -35,6 +35,7 @@ func ResolveMeta12Status() Meta12Status {
 	return status
 }
 
+// Missing returns the meta12 prerequisites that are still not attested.
 func (s Meta12Status) Missing() []string {
 	missing := make([]string, 0, 3)
 	if !s.QuotaOK {
@@ -50,6 +51,7 @@ func (s Meta12Status) Missing() []string {
 	return missing
 }
 
+// FreezeStatus reports the release gate state derived from the current meta12 attestations.
 func (s Meta12Status) FreezeStatus() string {
 	if s.Closed {
 		return "meta12_closed"
