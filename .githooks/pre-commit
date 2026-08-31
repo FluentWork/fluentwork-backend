@@ -3,6 +3,16 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
+if [[ "${SKIP_DEV_CHECK:-}" == "1" ]]; then
+  echo "warning: SKIP_DEV_CHECK=1 — bypassing format/lint/test pre-commit gate" >&2
+else
+  if [[ ! -x "$ROOT/scripts/dev-check.sh" ]]; then
+    echo "error: scripts/dev-check.sh not found or not executable" >&2
+    exit 1
+  fi
+  "$ROOT/scripts/dev-check.sh"
+fi
+
 if [[ -x "$ROOT/scripts/gstack-review-gate.sh" ]]; then
   exec "$ROOT/scripts/gstack-review-gate.sh"
 fi

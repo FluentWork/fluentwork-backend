@@ -7,15 +7,22 @@ import (
 )
 
 const (
+	// StatusPending marks a daily read awaiting generation.
 	StatusPending = "pending"
-	StatusReady   = "ready"
-	StatusFailed  = "failed"
+	// StatusReady marks a generated daily read available to the client.
+	StatusReady = "ready"
+	// StatusFailed marks a daily read that could not be generated.
+	StatusFailed = "failed"
 )
 
 const (
-	GeneratorPreset       = "preset-v1"
-	GeneratorCorpusStub   = "corpus-stub-v1"
-	GeneratorFollowRead   = "follow-read-stub-v1"
+	// GeneratorPreset is the static fallback generator name.
+	GeneratorPreset = "preset-v1"
+	// GeneratorCorpusStub builds daily reads from phrase blocks.
+	GeneratorCorpusStub = "corpus-stub-v1"
+	// GeneratorFollowRead acknowledges follow-read submissions without scoring.
+	GeneratorFollowRead = "follow-read-stub-v1"
+	// GeneratorArkDailyRead is reserved for the future Ark-backed generator.
 	GeneratorArkDailyRead = "ark-daily-read-v1"
 )
 
