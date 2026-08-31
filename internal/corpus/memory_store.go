@@ -32,30 +32,45 @@ func (s *MemoryStore) ListBlocks(_ context.Context, filter ListFilter) ([]Phrase
 	defer s.mu.Unlock()
 	items := make([]PhraseBlock, 0, len(s.blocks))
 	for _, block := range s.blocks {
-		if block.UserID != filter.UserID || block.DeletedAt != nil {
+		if block.UserID != filter.UserID {
 			continue
 		}
-		if filter.SceneTag != "" && block.SceneTag != filter.SceneTag {
-			continue
-		}
-		if filter.FunctionTag != "" && block.FunctionTag != filter.FunctionTag {
-			continue
-		}
-		if filter.FavoriteOnly && !block.IsFavorite {
-			continue
-		}
-		if kw := strings.ToLower(strings.TrimSpace(filter.Keyword)); kw != "" {
-			haystack := strings.ToLower(block.ExpressionEN + " " + block.IntentZH + " " + block.AnchorUserSaid)
-			if !strings.Contains(haystack, kw) {
+		if filter.Incremental {
+			if filter.UpdatedAfter != nil && !block.UpdatedAt.After(filter.UpdatedAfter.UTC()) {
 				continue
 			}
-		}
-		if filter.After != nil && !isAfterCursor(block, *filter.After) {
-			continue
+			if filter.After != nil && !isAfterDeltaCursor(block, *filter.After) {
+				continue
+			}
+		} else {
+			if block.DeletedAt != nil {
+				continue
+			}
+			if filter.SceneTag != "" && block.SceneTag != filter.SceneTag {
+				continue
+			}
+			if filter.FunctionTag != "" && block.FunctionTag != filter.FunctionTag {
+				continue
+			}
+			if filter.FavoriteOnly && !block.IsFavorite {
+				continue
+			}
+			if kw := strings.ToLower(strings.TrimSpace(filter.Keyword)); kw != "" {
+				haystack := strings.ToLower(block.ExpressionEN + " " + block.IntentZH + " " + block.AnchorUserSaid)
+				if !strings.Contains(haystack, kw) {
+					continue
+				}
+			}
+			if filter.After != nil && !isAfterCursor(block, *filter.After) {
+				continue
+			}
 		}
 		items = append(items, cloneBlock(block))
 	}
 	sort.Slice(items, func(i, j int) bool {
+		if filter.Incremental {
+			return compareBlocksByUpdated(items[i], items[j]) < 0
+		}
 		return compareBlocks(items[i], items[j]) < 0
 	})
 	if len(items) > filter.Limit {
@@ -206,6 +221,21 @@ func compareBlocks(left, right PhraseBlock) int {
 	}
 }
 
+func compareBlocksByUpdated(left, right PhraseBlock) int {
+	switch {
+	case left.UpdatedAt.Before(right.UpdatedAt):
+		return -1
+	case left.UpdatedAt.After(right.UpdatedAt):
+		return 1
+	case left.ID < right.ID:
+		return -1
+	case left.ID > right.ID:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func isAfterCursor(block PhraseBlock, cursor ListCursor) bool {
 	bp := pinnedValue(block.PinnedAt)
 	cp := pinnedValue(cursor.PinnedAt)
@@ -220,6 +250,17 @@ func isAfterCursor(block PhraseBlock, cursor ListCursor) bool {
 		return false
 	default:
 		return block.ID < cursor.ID
+	}
+}
+
+func isAfterDeltaCursor(block PhraseBlock, cursor ListCursor) bool {
+	switch {
+	case block.UpdatedAt.After(cursor.UpdatedAt):
+		return true
+	case block.UpdatedAt.Before(cursor.UpdatedAt):
+		return false
+	default:
+		return block.ID > cursor.ID
 	}
 }
 

@@ -191,3 +191,133 @@ func TestReassignerMovesGuestBlocks(t *testing.T) {
 		t.Fatalf("expected reassigned block, got %+v", list)
 	}
 }
+
+func TestListBlocksIncrementalIncludesDeletionTombstone(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	times := []time.Time{
+		time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 31, 9, 1, 0, 0, time.UTC),
+		time.Date(2026, 8, 31, 9, 2, 0, 0, time.UTC),
+	}
+	idx := 0
+	svc.now = func() time.Time {
+		current := times[idx]
+		if idx < len(times)-1 {
+			idx++
+		}
+		return current
+	}
+	id := 0
+	svc.newID = func() string {
+		id++
+		return "block-" + string(rune('0'+id))
+	}
+
+	created, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{
+		SourceSessionID: "session-1",
+		Blocks: []BatchAcceptBlock{{
+			IntentZH:       "说明阻塞",
+			ExpressionEN:   "I'm blocked on the API review.",
+			AnchorUserSaid: "I am blocked on the API review.",
+			SceneTag:       "standup",
+			FunctionTag:    "report",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BatchAccept: %v", err)
+	}
+	blockID := created.Items[0].ID
+
+	if err := svc.DeleteBlock(context.Background(), "user-1", blockID); err != nil {
+		t.Fatalf("DeleteBlock: %v", err)
+	}
+
+	delta, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:       "user-1",
+		UpdatedAfter: times[0].Format(time.RFC3339Nano),
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("ListBlocks delta: %v", err)
+	}
+	if len(delta.Items) != 1 {
+		t.Fatalf("expected one tombstone row, got %+v", delta)
+	}
+	if delta.Items[0].ID != blockID || delta.Items[0].DeletedAt == nil {
+		t.Fatalf("expected deleted block tombstone, got %+v", delta.Items[0])
+	}
+	if delta.CursorReset {
+		t.Fatalf("expected cursor_reset=false, got %+v", delta)
+	}
+}
+
+func TestListBlocksIncrementalRejectsBrowseFilters(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	_, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:       "user-1",
+		UpdatedAfter: time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		FavoriteOnly: true,
+	})
+	if err == nil {
+		t.Fatal("expected invalid argument error")
+	}
+}
+
+func TestListBlocksIncrementalSupportsCursorPagination(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	times := []time.Time{
+		time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 31, 9, 1, 0, 0, time.UTC),
+	}
+	idx := 0
+	svc.now = func() time.Time {
+		current := times[idx]
+		if idx < len(times)-1 {
+			idx++
+		}
+		return current
+	}
+	id := 0
+	svc.newID = func() string {
+		id++
+		return "block-" + string(rune('0'+id))
+	}
+
+	for _, block := range []BatchAcceptBlock{
+		{IntentZH: "说明下一步", ExpressionEN: "I'll follow up tomorrow.", AnchorUserSaid: "I will follow up tomorrow.", SceneTag: "standup", FunctionTag: "commit"},
+		{IntentZH: "说明阻塞", ExpressionEN: "I'm blocked on the API review.", AnchorUserSaid: "I am blocked on the API review.", SceneTag: "standup", FunctionTag: "report"},
+	} {
+		if _, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{SourceSessionID: "session-1", Blocks: []BatchAcceptBlock{block}}); err != nil {
+			t.Fatalf("BatchAccept: %v", err)
+		}
+	}
+
+	first, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:       "user-1",
+		UpdatedAfter: time.Date(2026, 8, 31, 8, 59, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		Limit:        1,
+	})
+	if err != nil {
+		t.Fatalf("ListBlocks first delta page: %v", err)
+	}
+	if len(first.Items) != 1 || first.NextCursor == "" {
+		t.Fatalf("unexpected first delta page: %+v", first)
+	}
+
+	second, err := svc.ListBlocks(context.Background(), ListBlocksRequest{
+		UserID:       "user-1",
+		UpdatedAfter: time.Date(2026, 8, 31, 8, 59, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		Cursor:       first.NextCursor,
+		Limit:        1,
+	})
+	if err != nil {
+		t.Fatalf("ListBlocks second delta page: %v", err)
+	}
+	if len(second.Items) != 1 || second.Items[0].ID == first.Items[0].ID {
+		t.Fatalf("unexpected second delta page: %+v", second)
+	}
+}

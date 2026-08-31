@@ -30,8 +30,39 @@ func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]Phras
 	query := `
                 SELECT ` + blockColumns + `
                 FROM phrase_blocks
-                WHERE user_id = ? AND deleted_at IS NULL
+                WHERE user_id = ?
         `
+	if filter.Incremental {
+		if filter.UpdatedAfter != nil {
+			query += ` AND updated_at > ?`
+			args = append(args, filter.UpdatedAfter.UTC())
+		}
+		if filter.After != nil {
+			query += ` AND (
+                                updated_at > ?
+                                OR (updated_at = ? AND id > ?)
+                        )`
+			args = append(args, filter.After.UpdatedAt.UTC(), filter.After.UpdatedAt.UTC(), filter.After.ID)
+		}
+		query += ` ORDER BY updated_at ASC, id ASC LIMIT ?`
+		args = append(args, filter.Limit)
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		blocks := make([]PhraseBlock, 0)
+		for rows.Next() {
+			block, err := scanBlock(rows)
+			if err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, block)
+		}
+		return blocks, rows.Err()
+	}
+
+	query += ` AND deleted_at IS NULL`
 	if filter.SceneTag != "" {
 		query += ` AND scene_tag = ?`
 		args = append(args, filter.SceneTag)

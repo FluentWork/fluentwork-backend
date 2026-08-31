@@ -67,14 +67,16 @@ type ListBlocksRequest struct {
 	FunctionTag  string
 	Keyword      string
 	Cursor       string
+	UpdatedAfter string
 	Limit        int
 	FavoriteOnly bool
 }
 
 // ListBlocksResponse is the paginated corpus list returned to clients.
 type ListBlocksResponse struct {
-	Items      []PhraseBlockView `json:"items"`
-	NextCursor string            `json:"next_cursor,omitempty"`
+	Items       []PhraseBlockView `json:"items"`
+	NextCursor  string            `json:"next_cursor,omitempty"`
+	CursorReset bool              `json:"cursor_reset"`
 }
 
 // PhraseBlockView is the API projection of one phrase block.
@@ -93,6 +95,7 @@ type PhraseBlockView struct {
 	IsFavorite      bool       `json:"is_favorite"`
 	PinnedAt        *time.Time `json:"pinned_at,omitempty"`
 	SourceSessionID *string    `json:"source_session_id,omitempty"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
