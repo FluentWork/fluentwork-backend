@@ -303,7 +303,11 @@ func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (Revi
 	}
 
 	if session.Status == StatusReviewed {
-		review := json.RawMessage(append([]byte(nil), session.ReviewJSON...))
+		utterances, err := s.store.ListUtterances(ctx, sessionID)
+		if err != nil {
+			return ReviewPollResponse{}, err
+		}
+		review := canonicalizeReviewPayload(session.ReviewJSON, session, utterances)
 		if len(review) == 0 {
 			review = json.RawMessage(`{}`)
 		}
@@ -329,6 +333,167 @@ func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (Revi
 		SessionID: session.ID,
 		Status:    ReviewPollPending,
 	}, nil
+}
+
+func canonicalizeReviewPayload(stored []byte, session Session, utterances []Utterance) json.RawMessage {
+	if len(stored) == 0 {
+		return nil
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(stored, &doc); err != nil {
+		return json.RawMessage(append([]byte(nil), stored...))
+	}
+
+	if _, ok := doc["review"]; ok {
+		if _, hasRefine := doc["refine"]; !hasRefine {
+			doc["refine"] = map[string]any{"blocks": []any{}}
+		}
+		if _, hasStatus := doc["status"]; !hasStatus {
+			doc["status"] = ReviewPollReady
+		}
+		if _, hasDuration := doc["duration_sec"]; !hasDuration && session.DurationSec > 0 {
+			doc["duration_sec"] = session.DurationSec
+		}
+		enrichReviewPayload(doc, utterances)
+		encoded, err := json.Marshal(doc)
+		if err != nil {
+			return json.RawMessage(append([]byte(nil), stored...))
+		}
+		return encoded
+	}
+
+	generator, _ := doc["generator"].(string)
+	delete(doc, "generator")
+	status, _ := doc["status"].(string)
+	delete(doc, "status")
+	durationSec := session.DurationSec
+	if rawDuration, ok := doc["duration_sec"]; ok {
+		switch value := rawDuration.(type) {
+		case float64:
+			durationSec = int(value)
+		case int:
+			durationSec = value
+		}
+		delete(doc, "duration_sec")
+	}
+
+	payload := map[string]any{
+		"review": doc,
+		"refine": map[string]any{"blocks": []any{}},
+		"status": ReviewPollReady,
+	}
+	generator = strings.TrimSpace(generator)
+	if generator == "" {
+		generator = legacyReviewGenerator
+	}
+	payload["generator"] = generator
+	if strings.TrimSpace(status) != "" {
+		payload["status"] = strings.TrimSpace(status)
+	}
+	if durationSec > 0 {
+		payload["duration_sec"] = durationSec
+	}
+	enrichReviewPayload(payload, utterances)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(append([]byte(nil), stored...))
+	}
+	return encoded
+}
+
+func enrichReviewPayload(payload map[string]any, utterances []Utterance) {
+	payload["transcript"] = buildTranscriptView(utterances)
+
+	reviewSection, _ := payload["review"].(map[string]any)
+	refineSection, _ := payload["refine"].(map[string]any)
+	payload["overview"] = buildOverviewView(reviewSection)
+	payload["evaluation"] = buildEvaluationView(reviewSection)
+	payload["dual_column"] = buildDualColumnView(reviewSection)
+	payload["refine_cards"] = buildRefineCardsView(refineSection)
+}
+
+func buildTranscriptView(utterances []Utterance) []map[string]any {
+	out := make([]map[string]any, 0, len(utterances))
+	for _, utterance := range utterances {
+		out = append(out, map[string]any{
+			"seq":     utterance.Seq,
+			"speaker": utterance.Speaker,
+			"text":    utterance.Text,
+		})
+	}
+	return out
+}
+
+func buildOverviewView(review map[string]any) map[string]any {
+	goal, _ := review["goal_achievement"].(map[string]any)
+	issues, _ := review["issues"].([]any)
+	suggestions, _ := review["suggestions"].([]any)
+	comparisons, _ := review["comparisons"].([]any)
+	return map[string]any{
+		"goal_achievement": goal,
+		"issue_count":      len(issues),
+		"suggestion_count": len(suggestions),
+		"comparison_count": len(comparisons),
+	}
+}
+
+func buildEvaluationView(review map[string]any) []map[string]any {
+	goal, _ := review["goal_achievement"].(map[string]any)
+	issues, _ := review["issues"].([]any)
+	suggestions, _ := review["suggestions"].([]any)
+	return []map[string]any{
+		{
+			"layer":   "goal",
+			"title":   "Goal Achievement",
+			"content": goal,
+		},
+		{
+			"layer":   "issues",
+			"title":   "Issues",
+			"content": issues,
+		},
+		{
+			"layer":   "suggestions",
+			"title":   "Suggestions",
+			"content": suggestions,
+		},
+	}
+}
+
+func buildDualColumnView(review map[string]any) []map[string]any {
+	rawComparisons, _ := review["comparisons"].([]any)
+	out := make([]map[string]any, 0, len(rawComparisons))
+	for _, item := range rawComparisons {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"user":   row["user"],
+			"better": row["better"],
+		})
+	}
+	return out
+}
+
+func buildRefineCardsView(refine map[string]any) []map[string]any {
+	rawBlocks, _ := refine["blocks"].([]any)
+	out := make([]map[string]any, 0, len(rawBlocks))
+	for _, item := range rawBlocks {
+		block, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"intent_zh":        block["intent_zh"],
+			"expression_en":    block["expression_en"],
+			"anchor_user_said": block["anchor_user_said"],
+			"scene_tag":        block["scene_tag"],
+			"function_tag":     block["function_tag"],
+		})
+	}
+	return out
 }
 
 // PostMessage handles the degraded text channel stub (B7).

@@ -321,6 +321,9 @@ func buildEvidence(sessionID string, ready map[string]any, steps []string, ready
 	}
 	var reviewDoc map[string]any
 	_ = json.Unmarshal(raw, &reviewDoc)
+	if err := validateFullModelReviewDoc(reviewDoc); err != nil {
+		return smokeEvidence{}, err
+	}
 	generator, _ := reviewDoc["generator"].(string)
 	if generator == "" {
 		return smokeEvidence{}, fmt.Errorf("ready review missing generator: %#v", ready)
@@ -334,6 +337,19 @@ func buildEvidence(sessionID string, ready map[string]any, steps []string, ready
 		Review:         raw,
 		Steps:          steps,
 	}, nil
+}
+
+func validateFullModelReviewDoc(reviewDoc map[string]any) error {
+	for _, key := range []string{"transcript", "overview", "evaluation", "dual_column", "refine_cards", "review", "refine", "generator", "status"} {
+		if _, ok := reviewDoc[key]; !ok {
+			return fmt.Errorf("ready review missing %s: %#v", key, reviewDoc)
+		}
+	}
+	status, _ := reviewDoc["status"].(string)
+	if status != session.ReviewPollReady {
+		return fmt.Errorf("ready review status = %q", status)
+	}
+	return nil
 }
 
 type header struct {

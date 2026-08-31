@@ -15,7 +15,10 @@ import (
 
 const defaultJobRetryDelay = 2 * time.Second
 
-const stubReviewGenerator = "stub-v1"
+const (
+	stubReviewGenerator   = "stub-v1"
+	legacyReviewGenerator = "legacy-review-v0"
+)
 
 // ProcessNextJob claims and processes one pending session.finished job.
 // ok=false means the queue was empty.
@@ -159,33 +162,27 @@ type reviewArtifacts struct {
 	Cost       *aicost.RecordRequest
 }
 
-type stubReview struct {
-	Version        int      `json:"version"`
-	Status         string   `json:"status"`
-	Summary        string   `json:"summary"`
-	UtteranceCount int      `json:"utterance_count"`
-	DurationSec    int      `json:"duration_sec"`
-	Highlights     []string `json:"highlights"`
-	Generator      string   `json:"generator"`
-}
-
 func buildStubReviewArtifacts(session Session, utterances []Utterance) (reviewArtifacts, error) {
-	doc := stubReview{
-		Version:        1,
-		Status:         "ready",
-		Summary:        "Practice session completed. Full model review lands with the production LLM path.",
-		UtteranceCount: len(utterances),
-		DurationSec:    session.DurationSec,
-		Highlights:     []string{},
-		Generator:      stubReviewGenerator,
+	doc := map[string]any{
+		"goal_achievement": map[string]any{
+			"met":  false,
+			"note": "Practice session completed. Full model review is unavailable; transcript and session status are still available.",
+		},
+		"issues": []any{},
+		"suggestions": []map[string]any{
+			{"text": "Review generation is unavailable right now. You can still replay the transcript and retry later."},
+		},
+		"comparisons":     []any{},
+		"utterance_count": len(utterances),
 	}
 	reviewJSON, err := json.Marshal(doc)
 	if err != nil {
 		return reviewArtifacts{}, err
 	}
+	refineJSON := json.RawMessage(`{"blocks":[]}`)
 	return reviewArtifacts{
-		ReviewJSON: reviewJSON,
-		RefineJSON: json.RawMessage(`{"blocks":[]}`),
+		ReviewJSON: buildReviewPayload(reviewJSON, refineJSON, session, stubReviewGenerator),
+		RefineJSON: refineJSON,
 		Generator:  stubReviewGenerator,
 		Cost:       nil,
 	}, nil
@@ -213,7 +210,7 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		return buildStubReviewArtifacts(session, utterances)
 	}
 	return reviewArtifacts{
-		ReviewJSON: mustAttachReviewMetadata(result.Review, session, result.Generator),
+		ReviewJSON: buildReviewPayload(result.Review, result.Refine, session, result.Generator),
 		RefineJSON: append([]byte(nil), result.Refine...),
 		Generator:  result.Generator,
 		Cost: &aicost.RecordRequest{
@@ -270,22 +267,31 @@ func renderTranscript(utterances []Utterance) string {
 	return strings.Join(lines, "\n")
 }
 
-func mustAttachReviewMetadata(review []byte, session Session, generator string) []byte {
-	var doc map[string]any
-	if err := json.Unmarshal(review, &doc); err != nil {
-		// buildReviewArtifacts only calls this for provider output that already passed JSON validation.
-		return append([]byte(nil), review...)
+func buildReviewPayload(review, refine []byte, session Session, generator string) []byte {
+	payload := map[string]any{
+		"review":    rawJSONOrEmptyObject(review),
+		"refine":    rawJSONOrDefault(refine, json.RawMessage(`{"blocks":[]}`)),
+		"generator": strings.TrimSpace(generator),
+		"status":    "ready",
 	}
-	doc["generator"] = strings.TrimSpace(generator)
-	if _, ok := doc["duration_sec"]; !ok && session.DurationSec > 0 {
-		doc["duration_sec"] = session.DurationSec
+	if session.DurationSec > 0 {
+		payload["duration_sec"] = session.DurationSec
 	}
-	if _, ok := doc["status"]; !ok {
-		doc["status"] = "ready"
-	}
-	encoded, err := json.Marshal(doc)
+	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return append([]byte(nil), review...)
 	}
 	return encoded
+}
+
+func rawJSONOrEmptyObject(raw []byte) any {
+	return rawJSONOrDefault(raw, json.RawMessage(`{}`))
+}
+
+func rawJSONOrDefault(raw []byte, fallback json.RawMessage) any {
+	var out any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		_ = json.Unmarshal(fallback, &out)
+	}
+	return out
 }
