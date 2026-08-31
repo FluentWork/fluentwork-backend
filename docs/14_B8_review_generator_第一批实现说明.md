@@ -55,4 +55,8 @@
 
 1. ~~本地带 Ark 凭证跑完整 `smoke-review-ready`~~ — 2026-08-31 PASS（3/3，`generator=ark-review-refine-v1`，cost 有行，`duration_ms` ~7–9s）
 2. 继续观察线上/联调 `duration_ms` 是否稳定 ≤ 15s
-3. 再决定是否进入 `B9`（full model 返回）或 `B10`（炼化入库）
+3. `B8-R1` 已在文档口径上收口：
+   - 当前 review + refine 共用一次 Ark 调用
+   - `ai_cost_logs` 只记一条 `review.eval`
+   - 不额外拆 `review.refine` 假账
+4. 进入 `B9`（full model 返回）或 `B10`（炼化入库）
