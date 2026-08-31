@@ -16,11 +16,11 @@ import (
 type Tier int
 
 const (
-	// TierSameTurnConfirm: effective window P90 >= 800ms → confirm in the current turn.
+	// TierSameTurnConfirm is tier ①: effective window P90 >= 800ms → confirm in the current turn.
 	TierSameTurnConfirm Tier = 1
-	// TierNextTurnConfirm: injection works but window is too short for same-turn → confirm next turn open.
+	// TierNextTurnConfirm is tier ②: injection works but window is too short for same-turn → confirm next turn open.
 	TierNextTurnConfirm Tier = 2
-	// TierBadgeOnly: injection unavailable or never affects generation → badge only.
+	// TierBadgeOnly is tier ③: injection unavailable or never affects generation → badge only.
 	TierBadgeOnly Tier = 3
 )
 

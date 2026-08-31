@@ -158,10 +158,8 @@ func run() error {
 	}
 
 	if err != nil {
-		if payload != nil {
-			payload["error"] = err.Error()
-			_ = printJSON(payload)
-		}
+		payload["error"] = err.Error()
+		_ = printJSON(payload)
 		return err
 	}
 	if err := printJSON(payload); err != nil {
