@@ -33,7 +33,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, nil)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	srv := httpserver.New(cfg, nil, accountHandler, nil, sessionHandler, nil)
+	srv := httpserver.New(cfg, nil, accountHandler, nil, nil, sessionHandler, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -183,7 +183,7 @@ func TestInternalConsumeTicketRequiresToken(t *testing.T) {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, nil)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	srv := httpserver.New(cfg, nil, accountHandler, nil, sessionHandler, nil)
+	srv := httpserver.New(cfg, nil, accountHandler, nil, nil, sessionHandler, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

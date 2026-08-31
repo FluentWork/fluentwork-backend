@@ -13,7 +13,7 @@ func TestReadyzOK(t *testing.T) {
 	store := account.NewMemoryStore()
 	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
 	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
-	server := New(cfg, nil, account.NewHandler(svc), nil, nil, store.Ping)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, store.Ping)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	server.Handler().ServeHTTP(rec, req)
@@ -26,7 +26,7 @@ func TestUnknownRouteUsesErrorEnvelope(t *testing.T) {
 	store := account.NewMemoryStore()
 	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
 	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
-	server := New(cfg, nil, account.NewHandler(svc), nil, nil, store.Ping)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, store.Ping)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	req.Header.Set("X-Request-ID", "missing-route")

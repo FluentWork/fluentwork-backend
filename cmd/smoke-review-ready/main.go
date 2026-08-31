@@ -88,7 +88,7 @@ func run() error {
 		"ark_review_endpoint", cfg.ArkReviewRefineEP,
 	)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, sessionHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, accountStore.Ping)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

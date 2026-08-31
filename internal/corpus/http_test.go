@@ -41,7 +41,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service, account.St
 	accountHandler := account.NewHandler(accountSvc)
 	corpusSvc := corpus.NewService(corpusStore, logger)
 	corpusHandler := corpus.NewHandler(corpusSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, nil, nil, accountStore.Ping)
 
 	guestRec := httptest.NewRecorder()
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"device-corpus-1"}`)))
