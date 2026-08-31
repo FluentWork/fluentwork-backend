@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
@@ -72,6 +73,16 @@ func run() error {
 		}
 	}()
 
+	contentStore, contentCloser, err := content.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := contentCloser(); closeErr != nil {
+			logger.Error("closing content store", "err", closeErr)
+		}
+	}()
+
 	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
 	if err != nil {
 		return err
@@ -85,10 +96,13 @@ func run() error {
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},
 		corpus.Reassigner{Store: corpusStore},
+		content.Reassigner{Store: contentStore},
 	}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	corpusSvc := corpus.NewService(corpusStore, logger)
 	corpusHandler := corpus.NewHandler(corpusSvc, accountHandler)
+	contentSvc := content.NewService(contentStore, content.CorpusBlockSource{Store: corpusStore}, logger)
+	contentHandler := content.NewHandler(contentSvc, accountHandler)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
 	reviewGenerator := reviewgen.ArkGenerator{
@@ -101,7 +115,7 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, sessionHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

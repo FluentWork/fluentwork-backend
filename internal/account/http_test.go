@@ -29,7 +29,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service, *account.M
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := account.NewService(store, account.NopReassigner{}, cfg, logger)
-	server := httpserver.New(cfg, logger, account.NewHandler(svc), nil, nil, store.Ping)
+	server := httpserver.New(cfg, logger, account.NewHandler(svc), nil, nil, nil, store.Ping)
 	return server, svc, store
 }
 

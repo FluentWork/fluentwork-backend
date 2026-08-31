@@ -14,6 +14,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -32,6 +33,7 @@ func New(
 	logger *slog.Logger,
 	accounts *account.Handler,
 	corpusHandler *corpus.Handler,
+	contentHandler *content.Handler,
 	sessions *session.Handler,
 	ready func(context.Context) error,
 ) *Server {
@@ -51,6 +53,9 @@ func New(
 	}
 	if corpusHandler != nil {
 		corpus.RegisterRoutes(apiGroup, corpusHandler)
+	}
+	if contentHandler != nil {
+		content.RegisterRoutes(apiGroup, contentHandler)
 	}
 	if sessions != nil {
 		session.RegisterRoutes(apiGroup, sessions)

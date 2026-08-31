@@ -1,4 +1,4 @@
-// Package main runs a live smoke for B10 corpus batch-accept/list/favorite/delete.
+// Package main runs a live smoke for B11 daily reads.
 package main
 
 import (
@@ -18,6 +18,7 @@ import (
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -26,17 +27,17 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "smoke-corpus FAILED: %v\n", err)
+		fmt.Fprintf(os.Stderr, "smoke-daily-read FAILED: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 type smokeEvidence struct {
-	AcceptedCount int      `json:"accepted_count"`
-	ListedCount   int      `json:"listed_count"`
-	KeywordHits   int      `json:"keyword_hits"`
-	BlockID       string   `json:"block_id"`
-	Steps         []string `json:"steps"`
+	GenDate    string   `json:"gen_date"`
+	Status     string   `json:"status"`
+	Generator  string   `json:"generator"`
+	DailyReadID string  `json:"daily_read_id"`
+	Steps      []string `json:"steps"`
 }
 
 func run() error {
@@ -48,22 +49,26 @@ func run() error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	logger := logx.New("smoke-corpus")
+	logger := logx.New("smoke-daily-read")
 	slog.SetDefault(logger)
 	gin.SetMode(gin.ReleaseMode)
 
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
 	corpusStore := corpus.NewMemoryStore()
+	contentStore := content.NewMemoryStore()
 
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},
 		corpus.Reassigner{Store: corpusStore},
+		content.Reassigner{Store: contentStore},
 	}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	corpusSvc := corpus.NewService(corpusStore, logger)
 	corpusHandler := corpus.NewHandler(corpusSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, nil, nil, accountStore.Ping)
+	contentSvc := content.NewService(contentStore, content.CorpusBlockSource{Store: corpusStore}, logger)
+	contentHandler := content.NewHandler(contentSvc, accountHandler)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, nil, accountStore.Ping)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -82,10 +87,10 @@ func run() error {
 	}()
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	steps := make([]string, 0, 8)
+	steps := make([]string, 0, 6)
 
 	guest, err := postJSON(client, baseURL+"/api/v1/auth/guest", "", map[string]any{
-		"device_id": "smoke-corpus-device",
+		"device_id": "smoke-daily-read-device",
 	})
 	if err != nil {
 		return fmt.Errorf("guest auth: %w", err)
@@ -96,76 +101,44 @@ func run() error {
 	}
 	steps = append(steps, "guest auth")
 
-	accepted, err := postJSON(client, baseURL+"/api/v1/corpus/blocks/batch-accept", token, map[string]any{
-		"source_session_id": "smoke-session-1",
-		"blocks": []map[string]any{{
-			"intent_zh":        "说明阻塞",
-			"expression_en":    "I'm blocked on the API review.",
-			"anchor_user_said": "I am blocked on the API review.",
-			"scene_tag":        "standup",
-			"function_tag":     "report",
-		}},
-	})
+	today, err := getJSON(client, baseURL+"/api/v1/daily-reads/today", token)
 	if err != nil {
-		return fmt.Errorf("batch accept: %w", err)
+		return fmt.Errorf("daily read today: %w", err)
 	}
-	acceptedCount, _ := accepted["accepted_count"].(float64)
-	items, _ := accepted["items"].([]any)
-	if int(acceptedCount) != 1 || len(items) != 1 {
-		return fmt.Errorf("unexpected batch accept: %#v", accepted)
+	status, _ := today["status"].(string)
+	genDate, _ := today["gen_date"].(string)
+	readDoc, _ := today["daily_read"].(map[string]any)
+	if status != content.StatusReady || readDoc == nil {
+		return fmt.Errorf("unexpected today response: %#v", today)
 	}
-	firstItem, _ := items[0].(map[string]any)
-	blockID, _ := firstItem["id"].(string)
-	if blockID == "" {
-		return fmt.Errorf("batch accept missing block id: %#v", accepted)
+	readID, _ := readDoc["id"].(string)
+	generator, _ := readDoc["generator"].(string)
+	if readID == "" || generator == "" {
+		return fmt.Errorf("today ready payload incomplete: %#v", today)
 	}
-	steps = append(steps, "batch accept")
+	steps = append(steps, "daily read today")
 
-	listed, err := getJSON(client, baseURL+"/api/v1/corpus/blocks?scene=standup", token)
+	follow, err := postJSON(client, baseURL+"/api/v1/daily-reads/"+readID+"/follow-read", token, map[string]any{})
 	if err != nil {
-		return fmt.Errorf("list blocks: %w", err)
+		return fmt.Errorf("follow read: %w", err)
 	}
-	listItems, _ := listed["items"].([]any)
-	if len(listItems) != 1 {
-		return fmt.Errorf("unexpected list response: %#v", listed)
+	recorded, _ := follow["recorded"].(bool)
+	if !recorded {
+		return fmt.Errorf("unexpected follow response: %#v", follow)
 	}
-	steps = append(steps, "list blocks")
+	steps = append(steps, "follow read")
 
-	keyword, err := getJSON(client, baseURL+"/api/v1/corpus/blocks?kw=blocked+on+the+API+review", token)
-	if err != nil {
-		return fmt.Errorf("keyword list: %w", err)
-	}
-	keywordItems, _ := keyword["items"].([]any)
-	if len(keywordItems) != 1 {
-		return fmt.Errorf("expected keyword match on anchor_user_said, got %#v", keyword)
-	}
-	steps = append(steps, "keyword search")
-
-	if _, err := postJSON(client, baseURL+"/api/v1/corpus/blocks/"+blockID+"/favorite", token, map[string]any{
-		"is_favorite": true,
-		"pinned":      true,
-	}); err != nil {
-		return fmt.Errorf("favorite: %w", err)
-	}
-	steps = append(steps, "favorite")
-
-	if _, err := requestJSON(client, http.MethodDelete, baseURL+"/api/v1/corpus/blocks/"+blockID, token, nil); err != nil {
-		return fmt.Errorf("delete: %w", err)
-	}
-	steps = append(steps, "soft delete")
-
-	evidence := smokeEvidence{
-		AcceptedCount: int(acceptedCount),
-		ListedCount:   len(listItems),
-		KeywordHits:   len(keywordItems),
-		BlockID:       blockID,
-		Steps:         steps,
-	}
-	encoded, err := json.MarshalIndent(evidence, "", "  ")
+	encoded, err := json.MarshalIndent(smokeEvidence{
+		GenDate:     genDate,
+		Status:      status,
+		Generator:   generator,
+		DailyReadID: readID,
+		Steps:       steps,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}
-	fmt.Println("=== B10 corpus smoke PASS ===")
+	fmt.Println("=== B11 daily-read smoke PASS ===")
 	fmt.Println(string(encoded))
 	return nil
 }

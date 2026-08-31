@@ -309,6 +309,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /daily-reads/today:
+    get:
+      summary: Get or generate today's daily read
+      operationId: getDailyReadToday
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Daily read poll payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyReadTodayResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /daily-reads/{id}/follow-read:
+    post:
+      summary: Submit a follow-read recording without scoring
+      operationId: postDailyReadFollowRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FollowReadRequest"
+      responses:
+        "200":
+          description: Follow-read acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowReadResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -617,6 +666,54 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PhraseBlock"
+    DailyReadTodayResponse:
+      type: object
+      required: [gen_date, status]
+      properties:
+        gen_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [pending, ready, failed]
+        daily_read:
+          $ref: "#/components/schemas/DailyRead"
+    DailyRead:
+      type: object
+      required: [id, title, body, generator]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        body: { type: string }
+        audio_url:
+          type: string
+          nullable: true
+        generator: { type: string }
+        used_block_ids:
+          type: array
+          items: { type: string }
+        source_refs:
+          type: object
+          additionalProperties: true
+        read_score:
+          type: number
+          nullable: true
+    FollowReadRequest:
+      type: object
+      properties:
+        audio_url:
+          type: string
+          nullable: true
+    FollowReadResponse:
+      type: object
+      required: [daily_read_id, recorded, read_score, generator]
+      properties:
+        daily_read_id: { type: string }
+        recorded: { type: boolean }
+        read_score:
+          type: number
+          nullable: true
+        generator: { type: string }
     Error:
       type: object
       required: [code, message, request_id]
