@@ -63,7 +63,9 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "user.speech.end" }
+        "type": { "const": "user.speech.end" },
+        "text": { "type": "string", "maxLength": 4096 },
+        "turn_id": { "type": "string", "minLength": 1 }
       }
     },
     "aiTextDelta": {
@@ -110,7 +112,12 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "feedback.badge" },
-        "badge": { "type": "string", "minLength": 1 }
+        "badge": { "type": "string", "minLength": 1 },
+        "phrase_block_id": { "type": "string", "minLength": 1 },
+        "tier": { "type": "string", "enum": ["soft", "highlight", "celebrate"] },
+        "session_id": { "type": "string", "minLength": 1 },
+        "turn_id": { "type": "string", "minLength": 1 },
+        "dedupe_key": { "type": "string", "minLength": 1 }
       }
     },
     "sessionEnd": {
