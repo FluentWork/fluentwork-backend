@@ -139,7 +139,7 @@ func (s *Service) FollowRead(ctx context.Context, userID, readID string, req Fol
 }
 
 // RunScheduledGeneration is the 02:00 batch skeleton for active users.
-func (s *Service) RunScheduledGeneration(ctx context.Context, date time.Time) error {
+func (s *Service) RunScheduledGeneration(_ context.Context, date time.Time) error {
 	s.logger.Info("daily read batch skeleton",
 		"gen_date", normalizeDateUTC(date).Format("2006-01-02"),
 		"stage", "scheduler",

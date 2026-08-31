@@ -110,8 +110,8 @@ func (s *MemoryStore) GetLatestReadyBefore(_ context.Context, userID string, bef
 			continue
 		}
 		if best == nil || date.After(normalizeDateUTC(best.GenDate)) {
-			copy := read
-			best = &copy
+			snap := read
+			best = &snap
 		}
 	}
 	if best == nil {
