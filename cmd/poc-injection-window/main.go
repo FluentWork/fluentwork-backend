@@ -4,7 +4,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -23,6 +25,11 @@ func main() {
 }
 
 func run() error {
+	fs := newFlagSet()
+	requireMeta12 := fs.Bool("require-meta12", false, "fail unless quota / no-training / concurrency prerequisite is explicitly closed")
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return err
+	}
 	apiKey := firstNonEmpty(
 		os.Getenv("VOLC_POC_API_KEY"),
 		os.Getenv("VOLC_SPEECH_API_KEY"),
@@ -37,6 +44,10 @@ func run() error {
 		"issue":   "B14",
 		"harness": "T9 injection window",
 	}
+	meta12 := voicepoc.ResolveMeta12Status()
+	out["meta12"] = meta12
+	out["freeze_status"] = meta12.FreezeStatus()
+	out["missing_meta12"] = meta12.Missing()
 
 	if liveRequested && apiKey != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -96,9 +107,18 @@ func run() error {
 	}
 	out["report"] = report
 	out["next"] = []string{
-		"complete meta #12 vendor PREREQ (quota / contract / concurrency)",
+		"complete meta #12 vendor PREREQ (quota / no-training / concurrency)",
 		"add audio-turn same-turn observation to VolcDuplexInjectionProvider",
 		"re-run live T9 and write tier conclusion back to meta doc 50",
+	}
+	if *requireMeta12 && !meta12.Closed {
+		out["error"] = "meta #12 prerequisite not closed"
+		enc, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(enc))
+		return fmt.Errorf("meta #12 prerequisite not closed: missing=%s", strings.Join(meta12.Missing(), ","))
 	}
 
 	enc, err := json.MarshalIndent(out, "", "  ")
@@ -109,6 +129,12 @@ func run() error {
 	fmt.Printf("=== B14 harness PASS (%s) ===\n", out["t9_mode"])
 	fmt.Printf("tier: %s (p90=%dms) credential_mode=%s\n", report.TierLabel, report.WindowP90MS, report.CredentialMode)
 	return nil
+}
+
+func newFlagSet() *flag.FlagSet {
+	fs := flag.NewFlagSet("poc-injection-window", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return fs
 }
 
 func firstNonEmpty(values ...string) string {

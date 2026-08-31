@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strconv"
@@ -39,11 +40,15 @@ func main() {
 }
 
 func run() error {
-	asr := flag.Bool("asr", false, "run D3/T2 ASR transcript smoke (V1)")
-	inject := flag.Bool("inject", false, "run T3/T4 inject smoke (V3)")
-	t9 := flag.Bool("t9", false, "run D5/T9 delay-gradient window (V8)")
-	wav := flag.String("wav", "", "path to 16kHz mono PCM WAV")
-	flag.Parse()
+	fs := newFlagSet()
+	asr := fs.Bool("asr", false, "run D3/T2 ASR transcript smoke (V1)")
+	inject := fs.Bool("inject", false, "run T3/T4 inject smoke (V3)")
+	t9 := fs.Bool("t9", false, "run D5/T9 delay-gradient window (V8)")
+	requireMeta12 := fs.Bool("require-meta12", false, "fail unless quota / no-training / concurrency prerequisite is explicitly closed")
+	wav := fs.String("wav", "", "path to 16kHz mono PCM WAV")
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return err
+	}
 
 	modes := 0
 	for _, v := range []bool{*asr, *inject, *t9} {
@@ -76,6 +81,7 @@ func run() error {
 	if wavPath == "" {
 		wavPath = voicepoc.DefaultFixtureWAVPath()
 	}
+	meta12 := voicepoc.ResolveMeta12Status()
 
 	var (
 		payload map[string]any
@@ -105,7 +111,7 @@ func run() error {
 			"report": report,
 			"next": []string{
 				"Write tier conclusion into meta doc 50 appendix",
-				"meta #12 PREREQ before treating freeze as production-binding",
+				"Close meta #12 PREREQ before treating freeze as production-binding",
 				"Optional: VOLC_T9_TRIALS=6 for fuller P90 confidence",
 			},
 		}
@@ -125,7 +131,7 @@ func run() error {
 			"result": result,
 			"next": []string{
 				"./scripts/smoke-volc-realtime.sh --t9",
-				"meta #12 PREREQ",
+				"Close meta #12 PREREQ",
 			},
 		}
 		pass = "=== B14 T3/T4 inject smoke PASS ==="
@@ -158,15 +164,32 @@ func run() error {
 	}
 
 	if err != nil {
+		payload["meta12"] = meta12
+		payload["freeze_status"] = meta12.FreezeStatus()
+		payload["missing_meta12"] = meta12.Missing()
 		payload["error"] = err.Error()
 		_ = printJSON(payload)
 		return err
+	}
+	payload["meta12"] = meta12
+	payload["freeze_status"] = meta12.FreezeStatus()
+	payload["missing_meta12"] = meta12.Missing()
+	if *requireMeta12 && !meta12.Closed {
+		payload["error"] = "meta #12 prerequisite not closed"
+		_ = printJSON(payload)
+		return fmt.Errorf("meta #12 prerequisite not closed: missing=%s", strings.Join(meta12.Missing(), ","))
 	}
 	if err := printJSON(payload); err != nil {
 		return err
 	}
 	fmt.Println(pass)
 	return nil
+}
+
+func newFlagSet() *flag.FlagSet {
+	fs := flag.NewFlagSet("smoke-volc-realtime", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return fs
 }
 
 func printJSON(v any) error {
