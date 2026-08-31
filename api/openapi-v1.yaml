@@ -180,6 +180,9 @@ paths:
           name: cursor
           schema: { type: string }
         - in: query
+          name: updated_after
+          schema: { type: string, format: date-time }
+        - in: query
           name: limit
           schema: { type: integer }
         - in: query
@@ -605,11 +608,15 @@ components:
         source_session_id:
           type: string
           nullable: true
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ListPhraseBlocksResponse:
       type: object
-      required: [items]
+      required: [items, cursor_reset]
       properties:
         items:
           type: array
@@ -617,6 +624,8 @@ components:
             $ref: "#/components/schemas/PhraseBlock"
         next_cursor:
           type: string
+        cursor_reset:
+          type: boolean
     UpdatePhraseBlockRequest:
       type: object
       required: [intent_zh, expression_en, anchor_user_said, scene_tag, function_tag]

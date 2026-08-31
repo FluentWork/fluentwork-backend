@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -206,5 +207,55 @@ func TestGuestMergeMovesCorpusBlocksHTTPContract(t *testing.T) {
 	}
 	if len(listed.Items) != 1 {
 		t.Fatalf("expected merged corpus block under registered user, got %+v", listed)
+	}
+}
+
+func TestIncrementalCorpusBlocksHTTPContractIncludesDeletedTombstones(t *testing.T) {
+	server, _, _, guest := setupServer(t)
+
+	acceptRec := httptest.NewRecorder()
+	acceptReq := httptest.NewRequest(http.MethodPost, "/api/v1/corpus/blocks/batch-accept", bytes.NewReader([]byte(`{
+                "source_session_id":"session-delta-1",
+                "blocks":[
+                        {"intent_zh":"说明阻塞","expression_en":"I'm blocked on the API review.","anchor_user_said":"I am blocked on the API review.","scene_tag":"standup","function_tag":"report"}
+                ]
+        }`)))
+	acceptReq.Header.Set("Content-Type", "application/json")
+	acceptReq.Header.Set("Authorization", "Bearer "+guest.AccessToken)
+	server.Handler().ServeHTTP(acceptRec, acceptReq)
+	if acceptRec.Code != http.StatusOK {
+		t.Fatalf("batch accept status = %d body = %s", acceptRec.Code, acceptRec.Body.String())
+	}
+	var accepted corpus.BatchAcceptResponse
+	if err := json.Unmarshal(acceptRec.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("decode accepted: %v", err)
+	}
+	blockID := accepted.Items[0].ID
+	updatedAt := accepted.Items[0].UpdatedAt
+
+	delRec := httptest.NewRecorder()
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/corpus/blocks/"+blockID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+guest.AccessToken)
+	server.Handler().ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d body = %s", delRec.Code, delRec.Body.String())
+	}
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/corpus/blocks?updated_after="+url.QueryEscape(updatedAt.Add(-time.Second).Format(time.RFC3339Nano)), nil)
+	listReq.Header.Set("Authorization", "Bearer "+guest.AccessToken)
+	server.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("delta list status = %d body = %s", listRec.Code, listRec.Body.String())
+	}
+	var listed corpus.ListBlocksResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode delta listed: %v", err)
+	}
+	if len(listed.Items) != 1 || listed.Items[0].ID != blockID || listed.Items[0].DeletedAt == nil {
+		t.Fatalf("expected deleted tombstone row, got %+v", listed)
+	}
+	if listed.CursorReset {
+		t.Fatalf("expected cursor_reset=false, got %+v", listed)
 	}
 }

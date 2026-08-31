@@ -60,12 +60,25 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 	if userID == "" {
 		return ListBlocksResponse{}, apierr.Unauthenticated("missing authenticated user")
 	}
+	var decodedCursor *ListCursor
+	if strings.TrimSpace(req.Cursor) != "" {
+		cursor, err := decodeCursor(req.Cursor)
+		if err != nil {
+			return ListBlocksResponse{}, apierr.InvalidArgument("cursor is invalid")
+		}
+		decodedCursor = &cursor
+	}
+	incremental := strings.TrimSpace(req.UpdatedAfter) != "" || (decodedCursor != nil && decodedCursor.Mode == CursorModeDelta)
+	if incremental && (strings.TrimSpace(req.SceneTag) != "" || strings.TrimSpace(req.FunctionTag) != "" || strings.TrimSpace(req.Keyword) != "" || req.FavoriteOnly) {
+		return ListBlocksResponse{}, apierr.InvalidArgument("updated_after cannot be combined with scene, func, kw, or favorite_only")
+	}
 	filter := ListFilter{
 		UserID:       userID,
 		SceneTag:     normalizeOptionalEnum(req.SceneTag),
 		FunctionTag:  normalizeOptionalEnum(req.FunctionTag),
 		Keyword:      strings.TrimSpace(req.Keyword),
 		FavoriteOnly: req.FavoriteOnly,
+		Incremental:  incremental,
 		Limit:        normalizeLimit(req.Limit),
 	}
 	if filter.SceneTag != "" {
@@ -78,12 +91,22 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 			return ListBlocksResponse{}, apierr.InvalidArgument("func is invalid")
 		}
 	}
-	if strings.TrimSpace(req.Cursor) != "" {
-		cursor, err := decodeCursor(req.Cursor)
+	if value := strings.TrimSpace(req.UpdatedAfter); value != "" {
+		updatedAfter, err := time.Parse(time.RFC3339Nano, value)
 		if err != nil {
-			return ListBlocksResponse{}, apierr.InvalidArgument("cursor is invalid")
+			return ListBlocksResponse{}, apierr.InvalidArgument("updated_after is invalid")
 		}
-		filter.After = &cursor
+		updatedAfter = updatedAfter.UTC()
+		filter.UpdatedAfter = &updatedAfter
+	}
+	if decodedCursor != nil {
+		if incremental && decodedCursor.Mode == CursorModeBrowse {
+			return ListBlocksResponse{}, apierr.InvalidArgument("cursor mode is invalid for updated_after")
+		}
+		if !incremental && decodedCursor.Mode == CursorModeDelta {
+			return ListBlocksResponse{}, apierr.InvalidArgument("delta cursor requires updated_after")
+		}
+		filter.After = decodedCursor
 	}
 
 	blocks, err := s.store.ListBlocks(ctx, filter)
@@ -91,18 +114,24 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 		return ListBlocksResponse{}, err
 	}
 	out := ListBlocksResponse{
-		Items: make([]PhraseBlockView, 0, len(blocks)),
+		Items:       make([]PhraseBlockView, 0, len(blocks)),
+		CursorReset: false,
 	}
 	for _, block := range blocks {
 		out.Items = append(out.Items, toView(block))
 	}
 	if len(blocks) == filter.Limit {
 		last := blocks[len(blocks)-1]
-		out.NextCursor, err = encodeCursor(ListCursor{
-			PinnedAt:  last.PinnedAt,
-			CreatedAt: last.CreatedAt,
-			ID:        last.ID,
-		})
+		cursor := ListCursor{ID: last.ID}
+		if filter.Incremental {
+			cursor.Mode = CursorModeDelta
+			cursor.UpdatedAt = last.UpdatedAt
+		} else {
+			cursor.Mode = CursorModeBrowse
+			cursor.PinnedAt = last.PinnedAt
+			cursor.CreatedAt = last.CreatedAt
+		}
+		out.NextCursor, err = encodeCursor(cursor)
 		if err != nil {
 			return ListBlocksResponse{}, err
 		}
@@ -228,6 +257,7 @@ func toView(block PhraseBlock) PhraseBlockView {
 		IsFavorite:      block.IsFavorite,
 		PinnedAt:        block.PinnedAt,
 		SourceSessionID: block.SourceSessionID,
+		DeletedAt:       block.DeletedAt,
 		CreatedAt:       block.CreatedAt,
 		UpdatedAt:       block.UpdatedAt,
 	}
@@ -317,11 +347,20 @@ func stringPtr(value string) *string {
 
 func encodeCursor(cursor ListCursor) (string, error) {
 	payload := map[string]string{
-		"created_at": cursor.CreatedAt.UTC().Format(time.RFC3339Nano),
-		"id":         cursor.ID,
+		"id": cursor.ID,
 	}
-	if cursor.PinnedAt != nil {
-		payload["pinned_at"] = cursor.PinnedAt.UTC().Format(time.RFC3339Nano)
+	if cursor.Mode == "" {
+		cursor.Mode = CursorModeBrowse
+	}
+	payload["mode"] = string(cursor.Mode)
+	switch cursor.Mode {
+	case CursorModeDelta:
+		payload["updated_at"] = cursor.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	default:
+		payload["created_at"] = cursor.CreatedAt.UTC().Format(time.RFC3339Nano)
+		if cursor.PinnedAt != nil {
+			payload["pinned_at"] = cursor.PinnedAt.UTC().Format(time.RFC3339Nano)
+		}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -339,24 +378,43 @@ func decodeCursor(token string) (ListCursor, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return ListCursor{}, err
 	}
-	createdAt, err := time.Parse(time.RFC3339Nano, payload["created_at"])
-	if err != nil {
-		return ListCursor{}, err
-	}
 	cursor := ListCursor{
-		CreatedAt: createdAt.UTC(),
-		ID:        strings.TrimSpace(payload["id"]),
+		ID:   strings.TrimSpace(payload["id"]),
+		Mode: CursorMode(strings.TrimSpace(payload["mode"])),
 	}
 	if cursor.ID == "" {
 		return ListCursor{}, fmt.Errorf("missing id")
 	}
-	if value := strings.TrimSpace(payload["pinned_at"]); value != "" {
-		pinnedAt, err := time.Parse(time.RFC3339Nano, value)
+	if cursor.Mode == "" {
+		if strings.TrimSpace(payload["updated_at"]) != "" {
+			cursor.Mode = CursorModeDelta
+		} else {
+			cursor.Mode = CursorModeBrowse
+		}
+	}
+	switch cursor.Mode {
+	case CursorModeDelta:
+		updatedAt, err := time.Parse(time.RFC3339Nano, payload["updated_at"])
 		if err != nil {
 			return ListCursor{}, err
 		}
-		pinnedAt = pinnedAt.UTC()
-		cursor.PinnedAt = &pinnedAt
+		cursor.UpdatedAt = updatedAt.UTC()
+	case CursorModeBrowse:
+		createdAt, err := time.Parse(time.RFC3339Nano, payload["created_at"])
+		if err != nil {
+			return ListCursor{}, err
+		}
+		cursor.CreatedAt = createdAt.UTC()
+		if value := strings.TrimSpace(payload["pinned_at"]); value != "" {
+			pinnedAt, err := time.Parse(time.RFC3339Nano, value)
+			if err != nil {
+				return ListCursor{}, err
+			}
+			pinnedAt = pinnedAt.UTC()
+			cursor.PinnedAt = &pinnedAt
+		}
+	default:
+		return ListCursor{}, fmt.Errorf("invalid cursor mode")
 	}
 	return cursor, nil
 }

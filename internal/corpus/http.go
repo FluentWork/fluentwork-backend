@@ -43,6 +43,7 @@ func (h *Handler) GetBlocks(c *gin.Context) {
 		FunctionTag:  c.Query("func"),
 		Keyword:      c.Query("kw"),
 		Cursor:       c.Query("cursor"),
+		UpdatedAfter: c.Query("updated_after"),
 		Limit:        limit,
 		FavoriteOnly: c.Query("favorite_only") == "true",
 	})

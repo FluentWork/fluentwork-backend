@@ -25,14 +25,28 @@ type ListFilter struct {
 	FunctionTag  string
 	Keyword      string
 	FavoriteOnly bool
+	Incremental  bool
+	UpdatedAfter *time.Time
 	After        *ListCursor
 	Limit        int
 }
 
+// CursorMode distinguishes browse pagination from incremental sync pagination.
+type CursorMode string
+
+const (
+	// CursorModeBrowse is the classic keyset pagination cursor for visible list browsing.
+	CursorModeBrowse CursorMode = "browse"
+	// CursorModeDelta is the ascending updated_at cursor used by incremental sync.
+	CursorModeDelta CursorMode = "delta"
+)
+
 // ListCursor is the keyset pagination cursor for block lists.
 type ListCursor struct {
+	Mode      CursorMode
 	PinnedAt  *time.Time
 	CreatedAt time.Time
+	UpdatedAt time.Time
 	ID        string
 }
 
