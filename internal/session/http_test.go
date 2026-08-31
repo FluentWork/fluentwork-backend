@@ -65,7 +65,7 @@ func setupServerWithReviewGen(t *testing.T, gen session.ReviewGenerator) (*https
 	sessionSvc.SetCostRecorder(aicost.NewService(aicost.NewMemoryStore(), logger))
 	sessionSvc.SetReviewGenerator(gen)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	return httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping), sessionSvc
+	return httpserver.New(cfg, logger, accountHandler, nil, sessionHandler, accountStore.Ping), sessionSvc
 }
 
 func TestCreateSessionHTTPRequiresAuth(t *testing.T) {
