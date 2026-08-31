@@ -2,6 +2,7 @@ package corpus
 
 import "time"
 
+// ApplySuccess advances scheduling after a successful drill.
 func ApplySuccess(block PhraseBlock, now time.Time) PhraseBlock {
 	out := cloneBlock(block)
 	out.SuccessStreak++
@@ -20,6 +21,7 @@ func ApplySuccess(block PhraseBlock, now time.Time) PhraseBlock {
 	return out
 }
 
+// ApplyFailure resets scheduling after a failed drill.
 func ApplyFailure(block PhraseBlock, now time.Time) PhraseBlock {
 	out := cloneBlock(block)
 	out.SuccessStreak = 0

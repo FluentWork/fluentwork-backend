@@ -1,3 +1,4 @@
+// Package corpus stores phrase blocks and exposes corpus HTTP APIs.
 package corpus
 
 import (
@@ -9,13 +10,15 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // registers mysql driver used by OpenStore
 
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 )
 
+// ErrNotFound means the requested phrase block does not exist for the user.
 var ErrNotFound = errors.New("corpus: not found")
 
+// ListFilter scopes phrase block queries.
 type ListFilter struct {
 	UserID       string
 	SceneTag     string
@@ -26,12 +29,14 @@ type ListFilter struct {
 	Limit        int
 }
 
+// ListCursor is the keyset pagination cursor for block lists.
 type ListCursor struct {
 	PinnedAt  *time.Time
 	CreatedAt time.Time
 	ID        string
 }
 
+// Store persists phrase blocks for one user corpus.
 type Store interface {
 	Ping(ctx context.Context) error
 	ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error)
@@ -43,6 +48,7 @@ type Store interface {
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 }
 
+// OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.
 func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, error) {
 	if logger == nil {
 		logger = slog.Default()
