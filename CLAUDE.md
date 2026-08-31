@@ -45,4 +45,4 @@ This file only adds backend-specific constraints.
 
 1. `gstack` may be used locally for review and deploy-planning assistance.
 2. Matt Pocock style skills may be used as helpers under FluentWork shared policy.
-3. **gstack `/review`** is required before commit; pre-commit expects `GSTACK_REVIEWED=1` (see `fluentwork-meta/agents/shared/review-gate.md`). CI does not run code review.
+3. The interactive gstack review skill is required before commit. In this environment the correct manual invocation is usually **`/review`**; if skill prefixes are enabled, use **`/gstack-review`**. pre-commit expects `GSTACK_REVIEWED=1` (see `fluentwork-meta/agents/shared/review-gate.md`). CI does not run code review.
