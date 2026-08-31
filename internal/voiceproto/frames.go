@@ -15,6 +15,7 @@ const (
 	TypeUserSpeechEnd   = "user.speech.end"
 	TypeAITextDelta     = "ai.text.delta"
 	TypeAIAudioChunk    = "ai.audio.chunk"
+	TypeAITurnEnd       = "ai.turn.end"
 	TypeInterrupt       = "interrupt"
 	TypeFeedbackBadge   = "feedback.badge"
 	TypeSessionEnd      = "session.end"
@@ -53,6 +54,12 @@ type SessionStart struct {
 type SessionEnd struct {
 	Type   string `json:"type"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// AITurnEnd marks the explicit end boundary of one assistant turn.
+type AITurnEnd struct {
+	Type   string `json:"type"`
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // Interrupt asks the gateway/vendor path to stop AI audio.

@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/userSpeechEnd" },
     { "$ref": "#/$defs/aiTextDelta" },
     { "$ref": "#/$defs/aiAudioChunk" },
+    { "$ref": "#/$defs/aiTurnEnd" },
     { "$ref": "#/$defs/interrupt" },
     { "$ref": "#/$defs/feedbackBadge" },
     { "$ref": "#/$defs/sessionEnd" },
@@ -82,6 +83,15 @@
       "properties": {
         "type": { "const": "ai.audio.chunk" },
         "seq": { "type": "integer", "minimum": 0 },
+        "turn_id": { "type": "string" }
+      }
+    },
+    "aiTurnEnd": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ai.turn.end" },
         "turn_id": { "type": "string" }
       }
     },
