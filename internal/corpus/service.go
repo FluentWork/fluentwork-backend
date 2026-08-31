@@ -20,6 +20,7 @@ const (
 	defaultEase      = 2.5
 )
 
+// Service implements corpus business rules over Store.
 type Service struct {
 	store  Store
 	logger *slog.Logger
@@ -27,6 +28,7 @@ type Service struct {
 	newID  func() string
 }
 
+// NewService constructs the corpus service.
 func NewService(store Store, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
@@ -39,10 +41,12 @@ func NewService(store Store, logger *slog.Logger) *Service {
 	}
 }
 
+// Reassigner adapts Store to account guest merge.
 type Reassigner struct {
 	Store Store
 }
 
+// ReassignFromGuest moves guest-owned blocks to the registered user.
 func (r Reassigner) ReassignFromGuest(ctx context.Context, guestUserID, targetUserID string) error {
 	if r.Store == nil {
 		return nil
@@ -50,6 +54,7 @@ func (r Reassigner) ReassignFromGuest(ctx context.Context, guestUserID, targetUs
 	return r.Store.ReassignUser(ctx, guestUserID, targetUserID)
 }
 
+// ListBlocks returns paginated phrase blocks for one user.
 func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBlocksResponse, error) {
 	userID := strings.TrimSpace(req.UserID)
 	if userID == "" {
@@ -105,6 +110,7 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 	return out, nil
 }
 
+// UpdateBlock edits one owned phrase block.
 func (s *Service) UpdateBlock(ctx context.Context, userID, blockID string, req UpdateBlockRequest) (PhraseBlockView, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -131,6 +137,7 @@ func (s *Service) UpdateBlock(ctx context.Context, userID, blockID string, req U
 	return toView(saved), nil
 }
 
+// SetFavorite toggles favorite/pinned state for one block.
 func (s *Service) SetFavorite(ctx context.Context, userID, blockID string, req FavoriteBlockRequest) (PhraseBlockView, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -154,6 +161,7 @@ func (s *Service) SetFavorite(ctx context.Context, userID, blockID string, req F
 	return toView(saved), nil
 }
 
+// DeleteBlock soft-deletes one owned phrase block.
 func (s *Service) DeleteBlock(ctx context.Context, userID, blockID string) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -168,6 +176,7 @@ func (s *Service) DeleteBlock(ctx context.Context, userID, blockID string) error
 	return nil
 }
 
+// BatchAccept idempotently stores refine blocks from one session.
 func (s *Service) BatchAccept(ctx context.Context, userID string, req BatchAcceptRequest) (BatchAcceptResponse, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {

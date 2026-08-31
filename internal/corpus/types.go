@@ -3,8 +3,11 @@ package corpus
 import "time"
 
 const (
-	StateNew       = "new"
-	StateTraining  = "training"
+	// StateNew marks a newly accepted phrase block.
+	StateNew = "new"
+	// StateTraining marks a block in active spaced repetition.
+	StateTraining = "training"
+	// StateAutomated marks a block that graduated to low-touch review.
 	StateAutomated = "automated"
 )
 
@@ -35,6 +38,7 @@ var validFunctionTags = map[string]struct{}{
 	"commit":    {},
 }
 
+// PhraseBlock is the persisted refine/corpus row for one user expression.
 type PhraseBlock struct {
 	ID              string
 	UserID          string
@@ -56,6 +60,7 @@ type PhraseBlock struct {
 	UpdatedAt       time.Time
 }
 
+// ListBlocksRequest is the service input for paginated corpus queries.
 type ListBlocksRequest struct {
 	UserID       string
 	SceneTag     string
@@ -66,11 +71,13 @@ type ListBlocksRequest struct {
 	FavoriteOnly bool
 }
 
+// ListBlocksResponse is the paginated corpus list returned to clients.
 type ListBlocksResponse struct {
 	Items      []PhraseBlockView `json:"items"`
 	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
+// PhraseBlockView is the API projection of one phrase block.
 type PhraseBlockView struct {
 	ID              string     `json:"id"`
 	IntentZH        string     `json:"intent_zh"`
@@ -90,6 +97,7 @@ type PhraseBlockView struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+// UpdateBlockRequest carries editable phrase block fields.
 type UpdateBlockRequest struct {
 	IntentZH       string `json:"intent_zh"`
 	ExpressionEN   string `json:"expression_en"`
@@ -98,16 +106,19 @@ type UpdateBlockRequest struct {
 	FunctionTag    string `json:"function_tag"`
 }
 
+// FavoriteBlockRequest toggles favorite/pinned state for one block.
 type FavoriteBlockRequest struct {
 	IsFavorite bool `json:"is_favorite"`
 	Pinned     bool `json:"pinned"`
 }
 
+// BatchAcceptRequest accepts refine blocks from one review session.
 type BatchAcceptRequest struct {
 	SourceSessionID string             `json:"source_session_id"`
 	Blocks          []BatchAcceptBlock `json:"blocks"`
 }
 
+// BatchAcceptBlock is one refine candidate accepted into the corpus.
 type BatchAcceptBlock struct {
 	IntentZH       string `json:"intent_zh"`
 	ExpressionEN   string `json:"expression_en"`
@@ -116,6 +127,7 @@ type BatchAcceptBlock struct {
 	FunctionTag    string `json:"function_tag"`
 }
 
+// BatchAcceptResponse reports how many blocks were accepted.
 type BatchAcceptResponse struct {
 	AcceptedCount int               `json:"accepted_count"`
 	Items         []PhraseBlockView `json:"items"`

@@ -8,21 +8,25 @@ import (
 	"time"
 )
 
+// MemoryStore keeps phrase blocks in memory for local development and tests.
 type MemoryStore struct {
 	mu     sync.Mutex
 	blocks map[string]PhraseBlock
 }
 
+// NewMemoryStore constructs an in-memory corpus store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		blocks: make(map[string]PhraseBlock),
 	}
 }
 
+// Ping implements Store.
 func (s *MemoryStore) Ping(context.Context) error {
 	return nil
 }
 
+// ListBlocks implements Store.
 func (s *MemoryStore) ListBlocks(_ context.Context, filter ListFilter) ([]PhraseBlock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -60,6 +64,7 @@ func (s *MemoryStore) ListBlocks(_ context.Context, filter ListFilter) ([]Phrase
 	return items, nil
 }
 
+// GetBlock implements Store.
 func (s *MemoryStore) GetBlock(_ context.Context, userID, blockID string) (PhraseBlock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,6 +75,7 @@ func (s *MemoryStore) GetBlock(_ context.Context, userID, blockID string) (Phras
 	return cloneBlock(block), nil
 }
 
+// SaveAcceptedBlocks implements Store.
 func (s *MemoryStore) SaveAcceptedBlocks(_ context.Context, blocks []PhraseBlock) ([]PhraseBlock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,6 +111,7 @@ func (s *MemoryStore) SaveAcceptedBlocks(_ context.Context, blocks []PhraseBlock
 	return saved, nil
 }
 
+// UpdateBlock implements Store.
 func (s *MemoryStore) UpdateBlock(_ context.Context, block PhraseBlock) (PhraseBlock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,6 +133,7 @@ func (s *MemoryStore) UpdateBlock(_ context.Context, block PhraseBlock) (PhraseB
 	return cloneBlock(block), nil
 }
 
+// SetFavorite implements Store.
 func (s *MemoryStore) SetFavorite(_ context.Context, userID, blockID string, isFavorite bool, pinnedAt *time.Time, updatedAt time.Time) (PhraseBlock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,6 +148,7 @@ func (s *MemoryStore) SetFavorite(_ context.Context, userID, blockID string, isF
 	return cloneBlock(block), nil
 }
 
+// SoftDeleteBlock implements Store.
 func (s *MemoryStore) SoftDeleteBlock(_ context.Context, userID, blockID string, deletedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -153,6 +162,7 @@ func (s *MemoryStore) SoftDeleteBlock(_ context.Context, userID, blockID string,
 	return nil
 }
 
+// ReassignUser implements Store.
 func (s *MemoryStore) ReassignUser(_ context.Context, fromUserID, toUserID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

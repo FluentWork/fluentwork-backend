@@ -3,25 +3,28 @@ package corpus
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 )
 
+// MySQLStore persists phrase blocks in MySQL.
 type MySQLStore struct {
 	db *sql.DB
 }
 
+// NewMySQLStore constructs a MySQL-backed corpus store.
 func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
+// Ping implements Store.
 func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
 const blockColumns = `id, user_id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, is_favorite, pinned_at, source_session_id, deleted_at, created_at, updated_at`
 
+// ListBlocks implements Store.
 func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error) {
 	args := []any{filter.UserID}
 	query := `
@@ -72,6 +75,7 @@ func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]Phras
 	return blocks, rows.Err()
 }
 
+// GetBlock implements Store.
 func (s *MySQLStore) GetBlock(ctx context.Context, userID, blockID string) (PhraseBlock, error) {
 	return scanBlock(s.db.QueryRowContext(ctx, `
                 SELECT `+blockColumns+`
@@ -80,6 +84,7 @@ func (s *MySQLStore) GetBlock(ctx context.Context, userID, blockID string) (Phra
         `, blockID, userID))
 }
 
+// SaveAcceptedBlocks implements Store.
 func (s *MySQLStore) SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBlock) ([]PhraseBlock, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -95,8 +100,8 @@ func (s *MySQLStore) SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBloc
                         FOR UPDATE
                 `, block.UserID, nullString(block.SourceSessionID), block.ExpressionEN, block.AnchorUserSaid, block.SceneTag, block.FunctionTag)
 		existing, err := scanBlock(row)
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			if existing.DeletedAt != nil {
 				_, err = tx.ExecContext(ctx, `
                                         UPDATE phrase_blocks
@@ -116,7 +121,7 @@ func (s *MySQLStore) SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBloc
 				existing.UpdatedAt = block.UpdatedAt
 			}
 			saved = append(saved, existing)
-		case err == ErrNotFound:
+		case ErrNotFound:
 			_, err = tx.ExecContext(ctx, `
                                 INSERT INTO phrase_blocks (
                                         id, user_id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag,
@@ -140,6 +145,7 @@ func (s *MySQLStore) SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBloc
 	return saved, nil
 }
 
+// UpdateBlock implements Store.
 func (s *MySQLStore) UpdateBlock(ctx context.Context, block PhraseBlock) (PhraseBlock, error) {
 	result, err := s.db.ExecContext(ctx, `
                 UPDATE phrase_blocks
@@ -159,6 +165,7 @@ func (s *MySQLStore) UpdateBlock(ctx context.Context, block PhraseBlock) (Phrase
 	return s.GetBlock(ctx, block.UserID, block.ID)
 }
 
+// SetFavorite implements Store.
 func (s *MySQLStore) SetFavorite(ctx context.Context, userID, blockID string, isFavorite bool, pinnedAt *time.Time, updatedAt time.Time) (PhraseBlock, error) {
 	result, err := s.db.ExecContext(ctx, `
                 UPDATE phrase_blocks
@@ -178,6 +185,7 @@ func (s *MySQLStore) SetFavorite(ctx context.Context, userID, blockID string, is
 	return s.GetBlock(ctx, userID, blockID)
 }
 
+// SoftDeleteBlock implements Store.
 func (s *MySQLStore) SoftDeleteBlock(ctx context.Context, userID, blockID string, deletedAt time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
                 UPDATE phrase_blocks
@@ -197,6 +205,7 @@ func (s *MySQLStore) SoftDeleteBlock(ctx context.Context, userID, blockID string
 	return nil
 }
 
+// ReassignUser implements Store.
 func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID string) error {
 	_, err := s.db.ExecContext(ctx, `
                 UPDATE phrase_blocks
@@ -277,8 +286,4 @@ func nullableStringPtr(value sql.NullString) *string {
 	}
 	out := value.String
 	return &out
-}
-
-func debugBlock(block PhraseBlock) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s", block.UserID, derefString(block.SourceSessionID), block.ExpressionEN, block.AnchorUserSaid, block.ID)
 }
