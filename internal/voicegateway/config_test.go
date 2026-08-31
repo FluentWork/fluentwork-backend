@@ -22,6 +22,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.AppServerInternalURL != "http://127.0.0.1:8080" {
 		t.Fatalf("AppServerInternalURL = %q", cfg.AppServerInternalURL)
 	}
+	if cfg.Provider != "mock" {
+		t.Fatalf("Provider = %q", cfg.Provider)
+	}
+	if cfg.ClientAudioFormat != "opus-framed" {
+		t.Fatalf("ClientAudioFormat = %q", cfg.ClientAudioFormat)
+	}
 	if cfg.InternalAPIToken != config.DevInternalAPIToken {
 		t.Fatalf("InternalAPIToken = %q", cfg.InternalAPIToken)
 	}
@@ -30,6 +36,74 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
+	}
+}
+
+func TestConfigRejectsUnknownProvider(t *testing.T) {
+	cfg := voicegateway.Config{
+		HTTPAddr:             ":8081",
+		AppEnv:               "development",
+		AppServerInternalURL: "http://127.0.0.1:8080",
+		InternalAPIToken:     config.DevInternalAPIToken,
+		Provider:             "bogus",
+		IdleTimeout:          2 * time.Minute,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected provider validation error")
+	}
+}
+
+func TestConfigRequiresSpeechKeyForVolcProvider(t *testing.T) {
+	cfg := voicegateway.Config{
+		HTTPAddr:             ":8081",
+		AppEnv:               "development",
+		AppServerInternalURL: "http://127.0.0.1:8080",
+		InternalAPIToken:     config.DevInternalAPIToken,
+		Provider:             "volc-duplex",
+		ClientAudioFormat:    "opus-framed",
+		IdleTimeout:          2 * time.Minute,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing speech key error")
+	}
+}
+
+func TestConfigAcceptsVolcProviderWithSpeechKey(t *testing.T) {
+	cfg := voicegateway.Config{
+		HTTPAddr:             ":8081",
+		AppEnv:               "development",
+		AppServerInternalURL: "http://127.0.0.1:8080",
+		InternalAPIToken:     config.DevInternalAPIToken,
+		Provider:             "volc-duplex",
+		ClientAudioFormat:    "pcm-s16le",
+		VolcSpeechAPIKey:     "api-key-1234567890",
+		IdleTimeout:          2 * time.Minute,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestLoadConfigPicksVolcSpeechDefaults(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("VOICE_GATEWAY_PROVIDER", "volc-duplex")
+	t.Setenv("VOLC_SPEECH_API_KEY_DEV", "dev-key")
+	t.Setenv("VOLC_POC_ENDPOINT", "wss://duplex.example")
+	t.Setenv("VOLC_DUPLEX_MODEL", "model-x")
+	t.Setenv("VOLC_DUPLEX_VOICE", "voice-y")
+
+	cfg := voicegateway.LoadConfig()
+	if cfg.VolcSpeechAPIKey != "dev-key" {
+		t.Fatalf("VolcSpeechAPIKey = %q", cfg.VolcSpeechAPIKey)
+	}
+	if cfg.VolcDuplexEndpoint != "wss://duplex.example" {
+		t.Fatalf("VolcDuplexEndpoint = %q", cfg.VolcDuplexEndpoint)
+	}
+	if cfg.VolcDuplexModel != "model-x" {
+		t.Fatalf("VolcDuplexModel = %q", cfg.VolcDuplexModel)
+	}
+	if cfg.VolcDuplexVoice != "voice-y" {
+		t.Fatalf("VolcDuplexVoice = %q", cfg.VolcDuplexVoice)
 	}
 }
 
