@@ -36,7 +36,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, sessionHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, sessionHandler, accountStore.Ping)
 	return server, accountSvc
 }
 
