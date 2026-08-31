@@ -45,8 +45,8 @@ func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]Phras
 	}
 	if kw := strings.TrimSpace(filter.Keyword); kw != "" {
 		like := "%" + kw + "%"
-		query += ` AND (expression_en LIKE ? OR intent_zh LIKE ?)`
-		args = append(args, like, like)
+		query += ` AND (expression_en LIKE ? OR intent_zh LIKE ? OR anchor_user_said LIKE ?)`
+		args = append(args, like, like, like)
 	}
 	if filter.After != nil {
 		query += ` AND (

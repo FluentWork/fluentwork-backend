@@ -45,7 +45,7 @@ func (s *MemoryStore) ListBlocks(_ context.Context, filter ListFilter) ([]Phrase
 			continue
 		}
 		if kw := strings.ToLower(strings.TrimSpace(filter.Keyword)); kw != "" {
-			haystack := strings.ToLower(block.ExpressionEN + " " + block.IntentZH)
+			haystack := strings.ToLower(block.ExpressionEN + " " + block.IntentZH + " " + block.AnchorUserSaid)
 			if !strings.Contains(haystack, kw) {
 				continue
 			}
