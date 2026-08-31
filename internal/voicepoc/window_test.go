@@ -80,4 +80,3 @@ func TestSummarizeTrialsTierNextTurnFromNextTurnOnly(t *testing.T) {
 		t.Fatalf("next-turn hit rate = %v", report.NextTurnHitRate)
 	}
 }
-
