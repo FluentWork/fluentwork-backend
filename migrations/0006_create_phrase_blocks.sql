@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS phrase_blocks (
     updated_at DATETIME(3) NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_phrase_blocks_user_source_expr_anchor (
-        user_id, source_session_id, expression_en, anchor_user_said, scene_tag, function_tag
+        user_id, source_session_id, expression_en(191), anchor_user_said(191), scene_tag, function_tag
     ),
     KEY idx_phrase_blocks_user_due (user_id, next_due_at),
     KEY idx_phrase_blocks_user_scene (user_id, scene_tag),
