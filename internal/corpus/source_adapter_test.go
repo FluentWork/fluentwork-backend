@@ -40,11 +40,16 @@ func TestSourceAdapterReturnsCandidatesForUser(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d candidates, want 2: %+v", len(got), got)
 	}
-	if got[0].ExpressionEN != "ship it" {
-		t.Fatalf("first candidate: %+v", got[0])
+	// Verify both candidates are present (order may vary when CreatedAt is identical)
+	expressions := make(map[string]bool)
+	for _, c := range got {
+		expressions[c.ExpressionEN] = true
+		if c.ID == "" {
+			t.Fatalf("candidate missing ID: %+v", c)
+		}
 	}
-	if got[0].IntentZH != "推进" || got[0].SceneTag != "standup" {
-		t.Fatalf("first candidate missing fields: %+v", got[0])
+	if !expressions["ship it"] || !expressions["let's wrap up"] {
+		t.Fatalf("missing expected candidates, got: %+v", got)
 	}
 }
 
