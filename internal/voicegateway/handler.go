@@ -50,6 +50,7 @@ type Handler struct {
 	now                func() time.Time
 	insecureSkipOrigin bool
 	idleTimeout        time.Duration
+	clientASRRequired  bool // B13: gate user.speech.end with empty text when true
 }
 
 // NewHandler constructs the voice gateway HTTP/WSS handler.
@@ -85,6 +86,12 @@ func NewHandler(
 // disables hit-detection (the user.speech.end branch becomes a passthrough).
 func (h *Handler) SetBadgeEmitter(emitter *BadgeEmitter) {
 	h.badgeEmitter = emitter
+}
+
+// SetClientASRRequired enables B13 gate: when true, user.speech.end with empty
+// text returns an error frame (code: client_asr_required).
+func (h *Handler) SetClientASRRequired(required bool) {
+	h.clientASRRequired = required
 }
 
 // Mount registers health and voice WSS routes on mux.
@@ -370,6 +377,19 @@ func (h *Handler) handleControl(
 		}
 		if err := writeProviderOutbound(ctx, conn, outbound); err != nil {
 			return err
+		}
+		// B13 gate: when client ASR is required and text is empty, reject early.
+		if frameType == voiceproto.TypeUserSpeechEnd && h.clientASRRequired {
+			var end voiceproto.UserSpeechEnd
+			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
+				if strings.TrimSpace(end.Text) == "" {
+					return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+						Type:    voiceproto.TypeError,
+						Code:    "client_asr_required",
+						Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
+					})
+				}
+			}
 		}
 		// B12 — fire-and-forget hit detection on user.speech.end so the
 		// client ASR transcript can be matched against stored phrase blocks.
