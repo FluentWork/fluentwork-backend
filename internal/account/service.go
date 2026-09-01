@@ -76,13 +76,16 @@ func NewService(store Store, reassigner Reassigner, cfg config.Config, logger *s
 
 // IssueGuest creates or reuses a device-bound identity and returns tokens.
 func (s *Service) IssueGuest(ctx context.Context, deviceID string) (TokenResponse, error) {
+	s.logger.Info("🔑 IssueGuest", "device_id", deviceID)
 	normalized, err := normalizeDeviceID(deviceID)
 	if err != nil {
+		s.logger.Warn("🔑 Invalid deviceID", "error", err)
 		return TokenResponse{}, err
 	}
 
 	user, err := s.store.GetActiveByDeviceID(ctx, normalized)
 	if errors.Is(err, ErrNotFound) {
+		s.logger.Info("🔑 Creating new guest user")
 		user, err = s.createGuest(ctx, normalized)
 		if err != nil {
 			existing, getErr := s.store.GetActiveByDeviceID(ctx, normalized)
@@ -99,7 +102,7 @@ func (s *Service) IssueGuest(ctx context.Context, deviceID string) (TokenRespons
 	if err != nil {
 		return TokenResponse{}, err
 	}
-	s.logger.Info("guest identity issued", "user_id", user.ID, "is_guest", user.IsGuest)
+	s.logger.Info("🔑 Guest identity issued", "user_id", user.ID, "is_guest", user.IsGuest, "token_prefix", tokens.AccessToken[:min(20, len(tokens.AccessToken))])
 	return tokens, nil
 }
 
@@ -169,20 +172,27 @@ func (s *Service) Merge(ctx context.Context, actorUserID, deviceID string) (Merg
 
 // Authenticate validates an access token and returns the active user.
 func (s *Service) Authenticate(ctx context.Context, accessToken string) (User, error) {
+	s.logger.Info("🔑 Authenticate", "token_prefix", accessToken[:min(20, len(accessToken))])
 	claims, err := s.parseAccessToken(accessToken)
 	if err != nil {
+		s.logger.Warn("🔑 Failed to parse token", "error", err)
 		return User{}, err
 	}
+	s.logger.Info("🔑 Token parsed", "user_id", claims.Subject)
 	user, err := s.store.GetUser(ctx, claims.Subject)
 	if errors.Is(err, ErrNotFound) {
+		s.logger.Warn("🔑 User not found", "user_id", claims.Subject)
 		return User{}, apierr.Unauthenticated("invalid access token")
 	}
 	if err != nil {
+		s.logger.Error("🔑 GetUser error", "error", err)
 		return User{}, err
 	}
 	if user.Status != UserStatusActive {
+		s.logger.Warn("🔑 User not active", "user_id", user.ID, "status", user.Status)
 		return User{}, apierr.Unauthenticated("account is not active")
 	}
+	s.logger.Info("🔑 Auth success", "user_id", user.ID, "is_guest", user.IsGuest)
 	return user, nil
 }
 
