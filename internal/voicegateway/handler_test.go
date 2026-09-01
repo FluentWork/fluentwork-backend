@@ -585,6 +585,259 @@ func TestVoiceSessionEndWithoutTextSkipsDetection(t *testing.T) {
 	}
 }
 
+// B13 test suite: client ASR gate behavior.
+
+func TestHandler_RejectsEmptyTextWhenClientASRRequired(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetClientASRRequired(true) // B13 gate enabled
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	// Send user.speech.end with empty text
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	frame := readFrame(ctx, t, conn)
+	if frame["type"] != voiceproto.TypeError {
+		t.Fatalf("expected error frame, got %#v", frame)
+	}
+	if frame["code"] != "client_asr_required" {
+		t.Fatalf("expected client_asr_required, got %v", frame["code"])
+	}
+	if !strings.Contains(frame["message"].(string), "VOICE_CLIENT_ASR_REQUIRED") {
+		t.Fatalf("unexpected error message: %v", frame["message"])
+	}
+}
+
+func TestHandler_AcceptsEmptyTextWhenClientASRNotRequired(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	// clientASRRequired defaults to false
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	// Send user.speech.end with empty text
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	// Should NOT receive error frame — the frame is forwarded to provider
+	readCtx, readCancel := context.WithTimeout(ctx, 600*time.Millisecond)
+	defer readCancel()
+	if _, _, err := conn.Read(readCtx); err == nil {
+		t.Fatal("expected no response frame (passthrough to provider)")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+
+	// Verify provider received the control frame
+	if len(providerSession.controlTypes) != 1 || providerSession.controlTypes[0] != voiceproto.TypeUserSpeechEnd {
+		t.Fatalf("provider controlTypes: got %v", providerSession.controlTypes)
+	}
+}
+
+func TestHandler_AcceptsPopulatedTextWhenClientASRRequired(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetClientASRRequired(true) // B13 gate enabled
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	// Send user.speech.end with populated text
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "client ASR transcription result",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	// Should NOT receive error frame — the frame is forwarded to provider
+	readCtx, readCancel := context.WithTimeout(ctx, 600*time.Millisecond)
+	defer readCancel()
+	if _, _, err := conn.Read(readCtx); err == nil {
+		t.Fatal("expected no response frame (passthrough to provider)")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+
+	// Verify provider received the control frame
+	if len(providerSession.controlTypes) != 1 || providerSession.controlTypes[0] != voiceproto.TypeUserSpeechEnd {
+		t.Fatalf("provider controlTypes: got %v", providerSession.controlTypes)
+	}
+}
+
+func TestHandler_ClientASRRequiredWhitespaceOnlyCountsAsEmpty(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetClientASRRequired(true)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	// Send user.speech.end with whitespace-only text
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "   \t\n  ",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	frame := readFrame(ctx, t, conn)
+	if frame["type"] != voiceproto.TypeError {
+		t.Fatalf("expected error frame, got %#v", frame)
+	}
+	if frame["code"] != "client_asr_required" {
+		t.Fatalf("expected client_asr_required, got %v", frame["code"])
+	}
+}
+
 // integrationSource is a session.BlockSource with an atomic counter and
 // snapshot-on-call semantics, used by the handler-level integration tests.
 type integrationSource struct {

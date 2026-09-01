@@ -54,6 +54,11 @@ func run() error {
 			IdleTimeout:        cfg.IdleTimeout,
 		},
 	)
+	// B13: enable client ASR gate when VOICE_CLIENT_ASR_REQUIRED is set.
+	if os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "1" || os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "true" {
+		handler.SetClientASRRequired(true)
+		logger.Info("B13 client ASR gate enabled", "VOICE_CLIENT_ASR_REQUIRED", "true")
+	}
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 
