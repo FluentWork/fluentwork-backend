@@ -10,10 +10,10 @@ import (
 
 type debugSource struct {
 	candidates []session.BlockCandidate
-	err       error
+	err        error
 }
 
-func (s *debugSource) CandidatesForUser(ctx context.Context, _ string) ([]session.BlockCandidate, error) {
+func (s *debugSource) CandidatesForUser(_ context.Context, _ string) ([]session.BlockCandidate, error) {
 	return s.candidates, s.err
 }
 
@@ -24,10 +24,10 @@ func TestDebug_SimpleHit(t *testing.T) {
 		},
 	}
 	det := session.NewHitDetector(src)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	
+
 	decision, err := det.Detect(ctx, session.HitDetectRequest{
 		UserID:    "u1",
 		SessionID: "sess-1",
