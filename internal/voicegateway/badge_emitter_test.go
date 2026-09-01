@@ -4,15 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/coder/websocket"
 
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
@@ -65,38 +60,6 @@ type fakeWSConn struct {
 func (f *fakeWSConn) WriteBadge(_ context.Context, raw []byte) error {
 	f.written = append(f.written, append([]byte(nil), raw...))
 	return nil
-}
-
-func dialWS(t *testing.T, srv *httptest.Server) *websocket.Conn {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		t.Fatalf("Dial %s: %v", wsURL, err)
-	}
-	return conn
-}
-
-// dummyWSSHandler upgrades a plain HTTP server to WebSocket so badge-emitter
-// tests can call conn.Write/Read without a real voice gateway handler.
-func dummyWSSHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		return
-	}
-	defer func() { _ = conn.CloseNow() }()
-	// Drain the connection; badge-emitter tests only write to the client side.
-	_, _, _ = conn.Read(r.Context())
-}
-
-func serveMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/voice", dummyWSSHandler)
-	return mux
 }
 
 func newTestEmitter(t *testing.T, src *stubBlockSource, opts BadgeEmitterOptions) *BadgeEmitter {
