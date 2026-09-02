@@ -13,17 +13,31 @@ brew install mysql redis
 
 ## Quick Start
 
-### 1. Start Local Services (MySQL + Redis)
+### 1. Recommended: Start Full Stack with Docker Compose
+
+```bash
+./scripts/dev-stack.zsh
+```
+
+This is the preferred entrypoint for a full local environment. It will:
+- Start MySQL on `127.0.0.1:3306` via Docker Compose
+- Start Redis on `127.0.0.1:6379` via Docker Compose
+- Apply all `migrations/*.sql`
+- Start `app-server` and `voice-gateway`
+
+Stop compose services later with:
+
+```bash
+./scripts/dev-down.sh
+```
+
+### 2. Low-level path: Start Local Services via Homebrew
 
 ```bash
 ./scripts/local-services-start.sh
 ```
 
-This will:
-- Start MySQL on `127.0.0.1:3306`
-- Start Redis on `127.0.0.1:6379`
-
-### 2. Initialize Database (First Time Only)
+### 3. Initialize Database (First Time Only)
 
 ```bash
 ./scripts/local-db-init.sh
@@ -34,7 +48,7 @@ This will:
 - Create user `fw` with password `fw`
 - Apply all migrations from `migrations/*.sql`
 
-### 3. Start FluentWork Backend
+### 4. Start FluentWork Backend
 
 ```bash
 ./scripts/dev-local-start.sh

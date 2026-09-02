@@ -8,4 +8,4 @@ if [[ -f "$ROOT/deploy/docker-compose.yml" ]] && command -v docker >/dev/null 2>
   docker compose -f "$ROOT/deploy/docker-compose.yml" down
 fi
 
-echo "Local MySQL (if started) has been stopped. app-server is not managed by this script; use Ctrl-C on ./scripts/dev-up.sh."
+echo "Local compose services (MySQL / Redis, if started) have been stopped. app-server and voice-gateway are not managed by this script; use Ctrl-C on the active dev script."

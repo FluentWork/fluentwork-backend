@@ -40,6 +40,17 @@ Shared topics:
 3. Auth, idempotency, and concurrency-sensitive code
 4. Production deploy and environment configuration
 
+## Script Index
+
+Use these entries in order:
+
+1. `./scripts/dev-up.sh` — default lightweight local start, in-memory store, no Docker
+2. `./scripts/dev-stack.zsh` — full local stack, Docker Compose MySQL + Redis + backend processes
+3. `./scripts/dev-check.sh` — required local quality gate
+4. `./scripts/smoke-review-ready.sh` — first-wave live evidence path
+
+Low-level scripts such as `local-services-start.sh`, `local-db-init.sh`, and `dev-local-start.sh` are troubleshooting/building blocks, not the default entrypoints for new work.
+
 ## Local Review Gate
 
 1. Required before commit: run the interactive gstack review skill, normally **`/review`** in Codex/Cursor/Claude. If your gstack config enables skill prefixes, use **`/gstack-review`** instead. Then commit with `GSTACK_REVIEWED=1 git commit ...`.

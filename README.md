@@ -12,6 +12,14 @@ Requires Go 1.26+. No Docker is required for the default in-memory store.
 
 This starts `app-server` on `http://127.0.0.1:8080` and `voice-gateway` on `ws://127.0.0.1:8081/v1/voice`, waits for `/healthz`, and smoke-tests `POST /api/v1/auth/guest`. Press Ctrl-C to stop. Use `--no-gateway` to run app-server only.
 
+Full local stack with Docker Compose:
+
+```bash
+./scripts/dev-stack.zsh
+```
+
+This starts MySQL + Redis via `deploy/docker-compose.yml`, applies migrations, then launches `app-server` + `voice-gateway` through the existing local start flow. Use `./scripts/dev-down.sh` to stop compose services afterwards.
+
 First-wave release evidence (session.end → worker → review ready):
 
 ```bash
@@ -25,6 +33,13 @@ Optional MySQL 8 (Docker daemon required):
 ```bash
 ./scripts/dev-up.sh --mysql
 ```
+
+Recommended entrypoint matrix:
+
+- `./scripts/dev-up.sh`: lightweight in-memory bring-up
+- `./scripts/dev-stack.zsh`: full local stack with Compose
+- `./scripts/dev-check.sh`: fmt/lint/test/build gate
+- `./scripts/smoke-review-ready.sh`: review-ready live smoke
 
 Local checks:
 
