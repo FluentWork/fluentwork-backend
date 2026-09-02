@@ -8,17 +8,23 @@ WITH_MYSQL=0
 WITH_GATEWAY=1
 PORT="${PORT:-8080}"
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
+# HOST is used for VOICE_GATEWAY_WSS_URL returned to iOS clients.
+# For simulator: use 127.0.0.1 (default).
+# For physical device: use the host machine's LAN IP (e.g., 192.168.x.x).
+HOST="${HOST:-127.0.0.1}"
 
 usage() {
   cat <<'EOF'
 Start FluentWork app-server (and voice-gateway by default) for local development.
 
 Usage:
-  ./scripts/dev-up.sh [--mysql] [--no-gateway] [--port 8080]
+  ./scripts/dev-up.sh [--mysql] [--no-gateway] [--port 8080] [--host IP]
 
 Default mode uses the in-memory account/session store (no Docker required).
 Pass --mysql to start MySQL 8 via Docker Compose and apply migrations.
 Pass --no-gateway to run only app-server.
+Pass --host IP to set the WSS URL host (default: 127.0.0.1 for simulator;
+  use LAN IP like 192.168.1.100 for physical device testing).
 EOF
 }
 
@@ -34,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --port)
       PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
       shift 2
       ;;
     -h|--help)
@@ -76,12 +86,12 @@ elif [[ -f "$ROOT/configs/app-server.env.example" ]]; then
 fi
 
 export APP_ENV="${APP_ENV:-development}"
-export HTTP_ADDR=":${PORT}"
+export HTTP_ADDR="0.0.0.0:${PORT}"
 export AUTH_JWT_SECRET="${AUTH_JWT_SECRET:-fluentwork-dev-jwt-secret-change-me!!}"
 export INTERNAL_API_TOKEN="${INTERNAL_API_TOKEN:-fluentwork-dev-internal-token-change-me!!}"
-export VOICE_GATEWAY_WSS_URL="${VOICE_GATEWAY_WSS_URL:-ws://127.0.0.1:${GATEWAY_PORT}/v1/voice}"
-export APP_SERVER_INTERNAL_URL="${APP_SERVER_INTERNAL_URL:-http://127.0.0.1:${PORT}}"
-export VOICE_GATEWAY_HTTP_ADDR=":${GATEWAY_PORT}"
+export VOICE_GATEWAY_WSS_URL="ws://${HOST}:${GATEWAY_PORT}/v1/voice"
+export APP_SERVER_INTERNAL_URL="http://127.0.0.1:${PORT}"
+export VOICE_GATEWAY_HTTP_ADDR="0.0.0.0:${GATEWAY_PORT}"
 
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 
@@ -140,7 +150,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting app-server on http://127.0.0.1:${PORT}"
+echo "Starting app-server on http://${HOST}:${PORT}"
 echo "  GET  /healthz"
 echo "  GET  /readyz"
 echo "  POST /api/v1/auth/guest"
@@ -156,7 +166,7 @@ if ! wait_for_url "http://127.0.0.1:${PORT}/healthz" "app-server" "$SERVER_PID";
 fi
 
 if [[ "$WITH_GATEWAY" -eq 1 ]]; then
-  echo "Starting voice-gateway on ws://127.0.0.1:${GATEWAY_PORT}/v1/voice"
+  echo "Starting voice-gateway on ws://${HOST}:${GATEWAY_PORT}/v1/voice"
   go run ./cmd/voice-gateway &
   GATEWAY_PID=$!
   if ! wait_for_url "http://127.0.0.1:${GATEWAY_PORT}/healthz" "voice-gateway" "$GATEWAY_PID"; then
@@ -169,6 +179,8 @@ curl -sS -H 'Content-Type: application/json' \
   -d '{"device_id":"local-dev-device"}' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
 echo
+echo "📡 WSS URL for iOS: ws://${HOST}:${GATEWAY_PORT}/v1/voice"
+echo "   Set LOCAL_HOST=${HOST} in Xcode scheme for physical device testing."
 echo
 if [[ "$WITH_GATEWAY" -eq 1 ]]; then
   echo "app-server (pid ${SERVER_PID}) and voice-gateway (pid ${GATEWAY_PID}) are running. Ctrl-C to stop."
