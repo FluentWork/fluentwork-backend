@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -46,6 +47,17 @@ type BadgeEmitter struct {
 	dedupe   *dedupeLRU
 	now      func() time.Time
 	wg       *sync.WaitGroup
+
+	// counters are atomic so Stats() can read them without blocking the
+	// emit goroutines. They are best-effort observability, not a billing
+	// source of truth — slight skew under burst load is acceptable.
+	statsEmitCalls    atomic.Int64 // total Emit/EmitSync calls past the empty/dedup skip
+	statsEmptySkips   atomic.Int64 // Emit dropped because text was empty
+	statsMisses       atomic.Int64 // detector returned a non-hit decision
+	statsHits         atomic.Int64 // badge frame written to client
+	statsDedupDropped atomic.Int64 // LRU suppressed a re-emit
+	statsDetectErrors atomic.Int64 // detector returned an error (incl. timeout)
+	statsWriteErrors  atomic.Int64 // conn.WriteBadge failed
 }
 
 // BadgeEmitterOptions configures the emitter. Zero values fall back to the
@@ -129,6 +141,7 @@ func (e *BadgeEmitter) Emit(ctx context.Context, conn badgeConn, userID, session
 	if text == "" {
 		// No client ASR payload → skip silently. This is the common path for
 		// server-side ASR clients.
+		e.statsEmptySkips.Add(1)
 		return
 	}
 	if e.detector == nil || conn == nil {
@@ -137,6 +150,7 @@ func (e *BadgeEmitter) Emit(ctx context.Context, conn badgeConn, userID, session
 	if e.wg != nil {
 		e.wg.Add(1)
 	}
+	e.statsEmitCalls.Add(1)
 	go func() {
 		e.doEmit(ctx, conn, userID, sessionID, turnID, text, func() {
 			if e.wg != nil {
@@ -149,6 +163,15 @@ func (e *BadgeEmitter) Emit(ctx context.Context, conn badgeConn, userID, session
 // EmitSync runs the detection synchronously and waits for completion. Use in
 // tests and any caller that needs a deterministic ordering guarantee.
 func (e *BadgeEmitter) EmitSync(ctx context.Context, conn badgeConn, userID, sessionID, turnID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		e.statsEmptySkips.Add(1)
+		return
+	}
+	if e.detector == nil || conn == nil {
+		return
+	}
+	e.statsEmitCalls.Add(1)
 	e.doEmit(ctx, conn, userID, sessionID, turnID, text, func() {})
 }
 
@@ -167,6 +190,7 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 		Text:      text,
 	})
 	if err != nil {
+		e.statsDetectErrors.Add(1)
 		// Bad request (empty user_id, oversize text) — already counted as a miss.
 		if !errors.Is(err, session.ErrHitDetectInvalidRequest) {
 			e.logger.Warn("hit detect failed",
@@ -179,6 +203,7 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 		return
 	}
 	if decision.Kind != session.HitDecisionHit {
+		e.statsMisses.Add(1)
 		// Misses are not logged at info; they are the dominant path.
 		onDone()
 		return
@@ -201,6 +226,7 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 
 	if e.dedupe.Allow(badge.DedupeKey) {
 		// Duplicate within the dedupe TTL — drop silently.
+		e.statsDedupDropped.Add(1)
 		onDone()
 		return
 	}
@@ -214,6 +240,7 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 	writeCtx, cancelWrite := context.WithTimeout(parent, e.timeout)
 	defer cancelWrite()
 	if err := conn.WriteBadge(writeCtx, raw); err != nil {
+		e.statsWriteErrors.Add(1)
 		e.logger.Warn("badge write failed",
 			"session_id", sessionID,
 			"turn_id", turnID,
@@ -224,6 +251,7 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 		onDone()
 		return
 	}
+	e.statsHits.Add(1)
 	e.logger.Info("feedback.badge emitted",
 		"session_id", sessionID,
 		"turn_id", turnID,
@@ -310,4 +338,31 @@ func (d *dedupeLRU) Len() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.order.Len()
+}
+
+// BadgeEmitterStats is a point-in-time snapshot of BadgeEmitter counters.
+// Counters are best-effort: they can drift slightly under burst load because
+// reads are atomic but the underlying events are not transactional.
+type BadgeEmitterStats struct {
+	EmitCalls    int64 // total Emit/EmitSync calls past the empty/dedup skip
+	EmptySkips   int64 // Emit dropped because text was empty after TrimSpace
+	Misses       int64 // detector returned a non-hit decision
+	Hits         int64 // badge frame successfully written to client
+	DedupDropped int64 // LRU suppressed a re-emit
+	DetectErrors int64 // detector returned an error (incl. timeout)
+	WriteErrors  int64 // conn.WriteBadge failed
+}
+
+// Stats returns a snapshot of the emitter's counters. Safe to call from any
+// goroutine; counts reflect activity since emitter construction.
+func (e *BadgeEmitter) Stats() BadgeEmitterStats {
+	return BadgeEmitterStats{
+		EmitCalls:    e.statsEmitCalls.Load(),
+		EmptySkips:   e.statsEmptySkips.Load(),
+		Misses:       e.statsMisses.Load(),
+		Hits:         e.statsHits.Load(),
+		DedupDropped: e.statsDedupDropped.Load(),
+		DetectErrors: e.statsDetectErrors.Load(),
+		WriteErrors:  e.statsWriteErrors.Load(),
+	}
 }

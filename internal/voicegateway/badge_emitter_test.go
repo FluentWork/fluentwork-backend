@@ -249,3 +249,101 @@ func TestDedupeLRU_EmptyKeyAlwaysSuppressed(t *testing.T) {
 		t.Fatal("empty key should return true (suppress), caller must not pass empty")
 	}
 }
+
+// TestBadgeEmitter_StatsTracksOutcomes verifies that the counters exposed via
+// Stats() reflect every outcome the emitter can produce: empty skip, miss,
+// hit, dedupe suppression, detector error, write error.
+func TestBadgeEmitter_StatsTracksOutcomes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("empty text bumps EmptySkips", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "ship it"})
+		em := newTestEmitter(t, src, BadgeEmitterOptions{})
+		conn := &fakeWSConn{}
+		em.Emit(ctx, conn, "u", "s", "t", "   ")
+		em.EmitSync(ctx, conn, "u", "s", "t", "")
+		if got := em.Stats().EmptySkips; got != 2 {
+			t.Fatalf("EmptySkips=%d, want 2", got)
+		}
+		if got := em.Stats().EmitCalls; got != 0 {
+			t.Fatalf("EmitCalls=%d, want 0 (empty text never reached detect)", got)
+		}
+	})
+
+	t.Run("miss bumps Misses", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "ship it"})
+		em := newTestEmitter(t, src, BadgeEmitterOptions{})
+		conn := &fakeWSConn{}
+		em.EmitSync(ctx, conn, "u", "s", "t", "no hit here")
+		if got := em.Stats().Misses; got != 1 {
+			t.Fatalf("Misses=%d, want 1", got)
+		}
+		if got := em.Stats().EmitCalls; got != 1 {
+			t.Fatalf("EmitCalls=%d, want 1", got)
+		}
+		if got := em.Stats().Hits; got != 0 {
+			t.Fatalf("Hits=%d, want 0", got)
+		}
+	})
+
+	t.Run("hit bumps Hits", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "ship it today"})
+		em := newTestEmitter(t, src, BadgeEmitterOptions{})
+		conn := &fakeWSConn{}
+		em.EmitSync(ctx, conn, "u", "s", "t", "we should ship it today")
+		if got := em.Stats().Hits; got != 1 {
+			t.Fatalf("Hits=%d, want 1", got)
+		}
+	})
+
+	t.Run("dedupe bumps DedupDropped on second emit", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "ship it today"})
+		em := newTestEmitter(t, src, BadgeEmitterOptions{DedupeTTL: 30 * time.Second})
+		conn := &fakeWSConn{}
+		em.EmitSync(ctx, conn, "u", "s", "t", "we should ship it today")
+		em.EmitSync(ctx, conn, "u", "s", "t", "we should ship it today")
+		stats := em.Stats()
+		if stats.Hits != 1 {
+			t.Fatalf("Hits=%d, want 1", stats.Hits)
+		}
+		if stats.DedupDropped != 1 {
+			t.Fatalf("DedupDropped=%d, want 1", stats.DedupDropped)
+		}
+	})
+
+	t.Run("detector error bumps DetectErrors", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "x"})
+		src.err = errors.New("db down")
+		em := newTestEmitter(t, src, BadgeEmitterOptions{})
+		conn := &fakeWSConn{}
+		em.EmitSync(ctx, conn, "u", "s", "t", "anything")
+		if got := em.Stats().DetectErrors; got != 1 {
+			t.Fatalf("DetectErrors=%d, want 1", got)
+		}
+	})
+
+	t.Run("write error bumps WriteErrors", func(t *testing.T) {
+		t.Parallel()
+		src := newStubSource(session.BlockCandidate{ID: "b1", ExpressionEN: "ship it today"})
+		em := newTestEmitter(t, src, BadgeEmitterOptions{})
+		failingConn := &failingBadgeConn{err: errors.New("conn closed")}
+		em.EmitSync(ctx, failingConn, "u", "s", "t", "we should ship it today")
+		if got := em.Stats().WriteErrors; got != 1 {
+			t.Fatalf("WriteErrors=%d, want 1", got)
+		}
+		if got := em.Stats().Hits; got != 0 {
+			t.Fatalf("Hits=%d, want 0 (write failed)", got)
+		}
+	})
+}
+
+// failingBadgeConn is a test double that always returns the configured error.
+type failingBadgeConn struct{ err error }
+
+func (f *failingBadgeConn) WriteBadge(_ context.Context, _ []byte) error { return f.err }
