@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -261,13 +262,34 @@ func (s *DuplexSession) AppendPCMChunk(ctx context.Context, chunk []byte) error 
 	})
 }
 
+// TurnOutcome is the terminal status of one collectTurn observation.
+// B15: the segment End previously always logged outcome=ok because the loop
+// could exit normally with empty content; Outcome forces the caller and
+// logx.Segment to record the real status so dashboards / alerts can fire.
+type TurnOutcome string
+
+const (
+	TurnOutcomeOK      TurnOutcome = "ok"      // response.done with content
+	TurnOutcomePartial TurnOutcome = "partial" // wait expired with some progress but no done
+	TurnOutcomeTimeout TurnOutcome = "timeout" // wait expired with no progress at all
+	TurnOutcomeError   TurnOutcome = "error"   // provider sent error event / recv failed
+)
+
 // TurnResult captures one user-audio turn observation for B14 V1/V3 probes.
+//
+// Outcome is the explicit terminal status (see TurnOutcome). It is set on
+// every return path so the provider-layer (and logx.Segment) can distinguish
+// "we got a real response" from "we waited 60s and gave up". Treat Outcome
+// as authoritative — Transcript/AssistantText may be populated even on a
+// timeout (partial content was salvaged) and may be empty on an OK response
+// (the model returned a tool call with no text).
 type TurnResult struct {
-	Transcript     string   `json:"transcript"`
-	AssistantText  string   `json:"assistant_text"`
-	EventTypes     []string `json:"event_types"`
-	ASRStartedAtMS int64    `json:"asr_started_at_ms,omitempty"`
-	ASRDoneAtMS    int64    `json:"asr_done_at_ms,omitempty"`
+	Transcript     string      `json:"transcript"`
+	AssistantText  string      `json:"assistant_text"`
+	EventTypes     []string    `json:"event_types"`
+	ASRStartedAtMS int64       `json:"asr_started_at_ms,omitempty"`
+	ASRDoneAtMS    int64       `json:"asr_done_at_ms,omitempty"`
+	Outcome        TurnOutcome `json:"outcome,omitempty"`
 }
 
 // SendUserPCMAndWait uploads PCM, commits, and collects ASR + assistant text events.
@@ -377,10 +399,14 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	if wait <= 0 {
 		wait = 25 * time.Second
 	}
+	// B15: track whether the loop saw any activity before exhausting the wait
+	// window, so we can distinguish timeout-with-no-progress from partial.
+	seenAnyEvent := false
 	var text strings.Builder
 	seenUserProgress := false
 	seenResponse := false
 	apply := func(evt DuplexEvent) bool {
+		seenAnyEvent = true
 		out.EventTypes = append(out.EventTypes, evt.Type)
 		switch evt.Type {
 		case "conversation.item.input_audio_transcription.started":
@@ -425,8 +451,10 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 				return false
 			}
 			out.AssistantText = strings.TrimSpace(text.String())
+			out.Outcome = TurnOutcomeOK
 			return true
 		case "error":
+			out.Outcome = TurnOutcomeError
 			return true
 		}
 		return false
@@ -435,6 +463,7 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	for _, evt := range preload {
 		if evt.Type == "error" {
 			out.AssistantText = strings.TrimSpace(text.String())
+			out.Outcome = TurnOutcomeError
 			collectErr = fmt.Errorf("duplex error during turn: %s", evt.Raw)
 			return out, collectErr
 		}
@@ -457,14 +486,27 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 		evt, err := s.recv(readCtx)
 		cancel()
 		if err != nil {
-			if text.Len() > 0 || out.Transcript != "" {
-				break
+			out.AssistantText = strings.TrimSpace(text.String())
+			// Graceful degradation: if we have any partial content (ASR or TTS),
+			// return it instead of failing. Timeout errors are recoverable.
+			if text.Len() > 0 || out.Transcript != "" || seenUserProgress || seenResponse {
+				out.Outcome = TurnOutcomePartial
+				return out, nil
 			}
-			collectErr = err
+			// B15: distinguish timeout from real errors and stamp the outcome
+			// before returning so callers (and logx.Segment) record reality.
+			if errors.Is(err, context.DeadlineExceeded) {
+				out.Outcome = TurnOutcomeTimeout
+				collectErr = fmt.Errorf("duplex turn timeout: %w", err)
+			} else {
+				out.Outcome = TurnOutcomeError
+				collectErr = err
+			}
 			return out, collectErr
 		}
 		if evt.Type == "error" {
 			out.AssistantText = strings.TrimSpace(text.String())
+			out.Outcome = TurnOutcomeError
 			collectErr = fmt.Errorf("duplex error during turn: %s", evt.Raw)
 			return out, collectErr
 		}
@@ -473,6 +515,17 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 		}
 	}
 	out.AssistantText = strings.TrimSpace(text.String())
+	// B15: wait window exhausted. Previously this fell through with a nil
+	// error and Segment.End logged outcome=ok even when we got nothing —
+	// see docs/20 §1.2.a. Now we mark the actual status:
+	//   - no events at all         → timeout (provider was silent)
+	//   - some progress but no done → partial (salvage what we have)
+	if !seenAnyEvent && !seenUserProgress && !seenResponse {
+		out.Outcome = TurnOutcomeTimeout
+		collectErr = fmt.Errorf("duplex turn timeout: no events within %s", wait)
+		return out, collectErr
+	}
+	out.Outcome = TurnOutcomePartial
 	return out, nil
 }
 

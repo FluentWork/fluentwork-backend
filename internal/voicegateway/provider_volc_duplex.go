@@ -2,6 +2,7 @@ package voicegateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,7 +12,10 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
-const defaultVolcTurnWait = 35 * time.Second
+// defaultVolcTurnWait is the maximum time to wait for one user turn result (ASR + TTS).
+// 60s gives the Volc duplex API enough headroom for cold-start TTS in the same turn.
+// If the server sends no events within this window, the session is considered unhealthy.
+const defaultVolcTurnWait = 60 * time.Second
 
 // VolcDuplexProvider bridges voice-gateway sessions onto the live Volcano duplex API.
 // Current scope:
@@ -109,11 +113,40 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		if err := s.session.CommitAudio(ctx); err != nil {
 			return nil, err
 		}
+
+		// Try with primary timeout first
 		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
-		if err != nil {
+		if err == nil {
+			return s.turnToOutbound(turn), nil
+		}
+
+		// On timeout with partial content, retry once with fresh context (TTS may still be pending)
+		if errors.Is(err, context.DeadlineExceeded) {
+			s.logger.Warn("turn result timeout, retrying with fresh context",
+				"session_id", s.session.SessionID(),
+				"err", err,
+			)
+			retryCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			turn, retryErr := s.session.WaitTurnResult(retryCtx, s.turnStarted, 20*time.Second)
+			if retryErr == nil {
+				return s.turnToOutbound(turn), nil
+			}
+			// If retry also failed but returned partial content, use it
+			if turn.Transcript != "" || turn.AssistantText != "" {
+				s.logger.Warn("turn result recovered from retry with partial content",
+					"session_id", s.session.SessionID(),
+					"has_transcript", turn.Transcript != "",
+					"has_text", turn.AssistantText != "",
+				)
+				return s.turnToOutbound(turn), nil
+			}
+			// Both failed with no content, return original error
 			return nil, err
 		}
-		return s.turnToOutbound(turn), nil
+
+		// Non-timeout error, return immediately
+		return nil, err
 
 	case voiceproto.TypeInterrupt:
 		s.logger.Info("interrupt forwarded to live provider boundary")
@@ -133,7 +166,12 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 		if current == "" {
 			current = "unknown"
 		}
-		return nil, fmt.Errorf("volc-duplex provider requires VOICE_GATEWAY_CLIENT_AUDIO_FORMAT=pcm-s16le; current=%s", current)
+		s.logger.Warn("audio format mismatch, dropping binary frame",
+			"expected", "pcm-s16le",
+			"actual", current,
+			"payload_bytes", len(payload),
+		)
+		return nil, nil // Drop frame silently, don't fail the session
 	}
 	if len(payload) == 0 {
 		return nil, nil
@@ -141,6 +179,10 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 	if s.turnStarted.IsZero() {
 		s.turnStarted = time.Now()
 	}
+	s.logger.Debug("forwarding PCM chunk to volc",
+		"payload_bytes", len(payload),
+		"session_id", s.session.SessionID(),
+	)
 	return nil, s.session.AppendPCMChunk(ctx, payload)
 }
 
@@ -158,6 +200,14 @@ func (s *volcDuplexProviderSession) Close(ctx context.Context) error {
 func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []ProviderOutbound {
 	var outbound []ProviderOutbound
 	transcript := strings.TrimSpace(turn.Transcript)
+	s.logger.Info("turn result captured",
+		"transcript_len", len(transcript),
+		"transcript", transcript,
+		"assistant_text_len", len(strings.TrimSpace(turn.AssistantText)),
+		"assistant_text", strings.TrimSpace(turn.AssistantText),
+		"active_turn_id", s.activeTurnID,
+		"event_types", turn.EventTypes,
+	)
 	if transcript != "" {
 		s.utterances = append(s.utterances, EndUtterance{
 			Seq:     s.nextSeq,

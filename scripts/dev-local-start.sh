@@ -156,6 +156,23 @@ else
   exit 1
 fi
 
+# Overlay .env.volc.local if present (gitignored) — supplies volc-duplex keys.
+# Values here take precedence so the gateway can boot with a real provider
+# without editing the committed .env.dev.
+if [[ -f "$ROOT/.env.volc.local" ]]; then
+  echo "📋 Loading .env.volc.local (overrides volc-related vars)..."
+  set -a
+  _env_tmp=$(mktemp)
+  grep -v '^#' "$ROOT/.env.volc.local" | grep -v '^$' > "$_env_tmp"
+  while IFS='=' read -r key value; do
+    value="${value%\"}"
+    value="${value#\"}"
+    export "$key=$value"
+  done < "$_env_tmp"
+  rm -f "$_env_tmp"
+  set +a
+fi
+
 # Override ports and WSS URL.
 # Bind to 0.0.0.0 so iOS physical device on LAN can reach the services.
 # Use $HOST in VOICE_GATEWAY_WSS_URL so the iOS app connects to the right address.

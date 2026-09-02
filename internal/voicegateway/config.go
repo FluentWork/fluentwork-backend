@@ -3,6 +3,7 @@ package voicegateway
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,7 +33,21 @@ type Config struct {
 
 // LoadConfig reads voice-gateway configuration from the environment.
 // APP_ENV has no implicit default; local scripts must set it explicitly.
+//
+// Optional .env files are also loaded from the project root (if present):
+//   - .env.dev      → base defaults for local development
+//   - .env.volc.local → volcano/duobao credentials (gitignored, overrides .env.dev)
+//
+// Files are loaded in order; later files take precedence. Values exported
+// to the environment by the shell still win over file values, so CI /
+// container deployments don't need the dotenv files at all.
 func LoadConfig() Config {
+	root, _ := findProjectRoot()
+	if root != "" {
+		loadDotenvIfPresent(filepath.Join(root, ".env.dev"))
+		loadDotenvIfPresent(filepath.Join(root, ".env.volc.local"))
+	}
+
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	token := strings.TrimSpace(os.Getenv("INTERNAL_API_TOKEN"))
 	if token == "" && isDevelopmentEnv(appEnv) {
@@ -145,5 +160,66 @@ func isDevelopmentEnv(appEnv string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// findProjectRoot walks upward from the current working directory looking
+// for the FluentWork backend module root (the directory containing go.mod).
+// Returns "" when not found so callers can degrade gracefully.
+func findProjectRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	dir := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			// Extra sanity check: voice-gateway should live here.
+			if _, err := os.Stat(filepath.Join(dir, "internal", "voicegateway")); err == nil {
+				return dir, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", nil
+		}
+		dir = parent
+	}
+}
+
+// loadDotenvIfPresent reads KEY=VALUE lines from path into the process
+// environment, but only when the variable is not already set. This lets
+// real environment variables (CI / shell exports) win over file values,
+// while still allowing a local .env.volc.local to seed defaults.
+func loadDotenvIfPresent(path string) {
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // file missing / unreadable is non-fatal
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		value := strings.TrimSpace(line[eq+1:])
+		// Strip surrounding quotes (single or double) if present.
+		if len(value) >= 2 {
+			first, last := value[0], value[len(value)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if _, already := os.LookupEnv(key); already {
+			continue
+		}
+		_ = os.Setenv(key, value)
 	}
 }

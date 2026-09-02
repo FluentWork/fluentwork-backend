@@ -216,6 +216,12 @@ type sessionRuntime struct {
 	started   bool
 	startedAt time.Time
 	provider  VoiceProviderSession
+	// broken is set to true the first time the audio forward path fails in a
+	// way the session cannot recover from (provider write error, recv-side
+	// failure surfaced through the provider, etc.). Once set, subsequent
+	// binary frames are dropped silently so a stuck iOS pipeline doesn't
+	// produce 80+ identical WARN lines per session. See docs/20 §1.2.c/1.3.
+	broken bool
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
@@ -256,9 +262,30 @@ func (h *Handler) handleAudio(
 	if !rt.started || rt.provider == nil {
 		return nil
 	}
+	// B15: once the audio forward path has failed, drop further binary
+	// frames without re-invoking the provider or re-logging. The loop will
+	// exit naturally when iOS closes the WS or the next read errors out.
+	if rt.broken {
+		return nil
+	}
+	// Log all incoming binary audio frames for debugging
+	h.logger.Debug("received binary audio frame",
+		"payload_bytes", len(data),
+		"session_started", rt.started,
+		"provider_nil", rt.provider == nil,
+	)
 	outbound, err := rt.provider.HandleClientAudio(ctx, data)
 	if err != nil {
-		h.logger.Warn("provider audio forward failed", "err", err)
+		rt.broken = true
+		// B15: one deduplicated warn per session instead of one per frame.
+		// See docs/20 §1.3 ("warn 日志去重 / 采样 — 80+ identical warns").
+		h.logger.Warn("provider audio forward failed; marking session broken and dropping further audio",
+			"err", err,
+		)
+		// Try to surface the failure to iOS once. If the iOS WS is also dead
+		// the write will fail; in that case the next loop iteration will hit
+		// the rt.broken guard above and bail out silently until the read
+		// fails or iOS closes the connection.
 		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
 			Code:    "provider_audio_failed",
