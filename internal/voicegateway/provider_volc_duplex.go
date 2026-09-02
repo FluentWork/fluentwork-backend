@@ -165,6 +165,18 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 			Text:    transcript,
 		})
 		s.nextSeq++
+		// B14: relay authoritative provider-side ASR transcript back to the client
+		// so the client can use it for B7 hit-detection instead of re-running
+		// a separate local ASR pass (e.g., Apple Speech).
+		// Also carry it in ServerASRText for backend badge detection.
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.ClientASRTranscription{
+				Type:   voiceproto.TypeClientASRTranscription,
+				Text:   transcript,
+				TurnID: s.activeTurnID,
+			},
+			ServerASRText: transcript, // B14: for badge emitter
+		})
 	}
 
 	reply := strings.TrimSpace(turn.AssistantText)

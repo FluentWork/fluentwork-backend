@@ -61,6 +61,18 @@ type BadgeEmitterOptions struct {
 	Now func() time.Time
 }
 
+// NewBadgeEmitterForTest is a test-only convenience constructor that mirrors
+// NewBadgeEmitter without the variadic WaitGroup parameter. It returns nil
+// when detector is nil so callers can early-skip with t.Skip(...) in
+// environments that cannot construct a HitDetector (e.g. testLocal hermetic
+// suites without the corpus BlockSourceAdapter wired in).
+func NewBadgeEmitterForTest(detector *session.HitDetector, logger *slog.Logger, opts BadgeEmitterOptions) *BadgeEmitter {
+	if detector == nil {
+		return nil
+	}
+	return NewBadgeEmitter(detector, logger, opts)
+}
+
 // NewBadgeEmitter wires the emitter to the detector that already wraps the
 // session.BlockSource (typically the corpus.BlockSourceAdapter). If wg is
 // provided (e.g. from a test), each Emit goroutine calls wg.Done so callers

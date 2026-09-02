@@ -394,6 +394,8 @@ func (h *Handler) handleControl(
 		// B12 — fire-and-forget hit detection on user.speech.end so the
 		// client ASR transcript can be matched against stored phrase blocks.
 		// Never blocks the control frame; failures are logged by the emitter.
+		// B14: When client text is empty (B13 client ASR disabled), fall back to
+		// server-side ASR text from the provider's ProviderOutbound.ServerASRText.
 		if frameType == voiceproto.TypeUserSpeechEnd && h.badgeEmitter != nil {
 			var end voiceproto.UserSpeechEnd
 			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
@@ -402,7 +404,12 @@ func (h *Handler) handleControl(
 					// No client-supplied turn id → scope dedupe by session.
 					turnID = session.SessionID
 				}
-				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, end.Text)
+				// Prefer client ASR text; fall back to server ASR text (B14).
+				asrText := strings.TrimSpace(end.Text)
+				if asrText == "" {
+					asrText = extractServerASRText(outbound)
+				}
+				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
 			}
 		}
 		return nil
@@ -509,6 +516,18 @@ func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound [
 		}
 	}
 	return nil
+}
+
+// extractServerASRText returns the server-side ASR text from provider outbound.
+// B14: The Volcengine provider populates ServerASRText in ProviderOutbound so
+// the handler can use it for badge detection when client ASR text is empty.
+func extractServerASRText(outbound []ProviderOutbound) string {
+	for _, item := range outbound {
+		if item.ServerASRText != "" {
+			return item.ServerASRText
+		}
+	}
+	return ""
 }
 
 func (r *sessionRuntime) snapshotUtterances() []EndUtterance {

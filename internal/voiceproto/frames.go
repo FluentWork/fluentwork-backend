@@ -9,20 +9,21 @@ import (
 
 // Control frame type constants (shared with iOS / contract tests).
 const (
-	TypeAuth            = "auth"
-	TypeSessionReady    = "session.ready"
-	TypeSessionStart    = "session.start"
-	TypeUserSpeechStart = "user.speech.start"
-	TypeUserSpeechEnd   = "user.speech.end"
-	TypeAITextDelta     = "ai.text.delta"
-	TypeAIAudioChunk    = "ai.audio.chunk"
-	TypeAITurnEnd       = "ai.turn.end"
-	TypeInterrupt       = "interrupt"
-	TypeFeedbackBadge   = "feedback.badge"
-	TypeSessionEnd      = "session.end"
-	TypeError           = "error"
-	TypePong            = "pong"
-	TypePing            = "ping"
+	TypeAuth                   = "auth"
+	TypeSessionReady           = "session.ready"
+	TypeSessionStart           = "session.start"
+	TypeUserSpeechStart        = "user.speech.start"
+	TypeUserSpeechEnd          = "user.speech.end"
+	TypeClientASRTranscription = "client.asr.transcription"
+	TypeAITextDelta            = "ai.text.delta"
+	TypeAIAudioChunk           = "ai.audio.chunk"
+	TypeAITurnEnd              = "ai.turn.end"
+	TypeInterrupt              = "interrupt"
+	TypeFeedbackBadge          = "feedback.badge"
+	TypeSessionEnd             = "session.end"
+	TypeError                  = "error"
+	TypePong                   = "pong"
+	TypePing                   = "ping"
 )
 
 // Envelope is a partially decoded control frame used for type dispatch.
@@ -72,6 +73,25 @@ type SessionEnd struct {
 type UserSpeechEnd struct {
 	Type   string `json:"type"`
 	Text   string `json:"text,omitempty"`
+	TurnID string `json:"turn_id,omitempty"`
+}
+
+// ClientASRTranscription is a gateway→client frame emitted when the voice
+// provider (e.g., Volcengine Duplex) returns an ASR transcription of the
+// user's audio turn (B14).
+//
+// The transcript is authoritative — it comes from the same real-time stream that
+// drives the AI response, so it is always consistent with what the model heard.
+// Clients that previously ran on-device ASR (Apple Speech) should consume this
+// frame and skip their local transcriber to avoid double-transcription and
+// inconsistent results.
+//
+// Fields:
+//   - Text:   the full transcribed text of the user's audio
+//   - TurnID: correlates this transcription with the originating speech turn
+type ClientASRTranscription struct {
+	Type   string `json:"type"`
+	Text   string `json:"text"`
 	TurnID string `json:"turn_id,omitempty"`
 }
 

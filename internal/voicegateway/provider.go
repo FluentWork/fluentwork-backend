@@ -9,9 +9,12 @@ import (
 
 // ProviderOutbound is one provider->gateway emission.
 // Exactly one of Control or Binary should be populated.
+// B14: ServerASRText carries the authoritative provider-side transcript
+// for badge hit detection when the client sends user.speech.end with empty text.
 type ProviderOutbound struct {
-	Control any
-	Binary  []byte
+	Control       any
+	Binary        []byte
+	ServerASRText string // B14: authoritative ASR text for badge detection
 }
 
 // VoiceProvider isolates vendor/session orchestration from the gateway loop.
