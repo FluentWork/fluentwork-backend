@@ -5,3 +5,5 @@ coverage.out
 *.test
 .env
 .env.*
+/cmd/*/voice-gateway
+/cmd/integration-voice-gateway/integration-voice-gateway
