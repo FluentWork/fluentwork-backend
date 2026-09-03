@@ -20,9 +20,18 @@
         }
       ],
       "comparisons": [
-        {"user": "sync up with the team", "better": "touch base with the team"},
-        {"user": "I am blocked on the API review", "better": "I'm blocked waiting on the API review"},
-        {"user": "finished the login bug", "better": "fixed the login bug"}
+        {
+          "user": "sync up with the team",
+          "better": "touch base with the team"
+        },
+        {
+          "user": "I am blocked on the API review",
+          "better": "I'm blocked waiting on the API review"
+        },
+        {
+          "user": "finished the login bug",
+          "better": "fixed the login bug"
+        }
       ]
     },
     "refine": {
@@ -55,9 +64,18 @@
       "issues": [],
       "suggestions": [],
       "comparisons": [
-        {"user": "defer the discussion", "better": "table this until Friday"},
-        {"user": "clarify the rollout risk", "better": "walk me through the rollout risk"},
-        {"user": "until Friday", "better": "until Friday's review"}
+        {
+          "user": "defer the discussion",
+          "better": "table this until Friday"
+        },
+        {
+          "user": "clarify the rollout risk",
+          "better": "walk me through the rollout risk"
+        },
+        {
+          "user": "until Friday",
+          "better": "until Friday's review"
+        }
       ]
     },
     "refine": {
@@ -100,9 +118,18 @@
         }
       ],
       "comparisons": [
-        {"user": "propose we split", "better": "I'd propose we split"},
-        {"user": "Do you agree with the timeline", "better": "Does this timeline work for you"},
-        {"user": "two phases", "better": "two phases: prep and cutover"}
+        {
+          "user": "propose we split",
+          "better": "I'd propose we split"
+        },
+        {
+          "user": "Do you agree with the timeline",
+          "better": "Does this timeline work for you"
+        },
+        {
+          "user": "two phases",
+          "better": "two phases: prep and cutover"
+        }
       ]
     },
     "refine": {
@@ -120,6 +147,4706 @@
           "anchor_user_said": "Do you agree with the timeline",
           "scene_tag": "1on1",
           "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-002",
+    "transcript": "Yesterday I finished the auth refactor. Today I will sync up with the team. I am blocked on the review.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "sync up with the team",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll touch base with the team about the auth refactor."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "sync up with the team",
+          "better": "I'll touch base with the team about the auth refactor."
+        },
+        {
+          "user": "Yesterday I finished the auth refactor.",
+          "better": "Yesterday I finished the auth refactor."
+        },
+        {
+          "user": "Today I will sync up with the team.",
+          "better": "Today I will touch base with the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "同步进度",
+          "expression_en": "I'll touch base with the team about the auth refactor.",
+          "anchor_user_said": "sync up with the team",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-003",
+    "transcript": "Yesterday I work on the cache layer. Today I will continue with the migration. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I work on the cache layer",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I worked on the cache layer."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I work on the cache layer",
+          "better": "I worked on the cache layer."
+        },
+        {
+          "user": "Yesterday I work on the cache layer.",
+          "better": "Yesterday I worked on the cache layer."
+        },
+        {
+          "user": "Today I will continue with the migration.",
+          "better": "Today I will continue with the migration."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I worked on the cache layer.",
+          "anchor_user_said": "I work on the cache layer",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-004",
+    "transcript": "I done the PR yesterday. Today I will write tests. I am blocked on the CI.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I done the PR yesterday",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I finished the PR yesterday."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I done the PR yesterday",
+          "better": "I finished the PR yesterday."
+        },
+        {
+          "user": "I done the PR yesterday.",
+          "better": "I finished the PR yesterday."
+        },
+        {
+          "user": "Today I will write tests.",
+          "better": "Today I will write tests."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I finished the PR yesterday.",
+          "anchor_user_said": "I done the PR yesterday",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-005",
+    "transcript": "Yesterday I make the fix. Today I will deploy. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I make the fix",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I made the fix."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I make the fix",
+          "better": "I made the fix."
+        },
+        {
+          "user": "Yesterday I make the fix.",
+          "better": "Yesterday I made the fix."
+        },
+        {
+          "user": "Today I will deploy.",
+          "better": "Today I will deploy."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I made the fix.",
+          "anchor_user_said": "I make the fix",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-006",
+    "transcript": "Yesterday I ship the feature. Today I will monitor. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I ship the feature",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I shipped the feature."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I ship the feature",
+          "better": "I shipped the feature."
+        },
+        {
+          "user": "Yesterday I ship the feature.",
+          "better": "Yesterday I shipped the feature."
+        },
+        {
+          "user": "Today I will monitor.",
+          "better": "Today I will monitor."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I shipped the feature.",
+          "anchor_user_said": "I ship the feature",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-007",
+    "transcript": "Yesterday I do the migration. Today I will fix the broken tests. I am blocked on infra.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I do the migration",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I ran the migration."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I do the migration",
+          "better": "I ran the migration."
+        },
+        {
+          "user": "Yesterday I do the migration.",
+          "better": "Yesterday I ran the migration."
+        },
+        {
+          "user": "Today I will fix the broken tests.",
+          "better": "Today I will fix the broken tests."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I ran the migration.",
+          "anchor_user_said": "I do the migration",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-008",
+    "transcript": "Yesterday I close the bug. Today I will review the new PRs. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I close the bug",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I closed the bug."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I close the bug",
+          "better": "I closed the bug."
+        },
+        {
+          "user": "Yesterday I close the bug.",
+          "better": "Yesterday I closed the bug."
+        },
+        {
+          "user": "Today I will review the new PRs.",
+          "better": "Today I will review the new PRs."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I closed the bug.",
+          "anchor_user_said": "I close the bug",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-009",
+    "transcript": "Yesterday I push the change. Today I will sync with the team. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I push the change",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I pushed the change."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I push the change",
+          "better": "I pushed the change."
+        },
+        {
+          "user": "Yesterday I push the change.",
+          "better": "Yesterday I pushed the change."
+        },
+        {
+          "user": "Today I will sync with the team.",
+          "better": "Today I will sync with the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I pushed the change.",
+          "anchor_user_said": "I push the change",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-010",
+    "transcript": "Yesterday I run the tests. Today I will merge the PR. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I run the tests",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I ran the tests."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I run the tests",
+          "better": "I ran the tests."
+        },
+        {
+          "user": "Yesterday I run the tests.",
+          "better": "Yesterday I ran the tests."
+        },
+        {
+          "user": "Today I will merge the PR.",
+          "better": "Today I will merge the PR."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I ran the tests.",
+          "anchor_user_said": "I run the tests",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-011",
+    "transcript": "Yesterday I write the spec. Today I will present to the team. I am blocked on the design.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I write the spec",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I wrote the spec."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I write the spec",
+          "better": "I wrote the spec."
+        },
+        {
+          "user": "Yesterday I write the spec.",
+          "better": "Yesterday I wrote the spec."
+        },
+        {
+          "user": "Today I will present to the team.",
+          "better": "Today I will present to the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I wrote the spec.",
+          "anchor_user_said": "I write the spec",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-012",
+    "transcript": "Yesterday I finished the auth refactor. Today I will sync up with the team. I am blocked on the review.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "sync up with the team",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll touch base with the team about the auth refactor."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "sync up with the team",
+          "better": "I'll touch base with the team about the auth refactor."
+        },
+        {
+          "user": "Yesterday I finished the auth refactor.",
+          "better": "Yesterday I finished the auth refactor."
+        },
+        {
+          "user": "Today I will sync up with the team.",
+          "better": "Today I will touch base with the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "同步进度",
+          "expression_en": "I'll touch base with the team about the auth refactor.",
+          "anchor_user_said": "sync up with the team",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-013",
+    "transcript": "Yesterday I work on the cache layer. Today I will continue with the migration. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I work on the cache layer",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I worked on the cache layer."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I work on the cache layer",
+          "better": "I worked on the cache layer."
+        },
+        {
+          "user": "Yesterday I work on the cache layer.",
+          "better": "Yesterday I worked on the cache layer."
+        },
+        {
+          "user": "Today I will continue with the migration.",
+          "better": "Today I will continue with the migration."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I worked on the cache layer.",
+          "anchor_user_said": "I work on the cache layer",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-014",
+    "transcript": "I done the PR yesterday. Today I will write tests. I am blocked on the CI.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I done the PR yesterday",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I finished the PR yesterday."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I done the PR yesterday",
+          "better": "I finished the PR yesterday."
+        },
+        {
+          "user": "I done the PR yesterday.",
+          "better": "I finished the PR yesterday."
+        },
+        {
+          "user": "Today I will write tests.",
+          "better": "Today I will write tests."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I finished the PR yesterday.",
+          "anchor_user_said": "I done the PR yesterday",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-015",
+    "transcript": "Yesterday I make the fix. Today I will deploy. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I make the fix",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I made the fix."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I make the fix",
+          "better": "I made the fix."
+        },
+        {
+          "user": "Yesterday I make the fix.",
+          "better": "Yesterday I made the fix."
+        },
+        {
+          "user": "Today I will deploy.",
+          "better": "Today I will deploy."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I made the fix.",
+          "anchor_user_said": "I make the fix",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-016",
+    "transcript": "Yesterday I ship the feature. Today I will monitor. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I ship the feature",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I shipped the feature."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I ship the feature",
+          "better": "I shipped the feature."
+        },
+        {
+          "user": "Yesterday I ship the feature.",
+          "better": "Yesterday I shipped the feature."
+        },
+        {
+          "user": "Today I will monitor.",
+          "better": "Today I will monitor."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I shipped the feature.",
+          "anchor_user_said": "I ship the feature",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-017",
+    "transcript": "Yesterday I do the migration. Today I will fix the broken tests. I am blocked on infra.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I do the migration",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I ran the migration."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I do the migration",
+          "better": "I ran the migration."
+        },
+        {
+          "user": "Yesterday I do the migration.",
+          "better": "Yesterday I ran the migration."
+        },
+        {
+          "user": "Today I will fix the broken tests.",
+          "better": "Today I will fix the broken tests."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I ran the migration.",
+          "anchor_user_said": "I do the migration",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-018",
+    "transcript": "Yesterday I close the bug. Today I will review the new PRs. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I close the bug",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I closed the bug."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I close the bug",
+          "better": "I closed the bug."
+        },
+        {
+          "user": "Yesterday I close the bug.",
+          "better": "Yesterday I closed the bug."
+        },
+        {
+          "user": "Today I will review the new PRs.",
+          "better": "Today I will review the new PRs."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I closed the bug.",
+          "anchor_user_said": "I close the bug",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-019",
+    "transcript": "Yesterday I push the change. Today I will sync with the team. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I push the change",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I pushed the change."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I push the change",
+          "better": "I pushed the change."
+        },
+        {
+          "user": "Yesterday I push the change.",
+          "better": "Yesterday I pushed the change."
+        },
+        {
+          "user": "Today I will sync with the team.",
+          "better": "Today I will sync with the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I pushed the change.",
+          "anchor_user_said": "I push the change",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-020",
+    "transcript": "Yesterday I run the tests. Today I will merge the PR. No blocker.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I run the tests",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I ran the tests."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I run the tests",
+          "better": "I ran the tests."
+        },
+        {
+          "user": "Yesterday I run the tests.",
+          "better": "Yesterday I ran the tests."
+        },
+        {
+          "user": "Today I will merge the PR.",
+          "better": "Today I will merge the PR."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I ran the tests.",
+          "anchor_user_said": "I run the tests",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-021",
+    "transcript": "Yesterday I write the spec. Today I will present to the team. I am blocked on the design.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I write the spec",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I wrote the spec."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I write the spec",
+          "better": "I wrote the spec."
+        },
+        {
+          "user": "Yesterday I write the spec.",
+          "better": "Yesterday I wrote the spec."
+        },
+        {
+          "user": "Today I will present to the team.",
+          "better": "Today I will present to the team."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "已完成工作",
+          "expression_en": "I wrote the spec.",
+          "anchor_user_said": "I write the spec",
+          "scene_tag": "standup",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-022",
+    "transcript": "We should defer the discussion until Friday.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "defer the discussion",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's table this until Friday."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "defer the discussion",
+          "better": "Let's table this until Friday."
+        },
+        {
+          "user": "We should defer the discussion until Friday.",
+          "better": "We should defer the discussion until Friday."
+        },
+        {
+          "user": "defer",
+          "better": "defer"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "推迟讨论",
+          "expression_en": "Let's table this until Friday.",
+          "anchor_user_said": "defer the discussion",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-023",
+    "transcript": "I disagree with the rollout plan. The risk is too high.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I disagree with the rollout plan",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the rollout plan — the risk feels too high."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I disagree with the rollout plan",
+          "better": "I'd push back on the rollout plan — the risk feels too high."
+        },
+        {
+          "user": "I disagree with the rollout plan.",
+          "better": "I disagree with the rollout plan."
+        },
+        {
+          "user": "The risk is too high.",
+          "better": "The risk is too high."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达异议",
+          "expression_en": "I'd push back on the rollout plan — the risk feels too high.",
+          "anchor_user_said": "I disagree with the rollout plan",
+          "scene_tag": "review",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-024",
+    "transcript": "Sounds good. I am agree with the timeline.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the timeline",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Sounds good — I'm aligned with the timeline."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the timeline",
+          "better": "Sounds good — I'm aligned with the timeline."
+        },
+        {
+          "user": "Sounds good.",
+          "better": "Sounds good."
+        },
+        {
+          "user": "I am agree with the timeline.",
+          "better": "I'm aligned with the timeline."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "Sounds good — I'm aligned with the timeline.",
+          "anchor_user_said": "I am agree with the timeline",
+          "scene_tag": "review",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-025",
+    "transcript": "Can you walk me through the rationale behind the migration?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "walk me through the rationale",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through the rationale behind the migration?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "walk me through the rationale",
+          "better": "Could you walk me through the rationale behind the migration?"
+        },
+        {
+          "user": "Can you walk me through the rationale behind the migration?",
+          "better": "Can you walk me through the rationale behind the migration?"
+        },
+        {
+          "user": "walk",
+          "better": "walk"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求解释",
+          "expression_en": "Could you walk me through the rationale behind the migration?",
+          "anchor_user_said": "walk me through the rationale",
+          "scene_tag": "review",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-026",
+    "transcript": "To summarize, we agreed to ship the feature next sprint. The team is aligned.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "The team is aligned",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: we're aligned on shipping next sprint."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "The team is aligned",
+          "better": "To summarize: we're aligned on shipping next sprint."
+        },
+        {
+          "user": "To summarize, we agreed to ship the feature next sprint.",
+          "better": "To summarize, we agreed to ship the feature next sprint."
+        },
+        {
+          "user": "The team is aligned.",
+          "better": "The team is aligned."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: we're aligned on shipping next sprint.",
+          "anchor_user_said": "The team is aligned",
+          "scene_tag": "review",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-027",
+    "transcript": "I propose we split this into two phases: prep and cutover.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "split this into two phases",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose splitting this into two phases — prep and cutover."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "split this into two phases",
+          "better": "I'd propose splitting this into two phases — prep and cutover."
+        },
+        {
+          "user": "I propose we split this into two phases: prep and cutover.",
+          "better": "I propose we split this into two phases: prep and cutover."
+        },
+        {
+          "user": "split",
+          "better": "split"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose splitting this into two phases — prep and cutover.",
+          "anchor_user_said": "split this into two phases",
+          "scene_tag": "review",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-028",
+    "transcript": "Can you clarify the rollout risk before we commit?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "clarify the rollout risk",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through the rollout risk?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "clarify the rollout risk",
+          "better": "Could you walk me through the rollout risk?"
+        },
+        {
+          "user": "Can you clarify the rollout risk before we commit?",
+          "better": "Can you clarify the rollout risk before we commit?"
+        },
+        {
+          "user": "clarify",
+          "better": "clarify"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求澄清",
+          "expression_en": "Could you walk me through the rollout risk?",
+          "anchor_user_said": "clarify the rollout risk",
+          "scene_tag": "review",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-029",
+    "transcript": "I will own the migration ticket end-to-end.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I will own the migration ticket",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll take ownership of the migration ticket end-to-end."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I will own the migration ticket",
+          "better": "I'll take ownership of the migration ticket end-to-end."
+        },
+        {
+          "user": "I will own the migration ticket end-to-end.",
+          "better": "I will own the migration ticket end-to-end."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I'll take ownership of the migration ticket end-to-end.",
+          "anchor_user_said": "I will own the migration ticket",
+          "scene_tag": "review",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-030",
+    "transcript": "I disagree with cutting scope, but I defer to the team.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I defer to the team",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the scope cut, but I'll defer to the team."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I defer to the team",
+          "better": "I'd push back on the scope cut, but I'll defer to the team."
+        },
+        {
+          "user": "I disagree with cutting scope, but I defer to the team.",
+          "better": "I disagree with cutting scope, but I defer to the team."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "保留意见",
+          "expression_en": "I'd push back on the scope cut, but I'll defer to the team.",
+          "anchor_user_said": "I defer to the team",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-031",
+    "transcript": "We should table this until next week.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "table this until next week",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's table this until next week."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "table this until next week",
+          "better": "Let's table this until next week."
+        },
+        {
+          "user": "We should table this until next week.",
+          "better": "We should table this until next week."
+        },
+        {
+          "user": "table",
+          "better": "table"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "推迟讨论",
+          "expression_en": "Let's table this until next week.",
+          "anchor_user_said": "table this until next week",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-032",
+    "transcript": "We should defer the discussion until Friday.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "defer the discussion",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's table this until Friday."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "defer the discussion",
+          "better": "Let's table this until Friday."
+        },
+        {
+          "user": "We should defer the discussion until Friday.",
+          "better": "We should defer the discussion until Friday."
+        },
+        {
+          "user": "defer",
+          "better": "defer"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "推迟讨论",
+          "expression_en": "Let's table this until Friday.",
+          "anchor_user_said": "defer the discussion",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-033",
+    "transcript": "I disagree with the rollout plan. The risk is too high.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I disagree with the rollout plan",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the rollout plan — the risk feels too high."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I disagree with the rollout plan",
+          "better": "I'd push back on the rollout plan — the risk feels too high."
+        },
+        {
+          "user": "I disagree with the rollout plan.",
+          "better": "I disagree with the rollout plan."
+        },
+        {
+          "user": "The risk is too high.",
+          "better": "The risk is too high."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达异议",
+          "expression_en": "I'd push back on the rollout plan — the risk feels too high.",
+          "anchor_user_said": "I disagree with the rollout plan",
+          "scene_tag": "review",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-034",
+    "transcript": "Sounds good. I am agree with the timeline.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the timeline",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Sounds good — I'm aligned with the timeline."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the timeline",
+          "better": "Sounds good — I'm aligned with the timeline."
+        },
+        {
+          "user": "Sounds good.",
+          "better": "Sounds good."
+        },
+        {
+          "user": "I am agree with the timeline.",
+          "better": "I'm aligned with the timeline."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "Sounds good — I'm aligned with the timeline.",
+          "anchor_user_said": "I am agree with the timeline",
+          "scene_tag": "review",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-035",
+    "transcript": "Can you walk me through the rationale behind the migration?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "walk me through the rationale",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through the rationale behind the migration?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "walk me through the rationale",
+          "better": "Could you walk me through the rationale behind the migration?"
+        },
+        {
+          "user": "Can you walk me through the rationale behind the migration?",
+          "better": "Can you walk me through the rationale behind the migration?"
+        },
+        {
+          "user": "walk",
+          "better": "walk"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求解释",
+          "expression_en": "Could you walk me through the rationale behind the migration?",
+          "anchor_user_said": "walk me through the rationale",
+          "scene_tag": "review",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-036",
+    "transcript": "To summarize, we agreed to ship the feature next sprint. The team is aligned.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "The team is aligned",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: we're aligned on shipping next sprint."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "The team is aligned",
+          "better": "To summarize: we're aligned on shipping next sprint."
+        },
+        {
+          "user": "To summarize, we agreed to ship the feature next sprint.",
+          "better": "To summarize, we agreed to ship the feature next sprint."
+        },
+        {
+          "user": "The team is aligned.",
+          "better": "The team is aligned."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: we're aligned on shipping next sprint.",
+          "anchor_user_said": "The team is aligned",
+          "scene_tag": "review",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-037",
+    "transcript": "I propose we split this into two phases: prep and cutover.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "split this into two phases",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose splitting this into two phases — prep and cutover."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "split this into two phases",
+          "better": "I'd propose splitting this into two phases — prep and cutover."
+        },
+        {
+          "user": "I propose we split this into two phases: prep and cutover.",
+          "better": "I propose we split this into two phases: prep and cutover."
+        },
+        {
+          "user": "split",
+          "better": "split"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose splitting this into two phases — prep and cutover.",
+          "anchor_user_said": "split this into two phases",
+          "scene_tag": "review",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-038",
+    "transcript": "Can you clarify the rollout risk before we commit?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "clarify the rollout risk",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through the rollout risk?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "clarify the rollout risk",
+          "better": "Could you walk me through the rollout risk?"
+        },
+        {
+          "user": "Can you clarify the rollout risk before we commit?",
+          "better": "Can you clarify the rollout risk before we commit?"
+        },
+        {
+          "user": "clarify",
+          "better": "clarify"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求澄清",
+          "expression_en": "Could you walk me through the rollout risk?",
+          "anchor_user_said": "clarify the rollout risk",
+          "scene_tag": "review",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-039",
+    "transcript": "I will own the migration ticket end-to-end.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I will own the migration ticket",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll take ownership of the migration ticket end-to-end."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I will own the migration ticket",
+          "better": "I'll take ownership of the migration ticket end-to-end."
+        },
+        {
+          "user": "I will own the migration ticket end-to-end.",
+          "better": "I will own the migration ticket end-to-end."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I'll take ownership of the migration ticket end-to-end.",
+          "anchor_user_said": "I will own the migration ticket",
+          "scene_tag": "review",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-040",
+    "transcript": "I disagree with cutting scope, but I defer to the team.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I defer to the team",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the scope cut, but I'll defer to the team."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I defer to the team",
+          "better": "I'd push back on the scope cut, but I'll defer to the team."
+        },
+        {
+          "user": "I disagree with cutting scope, but I defer to the team.",
+          "better": "I disagree with cutting scope, but I defer to the team."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "保留意见",
+          "expression_en": "I'd push back on the scope cut, but I'll defer to the team.",
+          "anchor_user_said": "I defer to the team",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-041",
+    "transcript": "We should table this until next week.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "table this until next week",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's table this until next week."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "table this until next week",
+          "better": "Let's table this until next week."
+        },
+        {
+          "user": "We should table this until next week.",
+          "better": "We should table this until next week."
+        },
+        {
+          "user": "table",
+          "better": "table"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "推迟讨论",
+          "expression_en": "Let's table this until next week.",
+          "anchor_user_said": "table this until next week",
+          "scene_tag": "review",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-042",
+    "transcript": "I would like to take on more responsibility this quarter.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "take on more responsibility",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd like to take on more responsibility this quarter."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "take on more responsibility",
+          "better": "I'd like to take on more responsibility this quarter."
+        },
+        {
+          "user": "I would like to take on more responsibility this quarter.",
+          "better": "I would like to take on more responsibility this quarter."
+        },
+        {
+          "user": "take",
+          "better": "take"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达诉求",
+          "expression_en": "I'd like to take on more responsibility this quarter.",
+          "anchor_user_said": "take on more responsibility",
+          "scene_tag": "1on1",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-043",
+    "transcript": "I am happy with my current scope. The team respects my work and I deliver on time.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am happy with my current scope",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm happy with my current scope."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am happy with my current scope",
+          "better": "I'm happy with my current scope."
+        },
+        {
+          "user": "I am happy with my current scope.",
+          "better": "I am happy with my current scope."
+        },
+        {
+          "user": "The team respects my work and I deliver on time.",
+          "better": "The team respects my work and I deliver on time."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达满意",
+          "expression_en": "I'm happy with my current scope.",
+          "anchor_user_said": "I am happy with my current scope",
+          "scene_tag": "1on1",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-044",
+    "transcript": "Could we revisit my career path? I want to discuss growth.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "revisit my career path",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could we revisit my career path? I'd like to talk about growth."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "revisit my career path",
+          "better": "Could we revisit my career path? I'd like to talk about growth."
+        },
+        {
+          "user": "Could we revisit my career path?",
+          "better": "Could we revisit my career path?"
+        },
+        {
+          "user": "I want to discuss growth.",
+          "better": "I want to discuss growth."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求讨论",
+          "expression_en": "Could we revisit my career path? I'd like to talk about growth.",
+          "anchor_user_said": "revisit my career path",
+          "scene_tag": "1on1",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-045",
+    "transcript": "I propose we add a mentorship loop to the team.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "add a mentorship loop",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose adding a mentorship loop to the team."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "add a mentorship loop",
+          "better": "I'd propose adding a mentorship loop to the team."
+        },
+        {
+          "user": "I propose we add a mentorship loop to the team.",
+          "better": "I propose we add a mentorship loop to the team."
+        },
+        {
+          "user": "add",
+          "better": "add"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose adding a mentorship loop to the team.",
+          "anchor_user_said": "add a mentorship loop",
+          "scene_tag": "1on1",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-046",
+    "transcript": "Last cycle I shipped three features and mentored a new hire.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "shipped three features",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Last cycle I shipped three features and mentored a new hire."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "shipped three features",
+          "better": "Last cycle I shipped three features and mentored a new hire."
+        },
+        {
+          "user": "shipped",
+          "better": "shipped"
+        },
+        {
+          "user": "three",
+          "better": "three"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "汇报进展",
+          "expression_en": "Last cycle I shipped three features and mentored a new hire.",
+          "anchor_user_said": "shipped three features",
+          "scene_tag": "1on1",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-047",
+    "transcript": "How can I get more visibility into leadership decisions?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "more visibility into leadership decisions",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How can I get more visibility into leadership decisions?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "more visibility into leadership decisions",
+          "better": "How can I get more visibility into leadership decisions?"
+        },
+        {
+          "user": "more",
+          "better": "more"
+        },
+        {
+          "user": "visibility",
+          "better": "visibility"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求指导",
+          "expression_en": "How can I get more visibility into leadership decisions?",
+          "anchor_user_said": "more visibility into leadership decisions",
+          "scene_tag": "1on1",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-048",
+    "transcript": "I commit to owning the onboarding revamp this quarter.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "owning the onboarding revamp",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll take ownership of the onboarding revamp this quarter."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "owning the onboarding revamp",
+          "better": "I'll take ownership of the onboarding revamp this quarter."
+        },
+        {
+          "user": "I commit to owning the onboarding revamp this quarter.",
+          "better": "I commit to owning the onboarding revamp this quarter."
+        },
+        {
+          "user": "owning",
+          "better": "owning"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I'll take ownership of the onboarding revamp this quarter.",
+          "anchor_user_said": "owning the onboarding revamp",
+          "scene_tag": "1on1",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-049",
+    "transcript": "Sounds good. I am agree with the new responsibilities.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the new responsibilities",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Sounds good — I'm aligned with the new responsibilities."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the new responsibilities",
+          "better": "Sounds good — I'm aligned with the new responsibilities."
+        },
+        {
+          "user": "Sounds good.",
+          "better": "Sounds good."
+        },
+        {
+          "user": "I am agree with the new responsibilities.",
+          "better": "I'm aligned with the new responsibilities."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "Sounds good — I'm aligned with the new responsibilities.",
+          "anchor_user_said": "I am agree with the new responsibilities",
+          "scene_tag": "1on1",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-050",
+    "transcript": "To summarize, I'm aligned on growth and ownership.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I'm aligned on growth and ownership",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: we're aligned on growth and ownership."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I'm aligned on growth and ownership",
+          "better": "To summarize: we're aligned on growth and ownership."
+        },
+        {
+          "user": "To summarize, I'm aligned on growth and ownership.",
+          "better": "To summarize, I'm aligned on growth and ownership."
+        },
+        {
+          "user": "I'm",
+          "better": "I'm"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: we're aligned on growth and ownership.",
+          "anchor_user_said": "I'm aligned on growth and ownership",
+          "scene_tag": "1on1",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-051",
+    "transcript": "I disagree with the promotion timeline, but I trust the process.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I trust the process",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the promotion timeline, but I trust the process."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I trust the process",
+          "better": "I'd push back on the promotion timeline, but I trust the process."
+        },
+        {
+          "user": "I disagree with the promotion timeline, but I trust the process.",
+          "better": "I disagree with the promotion timeline, but I trust the process."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "保留意见",
+          "expression_en": "I'd push back on the promotion timeline, but I trust the process.",
+          "anchor_user_said": "I trust the process",
+          "scene_tag": "1on1",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-052",
+    "transcript": "I would like to take on more responsibility this quarter.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "take on more responsibility",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd like to take on more responsibility this quarter."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "take on more responsibility",
+          "better": "I'd like to take on more responsibility this quarter."
+        },
+        {
+          "user": "I would like to take on more responsibility this quarter.",
+          "better": "I would like to take on more responsibility this quarter."
+        },
+        {
+          "user": "take",
+          "better": "take"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达诉求",
+          "expression_en": "I'd like to take on more responsibility this quarter.",
+          "anchor_user_said": "take on more responsibility",
+          "scene_tag": "1on1",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-053",
+    "transcript": "I am happy with my current scope. The team respects my work and I deliver on time.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am happy with my current scope",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm happy with my current scope."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am happy with my current scope",
+          "better": "I'm happy with my current scope."
+        },
+        {
+          "user": "I am happy with my current scope.",
+          "better": "I am happy with my current scope."
+        },
+        {
+          "user": "The team respects my work and I deliver on time.",
+          "better": "The team respects my work and I deliver on time."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达满意",
+          "expression_en": "I'm happy with my current scope.",
+          "anchor_user_said": "I am happy with my current scope",
+          "scene_tag": "1on1",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-054",
+    "transcript": "Could we revisit my career path? I want to discuss growth.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "revisit my career path",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could we revisit my career path? I'd like to talk about growth."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "revisit my career path",
+          "better": "Could we revisit my career path? I'd like to talk about growth."
+        },
+        {
+          "user": "Could we revisit my career path?",
+          "better": "Could we revisit my career path?"
+        },
+        {
+          "user": "I want to discuss growth.",
+          "better": "I want to discuss growth."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求讨论",
+          "expression_en": "Could we revisit my career path? I'd like to talk about growth.",
+          "anchor_user_said": "revisit my career path",
+          "scene_tag": "1on1",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-055",
+    "transcript": "I propose we add a mentorship loop to the team.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "add a mentorship loop",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose adding a mentorship loop to the team."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "add a mentorship loop",
+          "better": "I'd propose adding a mentorship loop to the team."
+        },
+        {
+          "user": "I propose we add a mentorship loop to the team.",
+          "better": "I propose we add a mentorship loop to the team."
+        },
+        {
+          "user": "add",
+          "better": "add"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose adding a mentorship loop to the team.",
+          "anchor_user_said": "add a mentorship loop",
+          "scene_tag": "1on1",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-056",
+    "transcript": "Last cycle I shipped three features and mentored a new hire.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "shipped three features",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Last cycle I shipped three features and mentored a new hire."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "shipped three features",
+          "better": "Last cycle I shipped three features and mentored a new hire."
+        },
+        {
+          "user": "shipped",
+          "better": "shipped"
+        },
+        {
+          "user": "three",
+          "better": "three"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "汇报进展",
+          "expression_en": "Last cycle I shipped three features and mentored a new hire.",
+          "anchor_user_said": "shipped three features",
+          "scene_tag": "1on1",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-057",
+    "transcript": "How can I get more visibility into leadership decisions?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "more visibility into leadership decisions",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How can I get more visibility into leadership decisions?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "more visibility into leadership decisions",
+          "better": "How can I get more visibility into leadership decisions?"
+        },
+        {
+          "user": "more",
+          "better": "more"
+        },
+        {
+          "user": "visibility",
+          "better": "visibility"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求指导",
+          "expression_en": "How can I get more visibility into leadership decisions?",
+          "anchor_user_said": "more visibility into leadership decisions",
+          "scene_tag": "1on1",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-058",
+    "transcript": "I commit to owning the onboarding revamp this quarter.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "owning the onboarding revamp",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'll take ownership of the onboarding revamp this quarter."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "owning the onboarding revamp",
+          "better": "I'll take ownership of the onboarding revamp this quarter."
+        },
+        {
+          "user": "I commit to owning the onboarding revamp this quarter.",
+          "better": "I commit to owning the onboarding revamp this quarter."
+        },
+        {
+          "user": "owning",
+          "better": "owning"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I'll take ownership of the onboarding revamp this quarter.",
+          "anchor_user_said": "owning the onboarding revamp",
+          "scene_tag": "1on1",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-059",
+    "transcript": "Sounds good. I am agree with the new responsibilities.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the new responsibilities",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Sounds good — I'm aligned with the new responsibilities."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the new responsibilities",
+          "better": "Sounds good — I'm aligned with the new responsibilities."
+        },
+        {
+          "user": "Sounds good.",
+          "better": "Sounds good."
+        },
+        {
+          "user": "I am agree with the new responsibilities.",
+          "better": "I'm aligned with the new responsibilities."
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "Sounds good — I'm aligned with the new responsibilities.",
+          "anchor_user_said": "I am agree with the new responsibilities",
+          "scene_tag": "1on1",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-060",
+    "transcript": "To summarize, I'm aligned on growth and ownership.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I'm aligned on growth and ownership",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: we're aligned on growth and ownership."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I'm aligned on growth and ownership",
+          "better": "To summarize: we're aligned on growth and ownership."
+        },
+        {
+          "user": "To summarize, I'm aligned on growth and ownership.",
+          "better": "To summarize, I'm aligned on growth and ownership."
+        },
+        {
+          "user": "I'm",
+          "better": "I'm"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: we're aligned on growth and ownership.",
+          "anchor_user_said": "I'm aligned on growth and ownership",
+          "scene_tag": "1on1",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-061",
+    "transcript": "I disagree with the promotion timeline, but I trust the process.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I trust the process",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on the promotion timeline, but I trust the process."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I trust the process",
+          "better": "I'd push back on the promotion timeline, but I trust the process."
+        },
+        {
+          "user": "I disagree with the promotion timeline, but I trust the process.",
+          "better": "I disagree with the promotion timeline, but I trust the process."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "保留意见",
+          "expression_en": "I'd push back on the promotion timeline, but I trust the process.",
+          "anchor_user_said": "I trust the process",
+          "scene_tag": "1on1",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-062",
+    "transcript": "Can you describe your experience with distributed systems?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "experience with distributed systems",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through your experience with distributed systems?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "experience with distributed systems",
+          "better": "Could you walk me through your experience with distributed systems?"
+        },
+        {
+          "user": "Can you describe your experience with distributed systems?",
+          "better": "Can you describe your experience with distributed systems?"
+        },
+        {
+          "user": "experience",
+          "better": "experience"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提问",
+          "expression_en": "Could you walk me through your experience with distributed systems?",
+          "anchor_user_said": "experience with distributed systems",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-063",
+    "transcript": "I led the migration of our monolith to a service mesh.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "migration of our monolith to a service mesh",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I led the migration of our monolith to a service mesh."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "migration of our monolith to a service mesh",
+          "better": "I led the migration of our monolith to a service mesh."
+        },
+        {
+          "user": "migration",
+          "better": "migration"
+        },
+        {
+          "user": "of",
+          "better": "of"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "回答经验",
+          "expression_en": "I led the migration of our monolith to a service mesh.",
+          "anchor_user_said": "migration of our monolith to a service mesh",
+          "scene_tag": "interview",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-064",
+    "transcript": "How do you debug a memory leak in production?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "debug a memory leak",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How would you debug a memory leak in production?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "debug a memory leak",
+          "better": "How would you debug a memory leak in production?"
+        },
+        {
+          "user": "How do you debug a memory leak in production?",
+          "better": "How do you debug a memory leak in production?"
+        },
+        {
+          "user": "debug",
+          "better": "debug"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术提问",
+          "expression_en": "How would you debug a memory leak in production?",
+          "anchor_user_said": "debug a memory leak",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-065",
+    "transcript": "I propose we use pprof first, then bisect recent deploys.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "use pprof first",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose starting with pprof, then bisecting recent deploys."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "use pprof first",
+          "better": "I'd propose starting with pprof, then bisecting recent deploys."
+        },
+        {
+          "user": "I propose we use pprof first, then bisect recent deploys.",
+          "better": "I propose we use pprof first, then bisect recent deploys."
+        },
+        {
+          "user": "use",
+          "better": "use"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose starting with pprof, then bisecting recent deploys.",
+          "anchor_user_said": "use pprof first",
+          "scene_tag": "interview",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-066",
+    "transcript": "Can you clarify what success looks like for this role?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "what success looks like for this role",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you clarify what success looks like for this role?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "what success looks like for this role",
+          "better": "Could you clarify what success looks like for this role?"
+        },
+        {
+          "user": "Can you clarify what success looks like for this role?",
+          "better": "Can you clarify what success looks like for this role?"
+        },
+        {
+          "user": "what",
+          "better": "what"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求澄清",
+          "expression_en": "Could you clarify what success looks like for this role?",
+          "anchor_user_said": "what success looks like for this role",
+          "scene_tag": "interview",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-067",
+    "transcript": "I am agree with the expectations you outlined.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the expectations",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm aligned with the expectations you outlined."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the expectations",
+          "better": "I'm aligned with the expectations you outlined."
+        },
+        {
+          "user": "I am agree with the expectations you outlined.",
+          "better": "I'm aligned with the expectations you outlined."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm aligned with the expectations you outlined.",
+          "anchor_user_said": "I am agree with the expectations",
+          "scene_tag": "interview",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-068",
+    "transcript": "I disagree with using a single primary for the catalog service.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "single primary for the catalog service",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on a single primary for the catalog service."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "single primary for the catalog service",
+          "better": "I'd push back on a single primary for the catalog service."
+        },
+        {
+          "user": "I disagree with using a single primary for the catalog service.",
+          "better": "I disagree with using a single primary for the catalog service."
+        },
+        {
+          "user": "single",
+          "better": "single"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术异议",
+          "expression_en": "I'd push back on a single primary for the catalog service.",
+          "anchor_user_said": "single primary for the catalog service",
+          "scene_tag": "interview",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-069",
+    "transcript": "How would you handle on-call for this role?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "on-call for this role",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How would you approach on-call for this role?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "on-call for this role",
+          "better": "How would you approach on-call for this role?"
+        },
+        {
+          "user": "How would you handle on-call for this role?",
+          "better": "How would you handle on-call for this role?"
+        },
+        {
+          "user": "on-call",
+          "better": "on-call"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术提问",
+          "expression_en": "How would you approach on-call for this role?",
+          "anchor_user_said": "on-call for this role",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-070",
+    "transcript": "I commit to writing runbooks for any service I own.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "writing runbooks for any service",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I commit to writing runbooks for any service I own."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "writing runbooks for any service",
+          "better": "I commit to writing runbooks for any service I own."
+        },
+        {
+          "user": "writing",
+          "better": "writing"
+        },
+        {
+          "user": "runbooks",
+          "better": "runbooks"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I commit to writing runbooks for any service I own.",
+          "anchor_user_said": "writing runbooks for any service",
+          "scene_tag": "interview",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-071",
+    "transcript": "To summarize, I'd prioritise observability before scaling out.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "observability before scaling out",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: I'd prioritise observability before scaling out."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "observability before scaling out",
+          "better": "To summarize: I'd prioritise observability before scaling out."
+        },
+        {
+          "user": "To summarize, I'd prioritise observability before scaling out.",
+          "better": "To summarize, I'd prioritise observability before scaling out."
+        },
+        {
+          "user": "observability",
+          "better": "observability"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: I'd prioritise observability before scaling out.",
+          "anchor_user_said": "observability before scaling out",
+          "scene_tag": "interview",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-072",
+    "transcript": "Can you describe your experience with distributed systems?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "experience with distributed systems",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you walk me through your experience with distributed systems?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "experience with distributed systems",
+          "better": "Could you walk me through your experience with distributed systems?"
+        },
+        {
+          "user": "Can you describe your experience with distributed systems?",
+          "better": "Can you describe your experience with distributed systems?"
+        },
+        {
+          "user": "experience",
+          "better": "experience"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提问",
+          "expression_en": "Could you walk me through your experience with distributed systems?",
+          "anchor_user_said": "experience with distributed systems",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-073",
+    "transcript": "I led the migration of our monolith to a service mesh.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "migration of our monolith to a service mesh",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I led the migration of our monolith to a service mesh."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "migration of our monolith to a service mesh",
+          "better": "I led the migration of our monolith to a service mesh."
+        },
+        {
+          "user": "migration",
+          "better": "migration"
+        },
+        {
+          "user": "of",
+          "better": "of"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "回答经验",
+          "expression_en": "I led the migration of our monolith to a service mesh.",
+          "anchor_user_said": "migration of our monolith to a service mesh",
+          "scene_tag": "interview",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-074",
+    "transcript": "How do you debug a memory leak in production?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "debug a memory leak",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How would you debug a memory leak in production?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "debug a memory leak",
+          "better": "How would you debug a memory leak in production?"
+        },
+        {
+          "user": "How do you debug a memory leak in production?",
+          "better": "How do you debug a memory leak in production?"
+        },
+        {
+          "user": "debug",
+          "better": "debug"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术提问",
+          "expression_en": "How would you debug a memory leak in production?",
+          "anchor_user_said": "debug a memory leak",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-075",
+    "transcript": "I propose we use pprof first, then bisect recent deploys.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "use pprof first",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose starting with pprof, then bisecting recent deploys."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "use pprof first",
+          "better": "I'd propose starting with pprof, then bisecting recent deploys."
+        },
+        {
+          "user": "I propose we use pprof first, then bisect recent deploys.",
+          "better": "I propose we use pprof first, then bisect recent deploys."
+        },
+        {
+          "user": "use",
+          "better": "use"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose starting with pprof, then bisecting recent deploys.",
+          "anchor_user_said": "use pprof first",
+          "scene_tag": "interview",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-076",
+    "transcript": "Can you clarify what success looks like for this role?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "what success looks like for this role",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Could you clarify what success looks like for this role?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "what success looks like for this role",
+          "better": "Could you clarify what success looks like for this role?"
+        },
+        {
+          "user": "Can you clarify what success looks like for this role?",
+          "better": "Can you clarify what success looks like for this role?"
+        },
+        {
+          "user": "what",
+          "better": "what"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "请求澄清",
+          "expression_en": "Could you clarify what success looks like for this role?",
+          "anchor_user_said": "what success looks like for this role",
+          "scene_tag": "interview",
+          "function_tag": "clarify"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-077",
+    "transcript": "I am agree with the expectations you outlined.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree with the expectations",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm aligned with the expectations you outlined."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree with the expectations",
+          "better": "I'm aligned with the expectations you outlined."
+        },
+        {
+          "user": "I am agree with the expectations you outlined.",
+          "better": "I'm aligned with the expectations you outlined."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm aligned with the expectations you outlined.",
+          "anchor_user_said": "I am agree with the expectations",
+          "scene_tag": "interview",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-078",
+    "transcript": "I disagree with using a single primary for the catalog service.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "single primary for the catalog service",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back on a single primary for the catalog service."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "single primary for the catalog service",
+          "better": "I'd push back on a single primary for the catalog service."
+        },
+        {
+          "user": "I disagree with using a single primary for the catalog service.",
+          "better": "I disagree with using a single primary for the catalog service."
+        },
+        {
+          "user": "single",
+          "better": "single"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术异议",
+          "expression_en": "I'd push back on a single primary for the catalog service.",
+          "anchor_user_said": "single primary for the catalog service",
+          "scene_tag": "interview",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-079",
+    "transcript": "How would you handle on-call for this role?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "on-call for this role",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How would you approach on-call for this role?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "on-call for this role",
+          "better": "How would you approach on-call for this role?"
+        },
+        {
+          "user": "How would you handle on-call for this role?",
+          "better": "How would you handle on-call for this role?"
+        },
+        {
+          "user": "on-call",
+          "better": "on-call"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "技术提问",
+          "expression_en": "How would you approach on-call for this role?",
+          "anchor_user_said": "on-call for this role",
+          "scene_tag": "interview",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-080",
+    "transcript": "I commit to writing runbooks for any service I own.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "writing runbooks for any service",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I commit to writing runbooks for any service I own."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "writing runbooks for any service",
+          "better": "I commit to writing runbooks for any service I own."
+        },
+        {
+          "user": "writing",
+          "better": "writing"
+        },
+        {
+          "user": "runbooks",
+          "better": "runbooks"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "承诺负责",
+          "expression_en": "I commit to writing runbooks for any service I own.",
+          "anchor_user_said": "writing runbooks for any service",
+          "scene_tag": "interview",
+          "function_tag": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-081",
+    "transcript": "To summarize, I'd prioritise observability before scaling out.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "observability before scaling out",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: I'd prioritise observability before scaling out."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "observability before scaling out",
+          "better": "To summarize: I'd prioritise observability before scaling out."
+        },
+        {
+          "user": "To summarize, I'd prioritise observability before scaling out.",
+          "better": "To summarize, I'd prioritise observability before scaling out."
+        },
+        {
+          "user": "observability",
+          "better": "observability"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: I'd prioritise observability before scaling out.",
+          "anchor_user_said": "observability before scaling out",
+          "scene_tag": "interview",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-082",
+    "transcript": "How was your weekend? I went hiking and it was amazing.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "How was your weekend?",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How was your weekend?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "How was your weekend?",
+          "better": "How was your weekend?"
+        },
+        {
+          "user": "I went hiking and it was amazing.",
+          "better": "I went hiking and it was amazing."
+        },
+        {
+          "user": "How",
+          "better": "How"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "寒暄",
+          "expression_en": "How was your weekend?",
+          "anchor_user_said": "How was your weekend?",
+          "scene_tag": "casual",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-083",
+    "transcript": "I am agree — the trail was beautiful.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm with you — the trail was beautiful."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree",
+          "better": "I'm with you — the trail was beautiful."
+        },
+        {
+          "user": "I am agree — the trail was beautiful.",
+          "better": "I'm aligned — the trail was beautiful."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm with you — the trail was beautiful.",
+          "anchor_user_said": "I am agree",
+          "scene_tag": "casual",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-084",
+    "transcript": "Let's grab coffee tomorrow morning.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "grab coffee tomorrow morning",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's grab coffee tomorrow morning."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "grab coffee tomorrow morning",
+          "better": "Let's grab coffee tomorrow morning."
+        },
+        {
+          "user": "grab",
+          "better": "grab"
+        },
+        {
+          "user": "coffee",
+          "better": "coffee"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议聚会",
+          "expression_en": "Let's grab coffee tomorrow morning.",
+          "anchor_user_said": "grab coffee tomorrow morning",
+          "scene_tag": "casual",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-085",
+    "transcript": "I disagree — the new cafe is too noisy.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I disagree — the new cafe is too noisy",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back — the new cafe is too noisy."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I disagree — the new cafe is too noisy",
+          "better": "I'd push back — the new cafe is too noisy."
+        },
+        {
+          "user": "I disagree — the new cafe is too noisy.",
+          "better": "I disagree — the new cafe is too noisy."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达异议",
+          "expression_en": "I'd push back — the new cafe is too noisy.",
+          "anchor_user_said": "I disagree — the new cafe is too noisy",
+          "scene_tag": "casual",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-086",
+    "transcript": "What do you think about the new office?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "What do you think about the new office",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: What do you think about the new office?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "What do you think about the new office",
+          "better": "What do you think about the new office?"
+        },
+        {
+          "user": "What",
+          "better": "What"
+        },
+        {
+          "user": "do",
+          "better": "do"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提问",
+          "expression_en": "What do you think about the new office?",
+          "anchor_user_said": "What do you think about the new office",
+          "scene_tag": "casual",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-087",
+    "transcript": "I went hiking and it was amazing.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I went hiking and it was amazing",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I went hiking and it was amazing."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I went hiking and it was amazing",
+          "better": "I went hiking and it was amazing."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        },
+        {
+          "user": "went",
+          "better": "went"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "分享经历",
+          "expression_en": "I went hiking and it was amazing.",
+          "anchor_user_said": "I went hiking and it was amazing",
+          "scene_tag": "casual",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-088",
+    "transcript": "Can we take this offline? I want to talk about the new project idea.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "Can we take this offline",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Can we take this offline?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "Can we take this offline",
+          "better": "Can we take this offline?"
+        },
+        {
+          "user": "I want to talk about the new project idea.",
+          "better": "I want to talk about the new project idea."
+        },
+        {
+          "user": "Can",
+          "better": "Can"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议离线",
+          "expression_en": "Can we take this offline?",
+          "anchor_user_said": "Can we take this offline",
+          "scene_tag": "casual",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-089",
+    "transcript": "I propose we try the ramen place tonight.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "try the ramen place tonight",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose we try the ramen place tonight."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "try the ramen place tonight",
+          "better": "I'd propose we try the ramen place tonight."
+        },
+        {
+          "user": "I propose we try the ramen place tonight.",
+          "better": "I propose we try the ramen place tonight."
+        },
+        {
+          "user": "try",
+          "better": "try"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose we try the ramen place tonight.",
+          "anchor_user_said": "try the ramen place tonight",
+          "scene_tag": "casual",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-090",
+    "transcript": "I'm agree with skipping the gym today.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I'm agree with skipping the gym",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm aligned with skipping the gym today."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I'm agree with skipping the gym",
+          "better": "I'm aligned with skipping the gym today."
+        },
+        {
+          "user": "I'm agree with skipping the gym today.",
+          "better": "I'm aligned with skipping the gym today."
+        },
+        {
+          "user": "I'm",
+          "better": "I'm"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm aligned with skipping the gym today.",
+          "anchor_user_said": "I'm agree with skipping the gym",
+          "scene_tag": "casual",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-091",
+    "transcript": "To summarize, the trail was great but my knees are sore.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "the trail was great but my knees are sore",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: the trail was great but my knees are sore."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "the trail was great but my knees are sore",
+          "better": "To summarize: the trail was great but my knees are sore."
+        },
+        {
+          "user": "To summarize, the trail was great but my knees are sore.",
+          "better": "To summarize, the trail was great but my knees are sore."
+        },
+        {
+          "user": "the",
+          "better": "the"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: the trail was great but my knees are sore.",
+          "anchor_user_said": "the trail was great but my knees are sore",
+          "scene_tag": "casual",
+          "function_tag": "summarize"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-092",
+    "transcript": "How was your weekend? I went hiking and it was amazing.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "How was your weekend?",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: How was your weekend?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "How was your weekend?",
+          "better": "How was your weekend?"
+        },
+        {
+          "user": "I went hiking and it was amazing.",
+          "better": "I went hiking and it was amazing."
+        },
+        {
+          "user": "How",
+          "better": "How"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "寒暄",
+          "expression_en": "How was your weekend?",
+          "anchor_user_said": "How was your weekend?",
+          "scene_tag": "casual",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-093",
+    "transcript": "I am agree — the trail was beautiful.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I am agree",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm with you — the trail was beautiful."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I am agree",
+          "better": "I'm with you — the trail was beautiful."
+        },
+        {
+          "user": "I am agree — the trail was beautiful.",
+          "better": "I'm aligned — the trail was beautiful."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm with you — the trail was beautiful.",
+          "anchor_user_said": "I am agree",
+          "scene_tag": "casual",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-094",
+    "transcript": "Let's grab coffee tomorrow morning.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "grab coffee tomorrow morning",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Let's grab coffee tomorrow morning."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "grab coffee tomorrow morning",
+          "better": "Let's grab coffee tomorrow morning."
+        },
+        {
+          "user": "grab",
+          "better": "grab"
+        },
+        {
+          "user": "coffee",
+          "better": "coffee"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议聚会",
+          "expression_en": "Let's grab coffee tomorrow morning.",
+          "anchor_user_said": "grab coffee tomorrow morning",
+          "scene_tag": "casual",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-095",
+    "transcript": "I disagree — the new cafe is too noisy.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I disagree — the new cafe is too noisy",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd push back — the new cafe is too noisy."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I disagree — the new cafe is too noisy",
+          "better": "I'd push back — the new cafe is too noisy."
+        },
+        {
+          "user": "I disagree — the new cafe is too noisy.",
+          "better": "I disagree — the new cafe is too noisy."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达异议",
+          "expression_en": "I'd push back — the new cafe is too noisy.",
+          "anchor_user_said": "I disagree — the new cafe is too noisy",
+          "scene_tag": "casual",
+          "function_tag": "disagree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-096",
+    "transcript": "What do you think about the new office?",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "What do you think about the new office",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: What do you think about the new office?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "What do you think about the new office",
+          "better": "What do you think about the new office?"
+        },
+        {
+          "user": "What",
+          "better": "What"
+        },
+        {
+          "user": "do",
+          "better": "do"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提问",
+          "expression_en": "What do you think about the new office?",
+          "anchor_user_said": "What do you think about the new office",
+          "scene_tag": "casual",
+          "function_tag": "ask"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-097",
+    "transcript": "I went hiking and it was amazing.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I went hiking and it was amazing",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I went hiking and it was amazing."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I went hiking and it was amazing",
+          "better": "I went hiking and it was amazing."
+        },
+        {
+          "user": "I",
+          "better": "I"
+        },
+        {
+          "user": "went",
+          "better": "went"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "分享经历",
+          "expression_en": "I went hiking and it was amazing.",
+          "anchor_user_said": "I went hiking and it was amazing",
+          "scene_tag": "casual",
+          "function_tag": "report"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-098",
+    "transcript": "Can we take this offline? I want to talk about the new project idea.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "Can we take this offline",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: Can we take this offline?"
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "Can we take this offline",
+          "better": "Can we take this offline?"
+        },
+        {
+          "user": "I want to talk about the new project idea.",
+          "better": "I want to talk about the new project idea."
+        },
+        {
+          "user": "Can",
+          "better": "Can"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议离线",
+          "expression_en": "Can we take this offline?",
+          "anchor_user_said": "Can we take this offline",
+          "scene_tag": "casual",
+          "function_tag": "defer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-099",
+    "transcript": "I propose we try the ramen place tonight.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "try the ramen place tonight",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'd propose we try the ramen place tonight."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "try the ramen place tonight",
+          "better": "I'd propose we try the ramen place tonight."
+        },
+        {
+          "user": "I propose we try the ramen place tonight.",
+          "better": "I propose we try the ramen place tonight."
+        },
+        {
+          "user": "try",
+          "better": "try"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "提议方案",
+          "expression_en": "I'd propose we try the ramen place tonight.",
+          "anchor_user_said": "try the ramen place tonight",
+          "scene_tag": "casual",
+          "function_tag": "propose"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-100",
+    "transcript": "I'm agree with skipping the gym today.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "I'm agree with skipping the gym",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: I'm aligned with skipping the gym today."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "I'm agree with skipping the gym",
+          "better": "I'm aligned with skipping the gym today."
+        },
+        {
+          "user": "I'm agree with skipping the gym today.",
+          "better": "I'm aligned with skipping the gym today."
+        },
+        {
+          "user": "I'm",
+          "better": "I'm"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "表达同意",
+          "expression_en": "I'm aligned with skipping the gym today.",
+          "anchor_user_said": "I'm agree with skipping the gym",
+          "scene_tag": "casual",
+          "function_tag": "agree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "syn-w2-v1-101",
+    "transcript": "To summarize, the trail was great but my knees are sore.",
+    "review": {
+      "goal_achievement": {
+        "met": true,
+        "note": "Clear intent, minor polish needed."
+      },
+      "issues": [
+        {
+          "type": "grammar",
+          "original_quote": "the trail was great but my knees are sore",
+          "hint": "Prefer idiomatic form."
+        }
+      ],
+      "suggestions": [
+        {
+          "text": "Rephrase: To summarize: the trail was great but my knees are sore."
+        }
+      ],
+      "comparisons": [
+        {
+          "user": "the trail was great but my knees are sore",
+          "better": "To summarize: the trail was great but my knees are sore."
+        },
+        {
+          "user": "To summarize, the trail was great but my knees are sore.",
+          "better": "To summarize, the trail was great but my knees are sore."
+        },
+        {
+          "user": "the",
+          "better": "the"
+        }
+      ]
+    },
+    "refine": {
+      "blocks": [
+        {
+          "intent_zh": "总结",
+          "expression_en": "To summarize: the trail was great but my knees are sore.",
+          "anchor_user_said": "the trail was great but my knees are sore",
+          "scene_tag": "casual",
+          "function_tag": "summarize"
         }
       ]
     }
