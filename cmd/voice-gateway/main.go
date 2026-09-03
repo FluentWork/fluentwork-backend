@@ -56,12 +56,12 @@ func run() error {
 			IdleTimeout:        cfg.IdleTimeout,
 		},
 	)
-	// Dev-only B12 wiring: when the dev-echo provider is active, drive the
-	// same BadgeEmitter path the B12 handler integration tests exercise.
-	// The block source is derived from the echo phrase itself so the loop is
-	// self-contained (no DB, no app-server corpus dependency). Production
-	// providers do NOT get an emitter here until a corpus-backed source is
-	// wired (separate B12 production wiring item).
+	// B12 wiring: every provider gets a BadgeEmitter.
+	//   - dev-echo uses a self-contained source derived from the echo phrase
+	//     so the local loop needs no app-server corpus (deterministic).
+	//   - live providers (volc-duplex, mock, ...) read the caller's phrase
+	//     blocks from app-server's internal corpus endpoint, keeping one
+	//     source of truth for memory-dev and MySQL deployments.
 	if echoProvider, ok := provider.(voicegateway.DevEchoVoiceProvider); ok {
 		echoText := strings.TrimSpace(echoProvider.EchoText)
 		if echoText == "" {
@@ -76,6 +76,16 @@ func run() error {
 				"phrase_block_id", "block-dev-echo",
 			)
 		}
+	} else {
+		source := voicegateway.NewHTTPCorpusSource(cfg.AppServerInternalURL, cfg.InternalAPIToken, logger)
+		detector := session.NewHitDetector(source)
+		handler.SetBadgeEmitter(
+			voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{}),
+		)
+		logger.Info("corpus-backed feedback.badge emitter wired",
+			"provider", cfg.Provider,
+			"corpus_source", "app-server-internal",
+		)
 	}
 	// B13: enable client ASR gate when VOICE_CLIENT_ASR_REQUIRED is set.
 	if os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "1" || os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "true" {

@@ -53,6 +53,7 @@ func New(
 	}
 	if corpusHandler != nil {
 		corpus.RegisterRoutes(apiGroup, corpusHandler)
+		corpus.RegisterInternalRoutes(engine.Group("/internal/v1"), corpusHandler, cfg.InternalAPIToken)
 	}
 	if contentHandler != nil {
 		content.RegisterRoutes(apiGroup, contentHandler)
