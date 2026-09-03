@@ -275,11 +275,18 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		if turnID == "" {
 			turnID = fmt.Sprintf("volc-turn-%d", s.nextSeq)
 		}
+		// B15-I3: include the Volcengine vendor log_id so iOS can correlate
+		// tracker events with backend and vendor-side diagnostic logs.
+		var logID string
+		if s.session != nil {
+			logID = s.session.LogID()
+		}
 		outbound = append(outbound, ProviderOutbound{
 			Control: voiceproto.AITurnEnd{
 				Type:    voiceproto.TypeAITurnEnd,
 				TurnID:  turnID,
 				Outcome: string(turn.Outcome), // B15: explicit outcome in ai.turn.end
+				LogID:   logID, // B15-I3: vendor trace log_id
 			},
 		})
 	}

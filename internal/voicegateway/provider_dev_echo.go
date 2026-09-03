@@ -111,6 +111,7 @@ func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]
 				Type:    voiceproto.TypeAITurnEnd,
 				TurnID:  "bootstrap",
 				Outcome: "ok",
+				LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
 			},
 		},
 	}, nil
@@ -145,6 +146,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 					Type:    voiceproto.TypeAITurnEnd,
 					TurnID:  turnID,
 					Outcome: "ok",
+					LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
 				},
 			},
 		}, nil
@@ -194,6 +196,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 					Type:    voiceproto.TypeAITurnEnd,
 					TurnID:  turnID,
 					Outcome: "ok",
+					LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
 				},
 			})
 		} else if n > 0 {
@@ -233,6 +236,7 @@ func (s *devEchoSession) HandleClientAudio(_ context.Context, data []byte) ([]Pr
 					Type:    voiceproto.TypeAITurnEnd,
 					TurnID:  turnID,
 					Outcome: "ok",
+					LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
 				},
 			},
 		}, nil
