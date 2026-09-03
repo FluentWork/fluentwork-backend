@@ -166,12 +166,19 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 	}
 
 	// No more frames should arrive on the iOS side — the broken guard drops them.
+	// Item 1.2: the handler returns an error after the first failure, which causes
+	// the loop to exit and the connection to be closed by the server. The iOS side
+	// will see either a timeout (if the connection is still alive but silent) or
+	// a connection reset (if the server closed the socket).
 	readCtx, readCancel := context.WithTimeout(ctx, 400*time.Millisecond)
 	defer readCancel()
-	if _, _, err := conn.Read(readCtx); err == nil {
+	_, _, readErr := conn.Read(readCtx)
+	// Accept either a timeout (broken guard is working) or a connection error
+	// (server closed the connection per Item 1.2 behavior).
+	if readErr == nil {
 		t.Fatal("expected no further frames after first failure (broken guard)")
-	} else if !isTimeout(err) {
-		t.Fatalf("expected timeout waiting for further frames, got %v", err)
+	} else if !isTimeout(readErr) && !isConnectionReset(readErr) {
+		t.Fatalf("expected timeout or connection reset after first failure, got %v", readErr)
 	}
 
 	// Assertion 1: provider HandleClientAudio called once for the original
@@ -181,7 +188,7 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 	}
 
 	// Assertion 2: exactly one B15 warn line for the cascade.
-	if got := recLog.warnCount("provider audio forward failed; marking session broken"); got != 1 {
+	if got := recLog.warnCount("provider audio forward failed"); got != 1 {
 		t.Fatalf("B15 dedup warn count: got %d want 1", got)
 	}
 }
@@ -196,4 +203,17 @@ func isTimeout(err error) bool {
 	return strings.Contains(s, "i/o timeout") ||
 		strings.Contains(s, "deadline exceeded") ||
 		strings.Contains(s, "context deadline")
+}
+
+// isConnectionReset returns true when the WebSocket read fails because the
+// server closed the connection (Item 1.2: handler returns error, loop exits,
+// connection is closed).
+func isConnectionReset(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "read: connection reset") ||
+		strings.Contains(s, "failed to read frame header")
 }

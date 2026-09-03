@@ -254,6 +254,215 @@ func TestDevEcho_NoBadgeWhenEchoTextEmpty(t *testing.T) {
 	}
 }
 
+// TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd is the T2 E2E proof
+// that a pre-recorded PCM fixture streams back to iOS as binary audio frames
+// after user.speech.end, enabling local audio path testing without a live
+// Volcengine session.
+//
+// Pipeline under test:
+//
+//  1. iOS sends user.speech.end (text=nil, turn_id=turn-fixture-1)
+//  2. DevEcho provider receives the frame and starts streaming the fixture PCM
+//  3. Subsequent HandleClientAudio calls return remaining fixture chunks
+//  4. When fixture is exhausted, provider sends ai.turn.end to unblock iOS
+//
+// This test uses a 640-byte fixture (1 × 20ms chunk at 16kHz mono PCM16).
+func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t3",
+			SessionID: "s3",
+			UserID:    "u3",
+		},
+	}
+
+	// Create a synthetic 640-byte fixture (1 chunk of 16kHz mono PCM16).
+	// voicegateway.DevEchoFixtureGenerator produces a 1kHz sine wave.
+	fixture := voicegateway.DevEchoFixtureGenerator(20) // 20ms = 640 bytes
+	if len(fixture) != 640 {
+		t.Fatalf("expected 640-byte fixture, got %d bytes", len(fixture))
+	}
+
+	provider := voicegateway.NewDevEchoVoiceProvider("test transcript", nil)
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type:   voiceproto.TypeAuth,
+		Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn) // ai.text.delta
+	_ = readNextControlFrame(ctx, t, conn) // ai.turn.end
+
+	// Send user.speech.end — this triggers the fixture to start streaming.
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		TurnID: "turn-fixture-1",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	// Expect relay frame (client.asr.transcription) first.
+	relayFrame := readNextControlFrame(ctx, t, conn)
+	if relayFrame["type"] != voiceproto.TypeClientASRTranscription {
+		t.Fatalf("expected client.asr.transcription relay, got %#v", relayFrame)
+	}
+
+	// Next frame should be a binary audio chunk.
+	binCtx, binCancel := context.WithTimeout(ctx, 1*time.Second)
+	defer binCancel()
+	typ, data, err := conn.Read(binCtx)
+	if err != nil {
+		t.Fatalf("read audio chunk: %v", err)
+	}
+	if typ != websocket.MessageBinary {
+		t.Fatalf("expected binary frame, got %v", typ)
+	}
+	if len(data) != 640 {
+		t.Fatalf("expected 640-byte audio chunk, got %d bytes", len(data))
+	}
+
+	// Exhaust the fixture: send enough binary frames to drain the remaining chunks.
+	// Since we only have 1 chunk (20ms), sending another should trigger ai.turn.end.
+	sendCtx, sendCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer sendCancel()
+	// Send a dummy binary frame to trigger HandleClientAudio.
+	if err := conn.Write(sendCtx, websocket.MessageBinary, []byte("dummy-audio")); err != nil {
+		t.Fatalf("write dummy audio: %v", err)
+	}
+
+	// The next frame should be ai.turn.end (fixture exhausted).
+	endFrame := readNextControlFrame(ctx, t, conn)
+	if endFrame["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end after fixture exhausted, got %#v", endFrame)
+	}
+}
+
+// TestDevEchoFixture_LargeFixture_SendsMultipleChunks verifies that multi-chunk
+// fixtures stream correctly across multiple HandleClientAudio calls.
+func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t4",
+			SessionID: "s4",
+			UserID:    "u4",
+		},
+	}
+
+	// Create a 100ms fixture (5 chunks × 640 bytes = 3200 bytes).
+	fixture := voicegateway.DevEchoFixtureGenerator(100)
+
+	provider := voicegateway.NewDevEchoVoiceProvider("test", nil)
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type:   voiceproto.TypeAuth,
+		Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn)
+	_ = readNextControlFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		TurnID: "turn-fixture-2",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	// Read relay frame first.
+	_ = readNextControlFrame(ctx, t, conn)
+
+	// Read all binary chunks.
+	const chunkSize = 640
+	wantChunks := len(fixture) / chunkSize
+	if len(fixture)%chunkSize != 0 {
+		wantChunks++
+	}
+	gotChunks := 0
+	for gotChunks < wantChunks {
+		binCtx, binCancel := context.WithTimeout(ctx, 2*time.Second)
+		typ, data, err := conn.Read(binCtx)
+		binCancel()
+		if err != nil {
+			t.Fatalf("read chunk %d: %v", gotChunks+1, err)
+		}
+		if typ != websocket.MessageBinary {
+			// ai.turn.end means we've read all chunks.
+			if typ == websocket.MessageText {
+				var frame map[string]any
+				json.Unmarshal(data, &frame)
+				if frame["type"] == voiceproto.TypeAITurnEnd {
+					goto done
+				}
+			}
+			t.Fatalf("expected binary frame or ai.turn.end at chunk %d, got type=%v", gotChunks+1, typ)
+		}
+		if len(data) != chunkSize && gotChunks < wantChunks-1 {
+			t.Fatalf("expected %d-byte chunk, got %d bytes", chunkSize, len(data))
+		}
+		gotChunks++
+	}
+
+done:
+	// After all chunks are read, the next text frame should be ai.turn.end.
+	endFrame := readNextControlFrame(ctx, t, conn)
+	if endFrame["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end after %d chunks, got %#v", gotChunks, endFrame)
+	}
+	if gotChunks != wantChunks {
+		t.Fatalf("expected %d chunks, got %d", wantChunks, gotChunks)
+	}
+}
+
 // readNextControlFrame is the local helper that pulls the next text control frame
 // off the WSS connection and decodes it as a generic JSON map. Frames
 // not yet available fail the test fast — callers should know exactly

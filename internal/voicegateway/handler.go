@@ -18,6 +18,36 @@ import (
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
+// warnDedupInterval is how often we emit a deduplicated WARN summary.
+// Every Nth occurrence within the window gets a full log line with the count.
+const warnDedupInterval = 10
+
+// logWarn emits a WARN log with deduplication. Repeated warnings with the same
+// key within `window` are collapsed — only the 1st and every `warnDedupInterval`th
+// occurrence produce a full log line. This prevents the 80+ identical WARN lines
+// seen in docs/20 §1.1 when the provider is stuck in a timeout loop.
+func (h *Handler) logWarn(rt *sessionRuntime, key, msg string, args ...any) {
+	now := h.now()
+	window := 5 * time.Second
+	interval := warnDedupInterval
+
+	if rt.warnDedup.key == key && now.Sub(rt.warnDedup.lastAt) < window {
+		rt.warnDedup.count++
+		rt.warnDedup.lastAt = now
+		if rt.warnDedup.count%interval == 0 {
+			// Every 10th repeat: emit a summary instead of repeating the full log.
+			summaryArgs := append([]any{"dedup_count", rt.warnDedup.count, "first_key", key}, args...)
+			h.logger.Warn(msg+" (deduplicated)", summaryArgs...)
+		}
+		return
+	}
+	// New key or outside window — emit full line.
+	rt.warnDedup.key = key
+	rt.warnDedup.lastAt = now
+	rt.warnDedup.count = 1
+	h.logger.Warn(msg, args...)
+}
+
 var errSessionEnded = errors.New("voice session ended")
 
 // ConsumedTicket is the result of a successful one-time ticket consume.
@@ -225,6 +255,15 @@ type sessionRuntime struct {
 	// reopenAttempted records one transparent provider reopen after an
 	// upstream audio write failure (backend #43).
 	reopenAttempted bool
+	// B15: warn deduplication state — prevents 80+ identical WARN lines
+	// when the audio forward path fails repeatedly (e.g., provider timeout).
+	warnDedup struct {
+		key      string
+		lastAt   time.Time
+		count    int
+		window   time.Duration
+		interval int // log every Nth occurrence (1, 10, 20, ...)
+	}
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
@@ -306,19 +345,23 @@ func (h *Handler) handleAudio(
 			}
 		}
 		rt.broken = true
-		h.logger.Warn("provider audio forward failed; marking session broken and dropping further audio",
+		// B15: use logWarn for deduplication — avoids 80+ identical WARN lines
+		// when the provider is stuck in a timeout loop.
+		h.logWarn(rt, "provider_audio_failed",
+			"provider audio forward failed; session will terminate immediately",
 			"err", err,
 			"reopen_attempted", rt.reopenAttempted,
 		)
-		// Try to surface the failure to iOS once. If the iOS WS is also dead
-		// the write will fail; in that case the next loop iteration will hit
-		// the rt.broken guard above and bail out silently until the read
-		// fails or iOS closes the connection.
-		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+		// B15 Item 1.2: send the error frame to notify iOS, then return a real
+		// error so the loop exits immediately instead of waiting for idle timeout.
+		// If the WS is already dead writeJSON will fail — that's fine, the error
+		// return below still terminates the session.
+		_ = writeJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
 			Code:    "provider_audio_failed",
 			Message: err.Error(),
 		})
+		return fmt.Errorf("provider audio forward failed: %w", err)
 	}
 	return writeProviderOutbound(ctx, conn, outbound)
 }

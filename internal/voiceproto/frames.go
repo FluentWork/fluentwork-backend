@@ -97,8 +97,11 @@ type ClientASRTranscription struct {
 
 // AITurnEnd marks the explicit end boundary of one assistant turn.
 type AITurnEnd struct {
-	Type   string `json:"type"`
-	TurnID string `json:"turn_id,omitempty"`
+	Type    string `json:"type"`
+	TurnID  string `json:"turn_id,omitempty"`
+	// B15: explicit terminal status so iOS can distinguish ok/partial/timeout/error
+	// without relying on implicit timing heuristics. Maps 1:1 to voicepoc.TurnOutcome.
+	Outcome string `json:"outcome,omitempty"` // "" | "ok" | "partial" | "timeout" | "error"
 }
 
 // Interrupt asks the gateway/vendor path to stop AI audio.

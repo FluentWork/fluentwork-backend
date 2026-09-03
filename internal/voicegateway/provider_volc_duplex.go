@@ -114,13 +114,30 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 			return nil, err
 		}
 
-		// Try with primary timeout first
+		// B15: Try with primary timeout first. WaitTurnResult returns a TurnResult
+		// with Outcome set on every exit path (ok/partial/timeout/error). When Outcome
+		// is already set, use the partial content even if an error is also returned.
 		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
+
+		// B15-fix: always send ai.turn.end if the outcome was set, so iOS can leave
+		// .processing even when we got no real content. Only return an error to abort
+		// the session if the outcome was unset (real transport error, not a timeout).
+		if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+			s.logger.Warn("turn result non-ok outcome, sending ai.turn.end to unblock iOS",
+				"session_id", s.session.SessionID(),
+				"outcome", turn.Outcome,
+				"has_transcript", turn.Transcript != "",
+				"has_text", turn.AssistantText != "",
+				"err", err,
+			)
+			return s.turnToOutbound(turn), nil
+		}
 		if err == nil {
 			return s.turnToOutbound(turn), nil
 		}
 
-		// On timeout with partial content, retry once with fresh context (TTS may still be pending)
+		// B15: On timeout with partial content, retry once with fresh context (TTS may
+		// still be pending on the server side even though the wait expired).
 		if errors.Is(err, context.DeadlineExceeded) {
 			s.logger.Warn("turn result timeout, retrying with fresh context",
 				"session_id", s.session.SessionID(),
@@ -129,6 +146,16 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 			retryCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			turn, retryErr := s.session.WaitTurnResult(retryCtx, s.turnStarted, 20*time.Second)
+			// B15-fix: if retry has a set Outcome, prefer it over the error
+			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+				s.logger.Warn("retry non-ok outcome, sending ai.turn.end to unblock iOS",
+					"session_id", s.session.SessionID(),
+					"outcome", turn.Outcome,
+					"has_transcript", turn.Transcript != "",
+					"has_text", turn.AssistantText != "",
+				)
+				return s.turnToOutbound(turn), nil
+			}
 			if retryErr == nil {
 				return s.turnToOutbound(turn), nil
 			}
@@ -138,6 +165,14 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 					"session_id", s.session.SessionID(),
 					"has_transcript", turn.Transcript != "",
 					"has_text", turn.AssistantText != "",
+				)
+				return s.turnToOutbound(turn), nil
+			}
+			// B15-fix: retry returned no content with an error. Check if Outcome is set.
+			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+				s.logger.Warn("retry had non-ok outcome despite error, sending ai.turn.end",
+					"session_id", s.session.SessionID(),
+					"outcome", turn.Outcome,
 				)
 				return s.turnToOutbound(turn), nil
 			}
@@ -200,6 +235,7 @@ func (s *volcDuplexProviderSession) Close(ctx context.Context) error {
 func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []ProviderOutbound {
 	var outbound []ProviderOutbound
 	transcript := strings.TrimSpace(turn.Transcript)
+	// B15: include outcome in all log lines so dashboards can filter by status
 	s.logger.Info("turn result captured",
 		"transcript_len", len(transcript),
 		"transcript", transcript,
@@ -207,6 +243,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		"assistant_text", strings.TrimSpace(turn.AssistantText),
 		"active_turn_id", s.activeTurnID,
 		"event_types", turn.EventTypes,
+		"outcome", turn.Outcome, // B15: explicit outcome in logs
 	)
 	if transcript != "" {
 		s.utterances = append(s.utterances, EndUtterance{
@@ -230,19 +267,32 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	}
 
 	reply := strings.TrimSpace(turn.AssistantText)
+	// B15: always send ai.turn.end so iOS can leave .processing even when reply is
+	// empty (e.g., timeout with partial ASR transcript but no TTS). Outcome is always
+	// set on every exit path in collectTurn, so we can stamp it faithfully here.
+	{
+		turnID := s.activeTurnID
+		if turnID == "" {
+			turnID = fmt.Sprintf("volc-turn-%d", s.nextSeq)
+		}
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.AITurnEnd{
+				Type:    voiceproto.TypeAITurnEnd,
+				TurnID:  turnID,
+				Outcome: string(turn.Outcome), // B15: explicit outcome in ai.turn.end
+			},
+		})
+	}
 	if reply != "" {
-		turnID := fmt.Sprintf("volc-turn-%d", s.nextSeq)
+		turnID := s.activeTurnID
+		if turnID == "" {
+			turnID = fmt.Sprintf("volc-turn-%d", s.nextSeq)
+		}
 		outbound = append(outbound, ProviderOutbound{
 			Control: map[string]any{
 				"type":    voiceproto.TypeAITextDelta,
 				"text":    reply,
 				"turn_id": turnID,
-			},
-		})
-		outbound = append(outbound, ProviderOutbound{
-			Control: voiceproto.AITurnEnd{
-				Type:   voiceproto.TypeAITurnEnd,
-				TurnID: turnID,
 			},
 		})
 		s.utterances = append(s.utterances, EndUtterance{
@@ -252,6 +302,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		})
 		s.nextSeq++
 		s.activeTurnID = turnID
+	} else {
+		// No reply but we sent ai.turn.end above; advance seq so next turn gets a fresh ID.
+		s.nextSeq++
 	}
 	s.turnStarted = time.Time{}
 	return outbound
