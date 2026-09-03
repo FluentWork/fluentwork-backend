@@ -174,6 +174,13 @@ else
   unset MYSQL_DSN || true
 fi
 
+# Every dev-up mode should produce reviews; with a shared MySQL store the
+# app-server in-process worker is otherwise disabled (production uses the
+# standalone cmd/worker).
+if [[ "$WITH_MYSQL" -eq 1 ]]; then
+  export APP_RUN_REVIEW_WORKER=1
+fi
+
 SERVER_PID=""
 GATEWAY_PID=""
 
