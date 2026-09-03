@@ -68,6 +68,11 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 	if req.SceneType == "" {
 		return Result{}, fmt.Errorf("scene_type is required")
 	}
+	// Session scene_type predates the closed corpus enum; normalize anything
+	// outside the B15 scene set so refine blocks always validate.
+	if _, ok := eval.SceneTags[req.SceneType]; !ok {
+		req.SceneType = "standup"
+	}
 	if req.Transcript == "" {
 		return Result{}, fmt.Errorf("transcript is required")
 	}
@@ -273,7 +278,7 @@ Rules:
 - suggestions <= 3
 - comparisons length 3-8
 - every original_quote and anchor_user_said must be exact substrings from the transcript
-- scene_tag must equal the provided scene type
+- scene_tag must be one of: standup, review, 1on1, interview, casual; prefer the provided scene_type when it is one of these
 - function_tag must be one of: object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit
 - keep every string concise
 - when there is no issue, use [] rather than prose
