@@ -7,9 +7,9 @@
 //	./scripts/corpus-seed.sh              # targets http://127.0.0.1:8080
 //	./scripts/corpus-seed.sh http://host:8080
 //
-// Each run uses a fresh source_session_id, so re-running adds another batch
-// (batch-accept only dedupes exact (source_session_id, anchor_user_said)
-// pairs). The list response is what matters for verification.
+// Re-running is idempotent: source_session_id is fixed and batch-accept
+// dedupes exact (source_session_id, anchor_user_said) pairs, so dev-up.sh can
+// safely call this on every startup without duplicating phrase blocks.
 //
 // This is dev-only: the seed list is hand-picked workplace English phrases
 // chosen so that, when a developer says them in the speaking-room, the
@@ -192,7 +192,7 @@ func issueGuestToken(client *http.Client, baseURL, deviceID string) (string, err
 
 func batchAccept(client *http.Client, baseURL, token string, blocks []seedBlock) (int, error) {
 	payload, _ := json.Marshal(map[string]any{
-		"source_session_id": fmt.Sprintf("dev-seed-%d", time.Now().UTC().Unix()),
+		"source_session_id": "dev-corpus-seed-v1",
 		"blocks":            blocks,
 	})
 	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/v1/corpus/blocks/batch-accept", bytes.NewReader(payload))

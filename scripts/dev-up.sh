@@ -5,7 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 WITH_MYSQL=0
+LOCAL_MYSQL=0
 WITH_GATEWAY=1
+AUTO_CORPUS_SEED="${AUTO_CORPUS_SEED:-1}"
 PORT="${PORT:-8080}"
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 # HOST is used for VOICE_GATEWAY_WSS_URL returned to iOS clients.
@@ -18,10 +20,12 @@ usage() {
 Start FluentWork app-server (and voice-gateway by default) for local development.
 
 Usage:
-  ./scripts/dev-up.sh [--mysql] [--no-gateway] [--port 8080] [--host IP]
+  ./scripts/dev-up.sh [--mysql] [--local-mysql] [--no-gateway] [--port 8080] [--host IP]
 
 Default mode uses the in-memory account/session store (no Docker required).
 Pass --mysql to start MySQL 8 via Docker Compose and apply migrations.
+Pass --local-mysql to use an already-running local MySQL (brew/etc.) with
+  fw/fw credentials; migrations and corpus seed run automatically.
 Pass --no-gateway to run only app-server.
 Pass --host IP to set the WSS URL host (default: 127.0.0.1 for simulator;
   use LAN IP like 192.168.1.100 for physical device testing).
@@ -32,6 +36,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mysql)
       WITH_MYSQL=1
+      shift
+      ;;
+    --local-mysql)
+      WITH_MYSQL=1
+      LOCAL_MYSQL=1
       shift
       ;;
     --no-gateway)
@@ -129,14 +138,38 @@ apply_migrations() {
   done
 }
 
+apply_migrations_local() {
+  local file
+  for file in "$ROOT"/migrations/*.sql; do
+    echo "Applying $(basename "$file") to local MySQL"
+    mysql -h127.0.0.1 -ufw -pfw fluentwork < "$file"
+  done
+}
+
 if [[ "$WITH_MYSQL" -eq 1 ]]; then
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Docker is required for --mysql." >&2
-    exit 1
+  if [[ "$LOCAL_MYSQL" -eq 1 ]]; then
+    if ! command -v mysql >/dev/null 2>&1; then
+      echo "mysql CLI is required for --local-mysql." >&2
+      exit 1
+    fi
+    if ! mysqladmin ping -h127.0.0.1 --silent >/dev/null 2>&1; then
+      echo "Local MySQL is not reachable. Start it first (brew services start mysql)." >&2
+      exit 1
+    fi
+    mysql -uroot -e "CREATE DATABASE IF NOT EXISTS fluentwork CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+    mysql -uroot -e "CREATE USER IF NOT EXISTS 'fw'@'localhost' IDENTIFIED BY 'fw'; GRANT ALL PRIVILEGES ON fluentwork.* TO 'fw'@'localhost'; FLUSH PRIVILEGES;"
+    mysql -uroot -e "CREATE USER IF NOT EXISTS 'fw'@'127.0.0.1' IDENTIFIED BY 'fw'; GRANT ALL PRIVILEGES ON fluentwork.* TO 'fw'@'127.0.0.1'; FLUSH PRIVILEGES;"
+    apply_migrations_local
+    export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
+  else
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "Docker is required for --mysql." >&2
+      exit 1
+    fi
+    docker compose -f "$COMPOSE_FILE" up -d --wait mysql
+    apply_migrations
+    export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
   fi
-  docker compose -f "$COMPOSE_FILE" up -d --wait mysql
-  apply_migrations
-  export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
 else
   unset MYSQL_DSN || true
 fi
@@ -185,6 +218,12 @@ curl -sS -H 'Content-Type: application/json' \
   -d '{"device_id":"local-dev-device"}' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
 echo
+if [[ "$AUTO_CORPUS_SEED" == "1" ]]; then
+  echo "Seeding dev corpus (device_id=${SEED_DEVICE_ID:-corpus-seed-dev-device})..."
+  go run ./cmd/corpus-seed \
+    -base-url "http://127.0.0.1:${PORT}" \
+    -device-id "${SEED_DEVICE_ID:-corpus-seed-dev-device}" | tail -2
+fi
 echo "📡 WSS URL for iOS: ws://${HOST}:${GATEWAY_PORT}/v1/voice"
 echo "   Set LOCAL_HOST=${HOST} in Xcode scheme for physical device testing."
 echo
