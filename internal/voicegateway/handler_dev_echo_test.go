@@ -35,6 +35,7 @@ import (
 //	VOICE_GATEWAY_PROVIDER=dev-echo \
 //	VOICE_DEV_ECHO_TEXT="let's ship it today" \
 //	./scripts/dev-up.sh
+//	# optional: seed the app-server corpus for corpus UI; not needed for the badge path
 //	./scripts/corpus-seed.sh
 //
 // in a Simulator can speak → see the B12 badge fire end-to-end in the

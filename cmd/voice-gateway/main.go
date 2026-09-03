@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -54,6 +56,27 @@ func run() error {
 			IdleTimeout:        cfg.IdleTimeout,
 		},
 	)
+	// Dev-only B12 wiring: when the dev-echo provider is active, drive the
+	// same BadgeEmitter path the B12 handler integration tests exercise.
+	// The block source is derived from the echo phrase itself so the loop is
+	// self-contained (no DB, no app-server corpus dependency). Production
+	// providers do NOT get an emitter here until a corpus-backed source is
+	// wired (separate B12 production wiring item).
+	if echoProvider, ok := provider.(voicegateway.DevEchoVoiceProvider); ok {
+		echoText := strings.TrimSpace(echoProvider.EchoText)
+		if echoText == "" {
+			logger.Warn("dev-echo provider has empty VOICE_DEV_ECHO_TEXT; feedback.badge emitter disabled")
+		} else {
+			detector := session.NewHitDetector(echoBlockSource{echoText: echoText})
+			handler.SetBadgeEmitter(
+				voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{}),
+			)
+			logger.Info("dev-echo feedback.badge emitter wired",
+				"echo_text", echoText,
+				"phrase_block_id", "block-dev-echo",
+			)
+		}
+	}
 	// B13: enable client ASR gate when VOICE_CLIENT_ASR_REQUIRED is set.
 	if os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "1" || os.Getenv("VOICE_CLIENT_ASR_REQUIRED") == "true" {
 		handler.SetClientASRRequired(true)
@@ -97,4 +120,23 @@ func run() error {
 		}
 		return err
 	}
+}
+
+// echoBlockSource is a dev-only session.BlockSource whose single candidate is
+// the exact text DevEchoVoiceProvider echoes back as ServerASRText. Any
+// non-empty echo text therefore always scores a 1.0 hit, which is what makes
+// the local "speak → feedback.badge" acceptance loop deterministic.
+type echoBlockSource struct {
+	echoText string
+}
+
+func (s echoBlockSource) CandidatesForUser(_ context.Context, _ string) ([]session.BlockCandidate, error) {
+	return []session.BlockCandidate{
+		{
+			ID:             "block-dev-echo",
+			ExpressionEN:   s.echoText,
+			IntentZH:       "开发验证",
+			AnchorUserSaid: s.echoText,
+		},
+	}, nil
 }

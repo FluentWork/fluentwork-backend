@@ -58,6 +58,7 @@ func run() error {
 	var (
 		scen        = flag.String("scenario", "", "one of: client-asr, server-asr, relay")
 		wsURL       = flag.String("ws-url", "", "override ws URL (default: spin up httptest server)")
+		ticket      = flag.String("ticket", "good-ticket", "auth ticket sent on the auth frame")
 		turnText    = flag.String("turn-text", "client-asr-text", "client text sent on user.speech.end")
 		providerASR = flag.String("provider-server-asr-text", "", "ServerASRText the provider returns (server-asr / relay scenarios)")
 		phrase      = flag.String("phrase", "", "phrase block expression (default: derived from --turn-text)")
@@ -104,7 +105,7 @@ func run() error {
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
-	if err := writeFrame(ctx, conn, voiceproto.Auth{Type: voiceproto.TypeAuth, Ticket: "good-ticket"}); err != nil {
+	if err := writeFrame(ctx, conn, voiceproto.Auth{Type: voiceproto.TypeAuth, Ticket: *ticket}); err != nil {
 		return fmt.Errorf("write auth: %w", err)
 	}
 	if _, err := readOneFrame(ctx, conn); err != nil {

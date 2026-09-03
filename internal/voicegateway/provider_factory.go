@@ -21,8 +21,8 @@ import (
 //	VOICE_DEV_ECHO_TEXT="let's ship it"
 //
 // and the dev-echo provider returns that text as ServerASRText on every
-// user.speech.end — which the B12 hit detector scores against whatever
-// phrase blocks exist in the corpus.
+// user.speech.end — cmd/voice-gateway wires a self-contained B12 emitter for
+// this provider so the badge fires deterministically without a DB corpus.
 //
 // In production the gateway expects cfg.Provider to come from the env-var
 // VOICE_GATEWAY_PROVIDER. LoadConfig() auto-loads .env.volc.local so the

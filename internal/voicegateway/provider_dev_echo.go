@@ -20,10 +20,10 @@ import (
 //
 // DevEchoVoiceProvider fills that gap locally: it ignores the audio stream
 // and on every `user.speech.end` returns the configured text as
-// `ServerASRText` + a `ClientASRTranscription` control frame. With the
-// corpus-seed phrases aligned to what you set here (e.g. "let's ship it"),
-// the B12 hit detector fires end-to-end and the iOS overlay shows the
-// badge. No Volcengine credentials needed.
+// `ServerASRText` + a `ClientASRTranscription` control frame. cmd/voice-gateway
+// wires a self-contained B12 emitter for this provider, so the badge fires
+// deterministically and the iOS overlay shows it. No Volcengine credentials
+// needed.
 //
 // This provider MUST NOT be selectable in production builds — keep it
 // behind `VOICE_GATEWAY_PROVIDER=dev-echo` and document that fact in
