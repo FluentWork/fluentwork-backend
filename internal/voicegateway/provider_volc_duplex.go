@@ -66,6 +66,21 @@ func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket) (Voic
 	}, nil
 }
 
+// keepaliveIdleThreshold is how long a Volc Duplex session may be quiet
+// before we treat the next audio forward as "potentially stale" and probe
+// the upstream first. The threshold mirrors Volc's own idle-disconnect
+// behavior (≈2 min on the duplex API as observed in 2026-09-03 production),
+// with a comfortable margin so the probe fires before the upstream gives up.
+// B15-followup (#43): real-device evidence was 2 min idle → broken pipe on
+// resume; 60s gives us 2 attempts at the probe before the upstream closes.
+const keepaliveIdleThreshold = 60 * time.Second
+
+// keepaliveProbeTimeout caps one upstream write used purely to detect liveness.
+// Kept short (3s) so a dead upstream still fails the audio forward within
+// budget — iOS sees provider_audio_failed within ~3s instead of waiting for
+// the 60s turn deadline.
+const keepaliveProbeTimeout = 3 * time.Second
+
 type volcDuplexProviderSession struct {
 	cfg          voicepoc.DuplexConfig
 	audioFormat  string
@@ -75,6 +90,19 @@ type volcDuplexProviderSession struct {
 	nextSeq      int
 	utterances   []EndUtterance
 	activeTurnID string
+	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
+	// the next HandleClientAudio call probes the upstream with an empty commit
+	// before forwarding the real payload. Probing first (instead of reacting to
+	// the inevitable broken pipe) lets us reopen transparently on the same
+	// audio chunk and avoid the iOS-visible 录音失败 / provider_audio_failed.
+	lastAudioAt time.Time
+	// probeFn is the upstream-liveness probe used when the session has been
+	// idle past keepaliveIdleThreshold. It defaults to session.CommitAudio
+	// (an idempotent empty-buffer commit) but is overridable in tests so the
+	// keepalive decision logic can be exercised without a real Volc socket.
+	probeFn func(context.Context) error
+	// nowFn lets tests freeze the clock for the idle-since calculation.
+	nowFn func() time.Time
 }
 
 func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart) ([]ProviderOutbound, error) {
@@ -92,6 +120,9 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	}
 	s.session = session
 	s.nextSeq = 1
+	if s.nowFn == nil {
+		s.nowFn = time.Now
+	}
 	return nil, nil
 }
 
@@ -232,7 +263,79 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 		"payload_bytes", len(payload),
 		"session_id", s.session.SessionID(),
 	)
+	// B15-followup (#43): if we've been idle past the keepalive threshold, the
+	// Volc upstream may have closed the duplex. Forwarding raw PCM into a dead
+	// pipe surfaces as "write tcp ... broken pipe" and the handler marks the
+	// session broken — iOS then sees 录音失败. Probe first with a cheap empty
+	// commit so we detect the dead upstream before the user audio arrives and
+	// can return an error the handler uses to trigger its reopen path.
+	if s.shouldProbe() {
+		if err := s.runProbe(ctx); err != nil {
+			s.logger.Warn("upstream probe failed after idle; signaling handler to reopen",
+				"session_id", s.session.SessionID(),
+				"idle_since", s.lastAudioAt,
+				"err", err,
+			)
+			return nil, fmt.Errorf("volc upstream probe failed after %s idle: %w", s.idleSince().Round(time.Second), err)
+		}
+		s.logger.Info("upstream probe ok after idle; resuming audio forward",
+			"session_id", s.session.SessionID(),
+			"idle", s.idleSince().Round(time.Second),
+		)
+	}
+	s.lastAudioAt = s.nowFn()
 	return nil, s.session.AppendPCMChunk(ctx, payload)
+}
+
+// shouldProbe reports whether the keepalive probe must run before the next
+// audio forward. The probe is only meaningful when (a) we've seen at least one
+// prior audio chunk (lastAudioAt != zero) and (b) the gap since then exceeds
+// keepaliveIdleThreshold. A fresh session (no prior audio) is never probed —
+// the upstream is necessarily alive because the very first chunk created it.
+func (s *volcDuplexProviderSession) shouldProbe() bool {
+	if s.lastAudioAt.IsZero() {
+		return false
+	}
+	return s.idleSince() > keepaliveIdleThreshold
+}
+
+// idleSince returns how long it has been since the last audio forward. Uses
+// nowFn when set so tests can drive the clock deterministically.
+func (s *volcDuplexProviderSession) idleSince() time.Duration {
+	now := s.nowFn
+	if now == nil {
+		now = time.Now
+	}
+	return now().Sub(s.lastAudioAt)
+}
+
+// runProbe dispatches to the injectable probe function or falls back to the
+// default CommitAudio-based probe. Keeping the indirection here lets tests
+// inject deterministic success/failure without spinning up a fake Volc socket.
+func (s *volcDuplexProviderSession) runProbe(parent context.Context) error {
+	probe := s.probeFn
+	if probe == nil {
+		probe = s.defaultProbe
+	}
+	ctx, cancel := context.WithTimeout(parent, keepaliveProbeTimeout)
+	defer cancel()
+	return probe(ctx)
+}
+
+// defaultProbe sends a no-op commit to detect whether the Volc duplex
+// upstream is still alive. The duplex API treats input_audio_buffer.commit as
+// safe to send on an empty buffer; if the underlying WebSocket has been
+// closed server-side, this write surfaces the broken pipe immediately
+// instead of waiting for the next user payload to trigger it.
+//
+// Errors returned here are *real* transport failures — they do not indicate
+// a normal "nothing to commit" condition. Callers should treat any error as
+// "upstream is dead, reopen the session".
+func (s *volcDuplexProviderSession) defaultProbe(ctx context.Context) error {
+	if s.session == nil {
+		return fmt.Errorf("volc-duplex session not started")
+	}
+	return s.session.CommitAudio(ctx)
 }
 
 func (s *volcDuplexProviderSession) SnapshotUtterances() []EndUtterance {
