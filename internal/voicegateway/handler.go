@@ -222,6 +222,9 @@ type sessionRuntime struct {
 	// binary frames are dropped silently so a stuck iOS pipeline doesn't
 	// produce 80+ identical WARN lines per session. See docs/20 §1.2.c/1.3.
 	broken bool
+	// reopenAttempted records one transparent provider reopen after an
+	// upstream audio write failure (backend #43).
+	reopenAttempted bool
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
@@ -236,7 +239,7 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		}
 		switch typ {
 		case websocket.MessageBinary:
-			if err := h.handleAudio(ctx, conn, data, rt); err != nil {
+			if err := h.handleAudio(ctx, conn, data, rt, session); err != nil {
 				return err
 			}
 			continue
@@ -258,6 +261,7 @@ func (h *Handler) handleAudio(
 	conn *websocket.Conn,
 	data []byte,
 	rt *sessionRuntime,
+	session ConsumedTicket,
 ) error {
 	if !rt.started || rt.provider == nil {
 		return nil
@@ -276,11 +280,35 @@ func (h *Handler) handleAudio(
 	)
 	outbound, err := rt.provider.HandleClientAudio(ctx, data)
 	if err != nil {
+		// B15-followup (#43): the first upstream failure may be a dead
+		// provider connection (Volc idle / network). Reopen once with the
+		// same ticket and retry the chunk before giving up on the session.
+		if !rt.reopenAttempted {
+			rt.reopenAttempted = true
+			reopened, openErr := h.provider.Open(ctx, session)
+			if openErr == nil {
+				if _, startErr := reopened.Start(ctx, voiceproto.SessionStart{}); startErr == nil {
+					rt.provider = reopened
+					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
+						"session_id", session.SessionID,
+						"original_err", err,
+					)
+					retried, retryErr := rt.provider.HandleClientAudio(ctx, data)
+					if retryErr == nil {
+						return writeProviderOutbound(ctx, conn, retried)
+					}
+					err = retryErr
+				} else {
+					err = startErr
+				}
+			} else {
+				err = openErr
+			}
+		}
 		rt.broken = true
-		// B15: one deduplicated warn per session instead of one per frame.
-		// See docs/20 §1.3 ("warn 日志去重 / 采样 — 80+ identical warns").
 		h.logger.Warn("provider audio forward failed; marking session broken and dropping further audio",
 			"err", err,
+			"reopen_attempted", rt.reopenAttempted,
 		)
 		// Try to surface the failure to iOS once. If the iOS WS is also dead
 		// the write will fail; in that case the next loop iteration will hit

@@ -90,11 +90,12 @@ type stubBrokenError struct{}
 func (e *stubBrokenError) Error() string { return "stub: provider write to volcengine failed" }
 
 // TestHandler_AudioMarksSessionBrokenAfterFirstFailure is the B15 regression
-// for docs/20 §1.2.c / §1.3 P1. We send N binary frames after session.start;
-// the provider's HandleClientAudio fails on every call. After the first
-// failure the handler must:
+// for docs/20 §1.2.c / §1.3 P1, updated for the #43 reopen-once behavior.
+// We send N binary frames after session.start; the provider's
+// HandleClientAudio fails on every call. After the first failure the handler
+// reopens the provider once and retries (2 calls total), then must:
 //
-//  1. Stop calling the provider (audio call count capped at 1)
+//  1. Stop calling the provider (audio call count capped at 2)
 //  2. Log exactly ONE warn line for the cascade (not N)
 //  3. Still successfully write the error frame to the iOS WS once
 //
@@ -173,9 +174,10 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 		t.Fatalf("expected timeout waiting for further frames, got %v", err)
 	}
 
-	// Assertion 1: provider HandleClientAudio called exactly once.
-	if got := atomic.LoadInt32(&providerSession.audioCalls); got != 1 {
-		t.Fatalf("provider HandleClientAudio calls: got %d want 1 (broken guard failed to stop retries)", got)
+	// Assertion 1: provider HandleClientAudio called once for the original
+	// frame plus once for the reopen retry; later frames are dropped.
+	if got := atomic.LoadInt32(&providerSession.audioCalls); got != 2 {
+		t.Fatalf("provider HandleClientAudio calls: got %d want 2 (broken guard failed to stop retries)", got)
 	}
 
 	// Assertion 2: exactly one B15 warn line for the cascade.
