@@ -2,6 +2,7 @@ package voicegateway
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 
@@ -89,25 +90,50 @@ func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]
 
 // HandleClientControl echoes back the configured ServerASRText on
 // user.speech.end so the gateway has authoritative text for B12 hit
-// detection. Audio frames are not consulted — the dev echo provider
-// deliberately does not transcribe.
-func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]ProviderOutbound, error) {
+// detection. It always closes the turn with ai.turn.end so the client's
+// speech state machine can leave `.processing` even when echo text is empty.
+// Audio frames are not consulted — the dev echo provider deliberately does
+// not transcribe.
+func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
 	if frameType != voiceproto.TypeUserSpeechEnd {
 		return nil, nil
 	}
-	if strings.TrimSpace(s.echoText) == "" {
-		return nil, nil
+	turnID := "dev-echo-turn"
+	var end voiceproto.UserSpeechEnd
+	if err := json.Unmarshal(data, &end); err == nil && strings.TrimSpace(end.TurnID) != "" {
+		turnID = strings.TrimSpace(end.TurnID)
+	}
+	echoText := strings.TrimSpace(s.echoText)
+	if echoText == "" {
+		// No authoritative transcript → no relay frame and no badge, but the
+		// turn must still end so iOS does not hang in `.processing`.
+		return []ProviderOutbound{
+			{
+				Control: voiceproto.AITurnEnd{
+					Type:   voiceproto.TypeAITurnEnd,
+					TurnID: turnID,
+				},
+			},
+		}, nil
 	}
 	return []ProviderOutbound{
 		{
 			Control: voiceproto.ClientASRTranscription{
 				Type:   voiceproto.TypeClientASRTranscription,
-				Text:   s.echoText,
-				TurnID: "dev-echo-turn",
+				Text:   echoText,
+				TurnID: turnID,
 			},
 			// B14: this is the authoritative text the gateway will feed
 			// into the B12 hit detector when the client sends `text: nil`.
-			ServerASRText: s.echoText,
+			ServerASRText: echoText,
+		},
+		{
+			// Explicit assistant-turn boundary so the client state machine
+			// transitions `.processing → .waitingUser`.
+			Control: voiceproto.AITurnEnd{
+				Type:   voiceproto.TypeAITurnEnd,
+				TurnID: turnID,
+			},
 		},
 	}, nil
 }

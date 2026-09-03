@@ -127,15 +127,28 @@ func TestDevEcho_EndToEnd_FiresBadgeOnSeededCorpus(t *testing.T) {
 		t.Fatalf("expected relay text %q, got %v", echoText, relayFrame["text"])
 	}
 
-	// Read the feedback.badge frame with the per-read timeout. The emitter
-	// runs asynchronously (BadgeEmitter.Emit), and its internal WaitGroup is
-	// deliberately not used here: wg.Add happens on the handler's control-loop
-	// goroutine after the frame write, so a test-side wg.Wait can race with it.
-	// readNextControlFrame's 2s budget comfortably covers the 500ms detector
-	// timeout configured above.
-	badgeFrame := readNextControlFrame(ctx, t, conn)
-	if badgeFrame["type"] != voiceproto.TypeFeedbackBadge {
-		t.Fatalf("expected feedback.badge, got %#v", badgeFrame)
+	// The provider closes the turn with ai.turn.end and BadgeEmitter writes
+	// feedback.badge asynchronously — order is not guaranteed. Drain until we
+	// have both. readNextControlFrame's 2s per-read budget comfortably covers
+	// the 500ms detector timeout configured above.
+	var badgeFrame map[string]any
+	sawTurnEnd := false
+	for i := 0; i < 4 && (badgeFrame == nil || !sawTurnEnd); i++ {
+		frame := readNextControlFrame(ctx, t, conn)
+		switch frame["type"] {
+		case voiceproto.TypeAITurnEnd:
+			sawTurnEnd = true
+			if got, _ := frame["turn_id"].(string); got != "turn-e2e-1" {
+				t.Fatalf("expected ai.turn.end turn_id %q, got %q", "turn-e2e-1", got)
+			}
+		case voiceproto.TypeFeedbackBadge:
+			badgeFrame = frame
+		default:
+			t.Fatalf("unexpected frame %#v after relay", frame)
+		}
+	}
+	if badgeFrame == nil || !sawTurnEnd {
+		t.Fatalf("expected both ai.turn.end and feedback.badge, got turnEnd=%v badge=%#v", sawTurnEnd, badgeFrame)
 	}
 	if badgeFrame["badge"] != "Let's ship it." {
 		t.Fatalf("expected badge %q (from ExpressionEN), got %v", "Let's ship it.", badgeFrame["badge"])
@@ -223,14 +236,21 @@ func TestDevEcho_NoBadgeWhenEchoTextEmpty(t *testing.T) {
 		t.Fatalf("write user.speech.end: %v", err)
 	}
 
-	// DevEcho with empty EchoText returns nil outbounds from
-	// HandleClientControl, so no client.asr.transcription relay frame or
-	// feedback.badge frame comes back. Assert the absence positively: a
-	// read with a short deadline must time out instead of producing a frame.
+	// DevEcho with empty EchoText returns no relay frame and no badge, but it
+	// still closes the turn with ai.turn.end so the client state machine can
+	// leave `.processing`. Assert the turn boundary arrives, then that no
+	// relay/badge frame follows within a short quiet window.
+	endFrame := readNextControlFrame(ctx, t, conn)
+	if endFrame["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end, got %#v", endFrame)
+	}
+	if got, _ := endFrame["turn_id"].(string); got != "turn-empty-echo" {
+		t.Fatalf("expected ai.turn.end turn_id %q, got %q", "turn-empty-echo", got)
+	}
 	quietCtx, cancelQuiet := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancelQuiet()
 	if _, _, err := conn.Read(quietCtx); err == nil {
-		t.Fatal("expected no frame after empty dev-echo user.speech.end, got one")
+		t.Fatal("expected no relay/badge frame after empty dev-echo turn end, got one")
 	}
 }
 
