@@ -28,7 +28,12 @@ type Config struct {
 	VolcDuplexEndpoint   string
 	VolcDuplexModel      string
 	VolcDuplexVoice      string
-	IdleTimeout          time.Duration
+	// DevEchoText is the authoritative text the dev-echo provider returns
+	// as ServerASRText on every user.speech.end. Only honored when
+	// Provider == "dev-echo". Empty text makes the provider a no-op (logs
+	// a warning on session open).
+	DevEchoText string
+	IdleTimeout time.Duration
 }
 
 // LoadConfig reads voice-gateway configuration from the environment.
@@ -60,6 +65,7 @@ func LoadConfig() Config {
 		InternalAPIToken:     token,
 		Provider:             envOr("VOICE_GATEWAY_PROVIDER", "mock"),
 		ClientAudioFormat:    envOr("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed"),
+		DevEchoText:          envOr("VOICE_DEV_ECHO_TEXT", ""),
 		VolcSpeechAPIKey: envFirst(
 			"VOICE_GATEWAY_VOLC_SPEECH_API_KEY",
 			"VOLC_POC_API_KEY",
@@ -99,9 +105,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("APP_SERVER_INTERNAL_URL is required")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Provider)) {
-	case "mock", "volc-duplex":
+	case "mock", "volc-duplex", "dev-echo":
 	default:
-		return fmt.Errorf("VOICE_GATEWAY_PROVIDER must be one of mock, volc-duplex")
+		return fmt.Errorf("VOICE_GATEWAY_PROVIDER must be one of mock, volc-duplex, dev-echo")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.ClientAudioFormat)) {
 	case "opus-framed", "pcm-s16le":

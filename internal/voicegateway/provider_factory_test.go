@@ -52,3 +52,15 @@ func TestNewVoiceProviderFallsBackToMockForUnknown(t *testing.T) {
 		t.Fatalf("expected MockVoiceProvider fallback, got %T", provider)
 	}
 }
+
+func TestNewVoiceProviderSelectsDevEcho(t *testing.T) {
+	t.Parallel()
+
+	provider := voicegateway.NewVoiceProvider(voicegateway.Config{
+		Provider:    "dev-echo",
+		DevEchoText: "let's ship it",
+	}, nil)
+	if _, ok := provider.(voicegateway.DevEchoVoiceProvider); !ok {
+		t.Fatalf("expected DevEchoVoiceProvider, got %T", provider)
+	}
+}
