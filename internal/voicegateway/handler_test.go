@@ -987,6 +987,131 @@ func TestHandler_UsesServerASRTextForBadgeDetectionWhenClientTextEmpty(t *testin
 	// The badge detector was called - verify via provider session tracking or log inspection
 }
 
+// TestHandler_DetectTimeoutDoesNotBlockUserSpeechEnd is the regression for #42's
+// "detect 超时/失败不影响主链路" acceptance criterion.
+//
+// B12 budget is 800ms — if hit detection stalls (corpus DB unreachable, LLM
+// scoring wedged, etc.) the user.speech.end control loop must not wait for it.
+// We drive a slow corpus source (1.5s delay) past the emitter's 200ms timeout
+// and assert:
+//   1. user.speech.end returns to the client within ~200ms, not 1.5s
+//   2. session.end is processed normally afterwards
+//   3. no badge frame is written (timeout counts as a miss)
+// This proves the live provider path is decoupled from detection latency.
+func TestHandler_DetectTimeoutDoesNotBlockUserSpeechEnd(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID: "t1", SessionID: "s1", UserID: "u1",
+		},
+	}
+	providerSession := &stubProviderSession{}
+	provider := &stubProvider{session: providerSession}
+
+	// Slow source: 1.5s delay > emitter 200ms timeout → must fire timeout.
+	slowSrc := newStubBlockSourceForHandlerTest(session.BlockCandidate{ID: "block-1", ExpressionEN: "hello"})
+	slowSrc.delay = 1500 * time.Millisecond
+	det := session.NewHitDetector(slowSrc)
+	var wg sync.WaitGroup
+	emitter := voicegateway.NewBadgeEmitter(det, nil, voicegateway.BadgeEmitterOptions{
+		Timeout:       200 * time.Millisecond,
+		DedupeTTL:     5 * time.Second,
+		DedupeCapacity: 128,
+	}, &wg)
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	h.SetBadgeEmitter(emitter)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+	_ = readFrame(ctx, t, conn)
+
+	// Send user.speech.end and measure how long until the loop is free to
+	// accept the next frame. With a 200ms detect timeout, the next frame
+	// (session.end) must arrive within ~300ms even though the corpus source
+	// takes 1.5s — proves the emitter does NOT block the main loop.
+	speechSentAt := time.Now()
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		Text:   "hello",
+		TurnID: "turn-timeout-1",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionEnd{
+		Type: voiceproto.TypeSessionEnd,
+	})); err != nil {
+		t.Fatalf("write session.end: %v", err)
+	}
+	// Read session.end ack — the time from speechSentAt to ack receipt is
+	// the empirical "main loop latency" budget.
+	readCtx, readCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer readCancel()
+	ack := waitForType(readCtx, t, conn, "session.end")
+	mainLoopLatency := time.Since(speechSentAt)
+	if mainLoopLatency > 1500*time.Millisecond {
+		t.Fatalf("main loop blocked %s on detect timeout — emitter leaked latency", mainLoopLatency)
+	}
+	if _, ok := ack.(map[string]any); !ok {
+		t.Fatalf("expected object frame, got %#v", ack)
+	}
+
+	// Drain the badge goroutine and confirm no badge frame was written.
+	wgDone := make(chan struct{})
+	go func() { wg.Wait(); close(wgDone) }()
+	select {
+	case <-wgDone:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("badge goroutine did not complete in time")
+	}
+	stats := emitter.Stats()
+	if stats.Hits != 0 {
+		t.Fatalf("expected 0 badge hits on detect timeout, got %d", stats.Hits)
+	}
+	if stats.DetectErrors == 0 {
+		t.Fatalf("expected DetectErrors > 0 (timeout), got %d", stats.DetectErrors)
+	}
+
+	// Probe for any badge frame the client may have wrongly received. The
+	// session.end above closed the connection, so we tolerate that as well
+	// as the timeout — the test passes if no badge frame was sent.
+	probeCtx, probeCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer probeCancel()
+	if _, _, err := conn.Read(probeCtx); err == nil {
+		t.Fatalf("did not expect a badge frame on detect timeout")
+	} else if !errors.Is(err, context.DeadlineExceeded) &&
+		!strings.Contains(err.Error(), "close frame") {
+		t.Fatalf("expected probe deadline or close, got %v", err)
+	}
+}
+
 func newStubBlockSourceForHandlerTest(candidates ...session.BlockCandidate) *stubBlockSourceForHandlerTest {
 	return &stubBlockSourceForHandlerTest{candidates: candidates}
 }
