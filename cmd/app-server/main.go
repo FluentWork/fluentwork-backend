@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -129,6 +130,53 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Local no-Docker mode uses in-memory stores, which cannot be shared with a
+	// separate `cmd/worker` process. Run the review consumer in-process so
+	// session.end -> review ready works out of the box. MySQL deployments keep
+	// using the standalone worker unless explicitly enabled.
+	runWorker := strings.TrimSpace(os.Getenv("APP_RUN_REVIEW_WORKER"))
+	if runWorker == "" {
+		if cfg.MySQLDSN == "" {
+			runWorker = "1"
+		} else {
+			runWorker = "0"
+		}
+	}
+	if runWorker == "1" {
+		workerID := envOr("WORKER_ID", "app-server-inproc")
+		pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
+		reviewEnabled := reviewGenerator.Enabled()
+		logger.Info("in-process review worker enabled",
+			"worker_id", workerID,
+			"poll_interval", pollEvery.String(),
+			"ark_review_enabled", reviewEnabled,
+			"ark_review_endpoint", cfg.ArkReviewRefineEP,
+		)
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				ok, err := sessionSvc.ProcessNextJob(ctx, workerID)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					logger.Warn("in-process review worker: process job", "err", err)
+				}
+				if ok {
+					continue
+				}
+				timer := time.NewTimer(pollEvery)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+		}()
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("app-server listening",
@@ -154,4 +202,24 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func envOr(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func durationOr(key string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

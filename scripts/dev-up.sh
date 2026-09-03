@@ -72,6 +72,9 @@ load_env_file() {
     esac
     key="${line%%=*}"
     value="${line#*=}"
+    # Strip inline `# comment` tails so values like
+    # `ARK_API_KEY=ark-xxx  # Dev/POC` load the real key.
+    value="${value%%#*}"
     key="${key%"${key##*[![:space:]]}"}"
     key="${key#"${key%%[![:space:]]*}"}"
     [[ -z "$key" ]] && continue
@@ -83,6 +86,9 @@ if [[ -f "$ROOT/.env" ]]; then
   load_env_file "$ROOT/.env"
 elif [[ -f "$ROOT/configs/app-server.env.example" ]]; then
   load_env_file "$ROOT/configs/app-server.env.example"
+fi
+if [[ -f "$ROOT/.env.volc.local" ]]; then
+  load_env_file "$ROOT/.env.volc.local"
 fi
 
 export APP_ENV="${APP_ENV:-development}"
