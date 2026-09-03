@@ -2,6 +2,7 @@ package voicegateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -94,7 +95,7 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	return nil, nil
 }
 
-func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, frameType string, _ []byte) ([]ProviderOutbound, error) {
+func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
 	switch frameType {
 	case voiceproto.TypeUserSpeechStart:
 		if s.session == nil {
@@ -106,6 +107,19 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 	case voiceproto.TypeUserSpeechEnd:
 		if s.session == nil {
 			return nil, fmt.Errorf("volc-duplex session not started")
+		}
+		// B12-followup (#42): parse the client-supplied turn_id so badges,
+		// ai.turn.end and client.asr.transcription all carry the same id that
+		// iOS uses for its local dedupe mirror (runbook Case 3). Without this,
+		// the first turn falls back to "volc-turn-<seq>" which is offset by 1
+		// from iOS's turn-1… naming and breaks cross-layer correlation.
+		var end voiceproto.UserSpeechEnd
+		if len(data) > 0 {
+			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
+				if t := strings.TrimSpace(end.TurnID); t != "" {
+					s.activeTurnID = t
+				}
+			}
 		}
 		if s.turnStarted.IsZero() {
 			s.turnStarted = time.Now()
