@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
@@ -83,6 +84,21 @@ func run() error {
 		}
 	}()
 
+	// B16 — ai_cost_logs query endpoint. The cost ledger is written atomically
+	// by the session store (#21 followup); here we only need a read-side
+	// service so /internal/v1/ai-cost-logs can serve ops and smoke harnesses.
+	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := costCloser(); closeErr != nil {
+			logger.Error("closing aicost store", "err", closeErr)
+		}
+	}()
+	costSvc := aicost.NewService(costStore, logger)
+	costHandler := aicost.NewHandler(costSvc)
+
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},
 		corpus.Reassigner{Store: corpusStore},
@@ -104,7 +120,7 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

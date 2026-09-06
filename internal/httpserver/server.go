@@ -12,6 +12,7 @@ import (
 
 	"github.com/FluentWork/fluentwork-backend/api"
 	"github.com/FluentWork/fluentwork-backend/internal/account"
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
@@ -28,6 +29,8 @@ type Server struct {
 }
 
 // New constructs the Gin engine with health checks, account, and session routes.
+// costHandler is optional — when nil, the /internal/v1/ai-cost-logs route is not
+// mounted (mirrors the optional pattern used for corpusHandler / contentHandler).
 func New(
 	cfg config.Config,
 	logger *slog.Logger,
@@ -35,6 +38,7 @@ func New(
 	corpusHandler *corpus.Handler,
 	contentHandler *content.Handler,
 	sessions *session.Handler,
+	costHandler *aicost.Handler,
 	ready func(context.Context) error,
 ) *Server {
 	ginOnce.Do(func() {
@@ -61,6 +65,9 @@ func New(
 	if sessions != nil {
 		session.RegisterRoutes(apiGroup, sessions)
 		session.RegisterInternalRoutes(engine.Group("/internal/v1"), sessions, cfg.InternalAPIToken)
+	}
+	if costHandler != nil {
+		aicost.RegisterInternalRoutes(engine.Group("/internal/v1"), costHandler, cfg.InternalAPIToken)
 	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))
