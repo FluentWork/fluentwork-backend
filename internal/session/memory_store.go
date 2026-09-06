@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 )
 
 // MemoryStore is a process-local Store used by tests and local development.
@@ -15,6 +17,10 @@ type MemoryStore struct {
 	tickets    map[string]Ticket
 	utterances map[string][]Utterance
 	jobs       map[string]Job
+	// costLogs is a side store for MarkSessionReviewedWithCost; tracks ai_cost_logs
+	// rows written atomically with session review updates. Tests can inspect this
+	// map to verify the review+cost transaction invariant.
+	costLogs map[string]aicost.Log
 }
 
 // NewMemoryStore constructs an empty in-memory session store.
@@ -308,6 +314,50 @@ func (s *MemoryStore) MarkSessionReviewed(_ context.Context, sessionID string, r
 		s.sessions[sessionID] = session
 		return cloneSession(session), nil
 	default:
+		return cloneSession(session), ErrConflict
+	}
+}
+
+// MarkSessionReviewedWithCost writes review_json + status=reviewed AND records the
+// cost log in a single logical operation. MemoryStore has no real transaction; we
+// lock the session map, perform both writes under the lock, and roll back the
+// review update if the cost log write fails — preserving the "review and cost
+// commit together" invariant that MySQLStore enforces with BeginTx.
+//
+// Idempotent retry (session already reviewed): we return the existing session
+// without double-recording the cost log, matching the MySQLStore behavior.
+func (s *MemoryStore) MarkSessionReviewedWithCost(_ context.Context, sessionID string, reviewJSON []byte, at time.Time, costLog aicost.Log) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, ErrNotFound
+	}
+	switch session.Status {
+	case StatusReviewed:
+		return cloneSession(session), nil
+	case StatusEnded:
+		// Apply review update and cost log under the same lock so the two
+		// writes are observable together. MemoryStore has no real transaction;
+		// the mutex provides the atomicity guarantee. Idempotent retry on the
+		// cost log (duplicate ID) keeps the existing row instead of double-billing.
+		session.Status = StatusReviewed
+		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+		session.UpdatedAt = at
+		s.sessions[sessionID] = session
+
+		if s.costLogs == nil {
+			s.costLogs = make(map[string]aicost.Log)
+		}
+		if _, exists := s.costLogs[costLog.ID]; exists {
+			// Duplicate cost id: do not double-record, keep the existing one.
+			return cloneSession(session), nil
+		}
+		s.costLogs[costLog.ID] = costLog
+		return cloneSession(session), nil
+	default:
+		// Status is not Ended and not Reviewed → conflict. The session must
+		// reach the Ended state before review/cost can be committed.
 		return cloneSession(session), ErrConflict
 	}
 }

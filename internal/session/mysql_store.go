@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 )
 
 // MySQLStore persists sessions and tickets in MySQL 8.
@@ -396,6 +399,59 @@ func (s *MySQLStore) MarkSessionReviewed(ctx context.Context, sessionID string, 
 			WHERE id = ?
 		`, StatusReviewed, reviewJSON, at, sessionID); err != nil {
 			return Session{}, err
+		}
+		session.Status = StatusReviewed
+		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+		session.UpdatedAt = at
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	default:
+		return session, ErrConflict
+	}
+}
+
+// MarkSessionReviewedWithCost writes review_json + status=reviewed and inserts one
+// ai_cost_logs row in a single database transaction. The two writes commit together
+// so a cost ledger row never exists without its review (acceptance criterion:
+// "成本写入失败视为任务失败", and "不允许后补"). When session.status is already
+// StatusReviewed (idempotent retry) we commit without the cost insert to avoid
+// double-billing on retry storms.
+func (s *MySQLStore) MarkSessionReviewedWithCost(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time, costLog aicost.Log) (Session, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM practice_sessions WHERE id = ? FOR UPDATE`, sessionID))
+	if err != nil {
+		return Session{}, err
+	}
+	switch session.Status {
+	case StatusReviewed:
+		// Idempotent retry: session is already reviewed. Do not double-bill the
+		// cost ledger; just commit and return the existing session.
+		if err := tx.Commit(); err != nil {
+			return Session{}, err
+		}
+		return session, nil
+	case StatusEnded:
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE practice_sessions
+			SET status = ?, review_json = ?, updated_at = ?
+			WHERE id = ?
+		`, StatusReviewed, reviewJSON, at, sessionID); err != nil {
+			return Session{}, err
+		}
+		// Same transaction: cost ledger row. Either both commit or both rollback.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ai_cost_logs (
+				id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, cost_fen, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, costLog.ID, costLog.UserID, costLog.TaskType, costLog.Model, costLog.TokensIn, costLog.TokensOut, costLog.AudioSec, costLog.CostFen, costLog.CreatedAt); err != nil {
+			return Session{}, fmt.Errorf("insert ai_cost_logs: %w", err)
 		}
 		session.Status = StatusReviewed
 		session.ReviewJSON = append([]byte(nil), reviewJSON...)

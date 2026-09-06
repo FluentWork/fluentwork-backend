@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // registers the mysql driver used by OpenStore
 
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 )
 
@@ -44,6 +45,11 @@ type Store interface {
 	CompleteJob(ctx context.Context, jobID string, at time.Time) error
 	FailJob(ctx context.Context, jobID string, at time.Time, errMsg string, retryDelay time.Duration) error
 	MarkSessionReviewed(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time) (Session, error)
+	// MarkSessionReviewedWithCost writes review_json, status=reviewed, and one
+	// ai_cost_logs row in a single database transaction so the two writes are
+	// atomic. It uses the session store's own transaction; the cost record is
+	// inserted into the same transaction as the review update.
+	MarkSessionReviewedWithCost(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time, costLog aicost.Log) (Session, error)
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 }
 
