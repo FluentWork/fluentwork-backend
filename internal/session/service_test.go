@@ -518,7 +518,7 @@ func TestRecordReviewCostWritesLedgerWhenRecorderPresent(t *testing.T) {
 
 func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
 	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	svc.SetReviewGenerator(fakeReviewGenerator{
+	svc.SetReviewGenerator(&fakeReviewGenerator{
 		result: reviewgen.Result{
 			Review:    json.RawMessage(`{"goal_achievement":{},"issues":[],"suggestions":[],"comparisons":[{},{},{}]}`),
 			Refine:    json.RawMessage(`{"blocks":[{"intent_zh":"同步","expression_en":"I'll follow up.","anchor_user_said":"follow up","scene_tag":"standup","function_tag":"report"}]}`),
@@ -540,6 +540,9 @@ func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
 	if artifacts.Generator != "ark-review-refine-v1" || artifacts.Cost == nil || artifacts.Cost.Model != "ep-review" {
 		t.Fatalf("unexpected artifacts: %+v", artifacts)
 	}
+	if artifacts.Cost.TaskType != "review.eval" {
+		t.Fatalf("Cost.TaskType = %q, want review.eval", artifacts.Cost.TaskType)
+	}
 	var reviewDoc map[string]any
 	if err := json.Unmarshal(artifacts.ReviewJSON, &reviewDoc); err != nil {
 		t.Fatal(err)
@@ -557,7 +560,7 @@ func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
 
 func TestBuildReviewArtifactsFallsBackToStubOnGeneratorError(t *testing.T) {
 	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	svc.SetReviewGenerator(fakeReviewGenerator{err: errors.New("boom")})
+	svc.SetReviewGenerator(&fakeReviewGenerator{err: errors.New("boom")})
 
 	artifacts, err := svc.buildReviewArtifacts(context.Background(), Session{
 		ID:        "s1",
@@ -740,11 +743,325 @@ func strPtr(v string) *string { return &v }
 type fakeReviewGenerator struct {
 	result reviewgen.Result
 	err    error
+
+	// calls counts how many times Generate was invoked. Tests assert on this
+	// to verify the retry behavior introduced for #21 (B8 followup).
+	calls int
+	// errOnCalls lets a test fail the first N attempts and succeed afterward.
+	// err takes precedence when set; errOnCalls is the alternate path used by
+	// the retry-specific tests.
+	errOnCalls map[int]error
 }
 
-func (f fakeReviewGenerator) Generate(context.Context, reviewgen.Request) (reviewgen.Result, error) {
+func (f *fakeReviewGenerator) Generate(_ context.Context, _ reviewgen.Request) (reviewgen.Result, error) {
+	f.calls++
+	if f.errOnCalls != nil {
+		if e, ok := f.errOnCalls[f.calls]; ok && e != nil {
+			return reviewgen.Result{}, e
+		}
+	}
 	if f.err != nil {
 		return reviewgen.Result{}, f.err
 	}
 	return f.result, nil
+}
+
+// #21 (B8 followup) — retry behavior. Acceptance criterion: "失败重试 1 次"
+// means the generator is invoked up to reviewRetryAttempts (2) times before
+// the orchestration falls back to stub artifacts.
+
+func TestBuildReviewArtifacts_RetriesOnceBeforeStubFallback(t *testing.T) {
+	gen := &fakeReviewGenerator{err: errors.New("ark 503")}
+	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetReviewGenerator(gen)
+
+	artifacts, err := svc.buildReviewArtifacts(context.Background(), Session{
+		ID:        "s1",
+		UserID:    "u1",
+		SceneType: "standup",
+	}, []Utterance{{Speaker: SpeakerUser, Text: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.calls != reviewRetryAttempts {
+		t.Fatalf("generator called %d times, want %d (1 try + 1 retry)", gen.calls, reviewRetryAttempts)
+	}
+	if artifacts.Generator != stubReviewGenerator {
+		t.Fatalf("expected stub fallback, got generator=%q", artifacts.Generator)
+	}
+	if artifacts.Cost != nil {
+		t.Fatalf("stub fallback must not record cost, got %+v", artifacts.Cost)
+	}
+}
+
+func TestBuildReviewArtifacts_SucceedsOnSecondAttempt(t *testing.T) {
+	gen := &fakeReviewGenerator{
+		errOnCalls: map[int]error{1: errors.New("transient 502")},
+		result: reviewgen.Result{
+			Review:    json.RawMessage(`{"goal_achievement":{},"issues":[],"suggestions":[],"comparisons":[]}`),
+			Refine:    json.RawMessage(`{"blocks":[]}`),
+			Generator: "ark-review-refine-v1",
+			Model:     "ep-review",
+			TokensIn:  100,
+			TokensOut: 200,
+		},
+	}
+	svc := NewService(NewMemoryStore(), config.Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetReviewGenerator(gen)
+
+	artifacts, err := svc.buildReviewArtifacts(context.Background(), Session{
+		ID:        "s1",
+		UserID:    "u1",
+		SceneType: "standup",
+	}, []Utterance{{Speaker: SpeakerUser, Text: "follow up"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.calls != 2 {
+		t.Fatalf("generator called %d times, want 2 (1 fail + 1 succeed)", gen.calls)
+	}
+	if artifacts.Generator != "ark-review-refine-v1" {
+		t.Fatalf("expected successful generator result, got %q", artifacts.Generator)
+	}
+	if artifacts.Cost == nil || artifacts.Cost.TokensIn != 100 || artifacts.Cost.TokensOut != 200 {
+		t.Fatalf("unexpected cost: %+v", artifacts.Cost)
+	}
+}
+
+// #21 (B8 followup) — Ark Mini pricing math.
+// Table-driven: 0.3 CNY/M input + 0.6 CNY/M output → 分/token.
+
+func TestComputeCostFen(t *testing.T) {
+	const (
+		inputFenPerToken  = 0.03 / 1_000_000.0 // 0.3元/M
+		outputFenPerToken = 0.06 / 1_000_000.0 // 0.6元/M
+	)
+	cases := []struct {
+		name    string
+		in      int
+		out     int
+		wantFen int
+	}{
+		{"zero tokens", 0, 0, 0},
+		// 1M input = 0.03分 → round-half-up → 0
+		{"1M input only", 1_000_000, 0, roundFen(0.03)},
+		{"1M output only", 0, 1_000_000, roundFen(0.06)},
+		{"1M+1M", 1_000_000, 1_000_000, roundFen(0.03 + 0.06)},
+		{"100k+200k", 100_000, 200_000, roundFen(100_000*inputFenPerToken + 200_000*outputFenPerToken)},
+		{"negative clamps to zero", -100, -100, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := computeCostFen(tc.in, tc.out)
+			if got != tc.wantFen {
+				t.Fatalf("computeCostFen(%d, %d) = %d, want %d", tc.in, tc.out, got, tc.wantFen)
+			}
+		})
+	}
+}
+
+// roundFen matches the int(fen + 0.5) rounding in computeCostFen so test
+// expected values can be written as plain floats instead of int casts on
+// float arithmetic (which Go forbids in const contexts).
+func roundFen(f float64) int {
+	if f < 0 {
+		return 0
+	}
+	return int(f + 0.5)
+}
+
+// #21 (B8 followup) — buildCostLog must produce an aicost.Log with the
+// canonical task_type, a non-empty ID, and the right cost in fen. UserID
+// falls back to session.UserID when the RecordRequest leaves it blank.
+
+func TestBuildCostLog_FieldMapping(t *testing.T) {
+	session := Session{ID: "sess-1", UserID: "user-7"}
+	artifacts := reviewArtifacts{
+		Generator: "ark-review-refine-v1",
+		Cost: &aicost.RecordRequest{
+			TaskType:  arkReviewTaskType, // what callers send; buildCostLog must canonicalize
+			Model:     "ep-review",
+			TokensIn:  1_000,
+			TokensOut: 2_000,
+			AudioSec:  0,
+			CostFen:   0,
+			UserID:    "", // blank → falls back to session.UserID
+		},
+	}
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	log := buildCostLog(session, artifacts, at)
+
+	if log.ID == "" {
+		t.Fatal("expected non-empty log ID")
+	}
+	if log.TaskType != arkReviewTaskType {
+		t.Fatalf("TaskType = %q, want %q", log.TaskType, arkReviewTaskType)
+	}
+	if log.Model != "ep-review" {
+		t.Fatalf("Model = %q", log.Model)
+	}
+	if log.TokensIn != 1000 || log.TokensOut != 2000 {
+		t.Fatalf("tokens mismatch: %+v", log)
+	}
+	if !log.CreatedAt.Equal(at) {
+		t.Fatalf("CreatedAt = %v, want %v", log.CreatedAt, at)
+	}
+	if log.UserID == nil || *log.UserID != "user-7" {
+		t.Fatalf("UserID fallback failed: %+v", log.UserID)
+	}
+	wantFen := computeCostFen(1000, 2000)
+	if log.CostFen != wantFen {
+		t.Fatalf("CostFen = %d, want %d", log.CostFen, wantFen)
+	}
+}
+
+func TestBuildCostLog_KeepsExplicitUserID(t *testing.T) {
+	session := Session{ID: "sess-1", UserID: "user-7"}
+	artifacts := reviewArtifacts{
+		Cost: &aicost.RecordRequest{
+			TaskType: arkReviewTaskType,
+			UserID:   "user-9",
+			TokensIn: 100, TokensOut: 200,
+		},
+	}
+	log := buildCostLog(session, artifacts, time.Now().UTC())
+	if log.UserID == nil || *log.UserID != "user-9" {
+		t.Fatalf("UserID should be preserved when explicit, got %+v", log.UserID)
+	}
+}
+
+func TestNullableUserID(t *testing.T) {
+	if nullableUserID("") != nil {
+		t.Fatal("expected nil for empty id")
+	}
+	if nullableUserID("   ") != nil {
+		t.Fatal("expected nil for whitespace id")
+	}
+	id := "abc"
+	if got := nullableUserID(id); got == nil || *got != "abc" {
+		t.Fatalf("unexpected pointer: %+v", got)
+	}
+}
+
+// #21 (B8 followup) — atomic review+cost on the memory store. Both writes
+// must land together; idempotent retry must not double-record the cost log.
+
+func TestMarkSessionReviewedWithCost_Memory_BothWritesLand(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newReviewServiceForStore(t, store)
+	created := createEndedSession(t, svc)
+
+	review := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[]}`)
+	costLog := aicost.Log{
+		ID:        "cost-1",
+		TaskType:  arkReviewTaskType,
+		Model:     "ep-review",
+		TokensIn:  100,
+		TokensOut: 200,
+		CreatedAt: time.Now().UTC(),
+	}
+	updated, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, review, time.Now().UTC(), costLog)
+	if err != nil {
+		t.Fatalf("MarkSessionReviewedWithCost: %v", err)
+	}
+	if updated.Status != StatusReviewed {
+		t.Fatalf("status = %q, want reviewed", updated.Status)
+	}
+	if !bytesContains(updated.ReviewJSON, []byte(`"met":true`)) {
+		t.Fatalf("review_json not committed: %s", updated.ReviewJSON)
+	}
+	stored, ok := store.costLogs[costLog.ID]
+	if !ok {
+		t.Fatal("expected cost log to be recorded atomically")
+	}
+	if stored.Model != "ep-review" || stored.TokensIn != 100 {
+		t.Fatalf("cost log fields wrong: %+v", stored)
+	}
+}
+
+func TestMarkSessionReviewedWithCost_Memory_IdempotentNoDoubleBill(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newReviewServiceForStore(t, store)
+	created := createEndedSession(t, svc)
+
+	review := []byte(`{"goal_achievement":{"met":true},"issues":[],"suggestions":[],"comparisons":[]}`)
+	costLog := aicost.Log{
+		ID:        "cost-dup",
+		TaskType:  arkReviewTaskType,
+		TokensIn:  10, TokensOut: 20,
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, review, time.Now().UTC(), costLog); err != nil {
+		t.Fatal(err)
+	}
+	// Second call: session is already reviewed; cost log must NOT be written again.
+	if _, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, review, time.Now().UTC(), costLog); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.costLogs) != 1 {
+		t.Fatalf("expected exactly 1 cost log entry, got %d (idempotent retry must not double-bill)", len(store.costLogs))
+	}
+}
+
+func TestMarkSessionReviewedWithCost_Memory_RejectsNonEnded(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newReviewServiceForStore(t, store)
+	created := createEndedSession(t, svc)
+	// Force the session back to a non-ended status to simulate "not ready for review".
+	raw, ok := store.sessions[created.SessionID]
+	if !ok {
+		t.Fatal("session missing")
+	}
+	raw.Status = StatusCreated
+	store.sessions[created.SessionID] = raw
+
+	_, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, []byte(`{}`), time.Now().UTC(), aicost.Log{ID: "x", TaskType: arkReviewTaskType, CreatedAt: time.Now().UTC()})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict for non-ended session, got %v", err)
+	}
+}
+
+// --- helpers for the new tests ---
+
+func newReviewServiceForStore(t *testing.T, store *MemoryStore) *Service {
+	t.Helper()
+	cfg := config.Config{
+		HTTPAddr:           ":0",
+		AppEnv:             "development",
+		AuthJWTSecret:      config.DevJWTSecret,
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   60 * time.Second,
+	}
+	return NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func createEndedSession(t *testing.T, svc *Service) CreateResponse {
+	t.Helper()
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, _, _, err := svc.store.EndSession(context.Background(), created.SessionID, 30, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+	return created
+}
+
+func bytesContains(haystack, needle []byte) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }

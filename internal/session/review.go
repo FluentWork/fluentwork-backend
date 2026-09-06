@@ -269,18 +269,40 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		return buildStubReviewArtifacts(session, utterances)
 	}
 
-	result, err := s.reviewGen.Generate(ctx, reviewgen.Request{
-		SessionID:  session.ID,
-		UserID:     session.UserID,
-		SceneType:  session.SceneType,
-		Transcript: renderTranscript(utterances),
-	})
-	if err != nil {
-		s.logger.Warn("review generator failed; falling back to stub",
+	// #21 (B8 followup) — retry the generator up to reviewRetryAttempts total
+	// times before falling back to stub artifacts. Acceptance criterion:
+	// "失败重试 1 次" — first try plus one retry = 2 total attempts.
+	var (
+		result reviewgen.Result
+		err    error
+	)
+	for attempt := 1; attempt <= reviewRetryAttempts; attempt++ {
+		result, err = s.reviewGen.Generate(ctx, reviewgen.Request{
+			SessionID:  session.ID,
+			UserID:     session.UserID,
+			SceneType:  session.SceneType,
+			Transcript: renderTranscript(utterances),
+		})
+		if err == nil {
+			break
+		}
+		s.logger.Warn("review generator attempt failed",
 			"session_id", session.ID,
 			"user_id", session.UserID,
 			"scene_type", session.SceneType,
 			"stage", "orchestration",
+			"attempt", attempt,
+			"max_attempts", reviewRetryAttempts,
+			"err", err,
+		)
+	}
+	if err != nil {
+		s.logger.Warn("review generator failed after retries; falling back to stub",
+			"session_id", session.ID,
+			"user_id", session.UserID,
+			"scene_type", session.SceneType,
+			"stage", "orchestration",
+			"attempts", reviewRetryAttempts,
 			"err", err,
 		)
 		return buildStubReviewArtifacts(session, utterances)
@@ -290,7 +312,7 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		RefineJSON: append([]byte(nil), result.Refine...),
 		Generator:  result.Generator,
 		Cost: &aicost.RecordRequest{
-			TaskType:  "review.eval",
+			TaskType:  arkReviewTaskType,
 			Model:     result.Model,
 			TokensIn:  result.TokensIn,
 			TokensOut: result.TokensOut,
