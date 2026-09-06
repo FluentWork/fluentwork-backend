@@ -14,12 +14,14 @@
 - `internal/aicost/mysql_store.go`（含 `RecordCostTx` 外部事务注入点）
 - `internal/aicost/service.go`
 - `internal/aicost/service_test.go`
+- `internal/aicost/http.go` + `http_test.go`（B16）：`GET /internal/v1/ai-cost-logs` 只读查询入口
 - `session.Store` 已具备 `MarkSessionReviewedWithCost(...)`：review + ai_cost_logs 走同一事务
   * MySQL 版通过 `costTx` 回调委托给 `aicost.MySQLStore.RecordCostTx`（成本 SQL 只在 aicost 包维护一份）
   * `session.OpenStore` 在 MySQL 分支会自动 `aicost.OpenStore(cfg)` 并 `SetCostTx(costStore.RecordCostTx)`，
     上游 `cmd/app-server` / `cmd/worker` 不需要单独打开 `aicost.Store` 即可完成原子写
 - `cmd/app-server` / `cmd/worker` 已不再注入 aicost.Service（cost 写入由 session store 一并完成）
-- `cmd/smoke-review-ready` 仍保留 aicost.Service 用于事后读取 `ai_cost_logs` 做冒烟验证
+- `cmd/smoke-review-ready` 仍保留 aicost.Service 用于事后读取 `ai_cost_logs` 做冒烟验证；
+  app-server 与 smoke-review-ready 同时挂上 `aicost.Handler`，便于直接 `curl /internal/v1/ai-cost-logs` 验证落账
 - review worker 仍走 stub fallback；当生成器返回真实结果时在事务里写入 `ai_cost_logs`
 
 ## 模块边界
