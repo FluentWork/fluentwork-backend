@@ -287,6 +287,7 @@ func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
 	}
 
 	provider := voicegateway.NewDevEchoVoiceProvider("test transcript", nil)
+	provider.Fixture = fixture // T2: wire the in-memory PCM bytes so the provider streams audio back
 
 	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
@@ -380,6 +381,7 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 	fixture := voicegateway.DevEchoFixtureGenerator(100)
 
 	provider := voicegateway.NewDevEchoVoiceProvider("test", nil)
+	provider.Fixture = fixture // T2: wire the in-memory PCM bytes so the provider streams audio back
 
 	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
 	mux := http.NewServeMux()
@@ -421,7 +423,10 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 	// Read relay frame first.
 	_ = readNextControlFrame(ctx, t, conn)
 
-	// Read all binary chunks.
+	// Read all binary chunks. HandleClientControl drains the first 2 chunks
+	// synchronously; subsequent chunks stream through HandleClientAudio, which
+	// is only invoked when the client writes a binary audio frame. So between
+	// chunk reads we send a dummy frame to drive the next provider call.
 	const chunkSize = 640
 	wantChunks := len(fixture) / chunkSize
 	if len(fixture)%chunkSize != 0 {
@@ -450,6 +455,15 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 			t.Fatalf("expected %d-byte chunk, got %d bytes", chunkSize, len(data))
 		}
 		gotChunks++
+
+		// Drive HandleClientAudio for the next chunk. Skip on the last
+		// iteration — the next provider call will see an exhausted fixture
+		// and emit ai.turn.end instead.
+		if gotChunks < wantChunks {
+			if err := conn.Write(ctx, websocket.MessageBinary, []byte("dummy-audio")); err != nil {
+				t.Fatalf("write dummy audio at chunk %d: %v", gotChunks, err)
+			}
+		}
 	}
 
 done:

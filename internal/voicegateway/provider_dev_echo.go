@@ -1,6 +1,7 @@
 package voicegateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -29,19 +30,22 @@ import (
 // deterministically and the iOS overlay shows it. No Volcengine credentials
 // needed.
 //
-// T2 (B15): When FixturePath is set, the provider also streams pre-recorded
-// PCM audio back to the client after user.speech.end, simulating AI speech.
-// This enables local E2E testing of the audio capture/playback path without
-// a live Volcengine session.
+// T2 (B15): When Fixture or FixturePath is set, the provider also streams
+// pre-recorded PCM audio back to the client after user.speech.end, simulating
+// AI speech. This enables local E2E testing of the audio capture/playback path
+// without a live Volcengine session. `Fixture` (bytes) takes precedence over
+// `FixturePath` (file) and is the test-friendly entry point — production-style
+// file loading remains for cmd/voice-gateway wiring.
 //
 // This provider MUST NOT be selectable in production builds — keep it
 // behind `VOICE_GATEWAY_PROVIDER=dev-echo` and document that fact in
 // the env example. The provider name is intentionally verbose so it
 // can't be confused with a real provider in incident response.
 type DevEchoVoiceProvider struct {
-	EchoText     string
-	FixturePath  string // T2: optional path to a 16kHz mono PCM fixture file
-	Logger       *slog.Logger
+	EchoText    string
+	FixturePath string // T2: optional path to a 16kHz mono PCM fixture file
+	Fixture     []byte // T2: in-memory fixture bytes (preferred over FixturePath in tests)
+	Logger      *slog.Logger
 }
 
 // NewDevEchoVoiceProvider reads its configuration from struct fields.
@@ -66,7 +70,10 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (Vo
 		)
 	}
 	var fixture io.ReadCloser
-	if p.FixturePath != "" {
+	switch {
+	case len(p.Fixture) > 0:
+		fixture = io.NopCloser(bytes.NewReader(p.Fixture))
+	case p.FixturePath != "":
 		f, err := os.Open(p.FixturePath)
 		if err != nil {
 			p.Logger.Warn("dev-echo fixture file not found, proceeding without audio fixture",
@@ -154,19 +161,11 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 
 	var outbound []ProviderOutbound
 
-	// T2: Stream the first audio fixture chunk back as an audio binary frame.
-	// The handler will continue reading from the fixture on subsequent
-	// HandleClientAudio calls until EOF, at which point we send ai.turn.end.
-	if s.fixture != nil {
-		chunk := make([]byte, devEchoChunkBytes)
-		n, _ := s.fixture.Read(chunk)
-		if n > 0 {
-			outbound = append(outbound, ProviderOutbound{
-				Binary: chunk[:n],
-			})
-		}
-	}
-
+	// B14: emit the ASR relay frame FIRST so iOS sees the authoritative
+	// transcript text before any audio chunks (and so the B12 hit detector
+	// gets ServerASRText as soon as possible). When echoText is empty AND
+	// a fixture is loaded we still want the turn to flow — the audio frames
+	// are the only signal back to the client in that case.
 	if echoText != "" {
 		outbound = append(outbound, ProviderOutbound{
 			Control: voiceproto.ClientASRTranscription{
@@ -180,31 +179,46 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 		})
 	}
 
-	// T2: if fixture is exhausted, close it and send ai.turn.end.
+	// T2: drain fixture chunks back to the client after the relay. We emit
+	// the first 1-2 chunks synchronously here; if more remain, subsequent
+	// chunks stream via HandleClientAudio (which the client drives by
+	// sending binary audio frames).
+	moreChunksRemain := false
 	if s.fixture != nil {
-		// Try to read one more chunk to see if we're at EOF.
-		// If Read returns 0/EOF, close fixture and end turn.
+		chunk := make([]byte, devEchoChunkBytes)
+		n, _ := s.fixture.Read(chunk)
+		if n > 0 {
+			outbound = append(outbound, ProviderOutbound{Binary: chunk[:n]})
+		}
+		// Peek for the next chunk. If EOF, close the fixture and let the
+		// trailing ai.turn.end handle the close. If more bytes, queue the
+		// next chunk and signal HandleClientAudio to continue.
 		check := make([]byte, devEchoChunkBytes)
-		n, err := s.fixture.Read(check)
-		if n == 0 || (err != nil && err != io.EOF) {
+		n2, err := s.fixture.Read(check)
+		switch {
+		case n2 == 0 || (err != nil && err != io.EOF):
 			if err := s.fixture.Close(); err == nil {
 				s.fixture = nil
 			}
-			// Fixture exhausted — end the turn so iOS leaves .processing.
-			outbound = append(outbound, ProviderOutbound{
-				Control: voiceproto.AITurnEnd{
-					Type:    voiceproto.TypeAITurnEnd,
-					TurnID:  turnID,
-					Outcome: "ok",
-					LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
-				},
-			})
-		} else if n > 0 {
-			// More chunks remain — send this one too.
-			outbound = append(outbound, ProviderOutbound{
-				Binary: check[:n],
-			})
+		case n2 > 0:
+			outbound = append(outbound, ProviderOutbound{Binary: check[:n2]})
+			moreChunksRemain = true
 		}
+	}
+
+	// B15: always close the turn with ai.turn.end so iOS leaves `.processing`
+	// regardless of whether we emitted audio chunks. f3cb308 hardened this
+	// for the no-fixture path; b917f0a's T2 work accidentally dropped the
+	// unconditional emit when no fixture was loaded. This restores it.
+	if !moreChunksRemain {
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.AITurnEnd{
+				Type:    voiceproto.TypeAITurnEnd,
+				TurnID:  turnID,
+				Outcome: "ok",
+				LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
+			},
+		})
 	}
 
 	return outbound, nil
