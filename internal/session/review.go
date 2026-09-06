@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -19,6 +21,23 @@ const (
 	stubReviewGenerator   = "stub-v1"
 	legacyReviewGenerator = "legacy-review-v0"
 )
+
+// #21 (B8 followup) — Ark Mini per-million-token pricing in 元 (CNY).
+// These are the public list prices for Volcano Ark Doubao models as of 2026-09:
+//   input  : 0.3 CNY / 1M tokens
+//   output : 0.6 CNY / 1M tokens
+// CostFen is recorded in 分 (1 元 = 100 分), so the multiplier is 0.1 * 100 / 1_000_000.
+// When Ark introduces model-specific pricing, switch on result.Model.
+const (
+	arkReviewTaskType    = "review.eval"
+	arkInputFenPerToken  = 0.03 / 1_000_000.0 // 0.3元/M token → 0.03分/token (rounded)
+	arkOutputFenPerToken = 0.06 / 1_000_000.0 // 0.6元/M token → 0.06分/token (rounded)
+)
+
+// reviewRetryAttempts is the number of times buildReviewArtifacts will retry a
+// failed generator call before falling back to stub artifacts. Acceptance
+// criterion: "失败重试 1 次" — first try plus one retry = 2 total attempts.
+const reviewRetryAttempts = 2
 
 // ProcessNextJob claims and processes one pending session.finished job.
 // ok=false means the queue was empty.
@@ -136,12 +155,20 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		pipelineErr = err
 		return pipelineErr
 	}
-	_, err = s.store.MarkSessionReviewed(ctx, sessionID, artifacts.ReviewJSON, s.now().UTC())
-	if err != nil {
-		pipelineErr = err
-		return pipelineErr
+	now := s.now().UTC()
+	// #21 (B8 followup): atomic review + cost. When the generator produced a
+	// real artifact we use MarkSessionReviewedWithCost to commit review_json
+	// and ai_cost_logs in one transaction. When the generator was unavailable
+	// or both attempts failed we fall back to MarkSessionReviewed with no cost
+	// (stub artifacts: Cost == nil) — no cost ledger row should be written for
+	// "no real AI usage" sessions.
+	if artifacts.Cost == nil {
+		_, err = s.store.MarkSessionReviewed(ctx, sessionID, artifacts.ReviewJSON, now)
+	} else {
+		costLog := buildCostLog(session, artifacts, now)
+		_, err = s.store.MarkSessionReviewedWithCost(ctx, sessionID, artifacts.ReviewJSON, now, costLog)
 	}
-	if err := s.recordReviewCost(ctx, session, artifacts); err != nil {
+	if err != nil {
 		pipelineErr = err
 		return pipelineErr
 	}
@@ -151,8 +178,57 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		"utterance_count", len(utterances),
 		"review_bytes", len(artifacts.ReviewJSON),
 		"generator", artifacts.Generator,
+		"cost_recorded", artifacts.Cost != nil,
 	}
 	return nil
+}
+
+// buildCostLog converts a reviewArtifacts.Cost (RecordRequest) into an aicost.Log
+// with a fresh ID and timestamp, ready for atomic insert alongside the review.
+func buildCostLog(session Session, artifacts reviewArtifacts, at time.Time) aicost.Log {
+	req := *artifacts.Cost
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		userID = session.UserID
+	}
+	return aicost.Log{
+		ID:        uuid.NewString(),
+		TaskType:  arkReviewTaskType,
+		Model:     strings.TrimSpace(req.Model),
+		TokensIn:  req.TokensIn,
+		TokensOut: req.TokensOut,
+		AudioSec:  req.AudioSec,
+		CostFen:   computeCostFen(req.TokensIn, req.TokensOut),
+		CreatedAt: at,
+		UserID:    nullableUserID(userID),
+	}
+}
+
+// nullableUserID returns &id only when id is non-empty; otherwise nil.
+// Matches nullableString in aicost.MySQLStore.
+func nullableUserID(id string) *string {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	copied := id
+	return &copied
+}
+
+// computeCostFen converts token counts into a cost in 分 (1元 = 100分) using
+// the Ark Mini pricing table. The math is intentionally simple — when Ark
+// ships model-specific pricing we should switch on result.Model here.
+func computeCostFen(tokensIn, tokensOut int) int {
+	if tokensIn < 0 {
+		tokensIn = 0
+	}
+	if tokensOut < 0 {
+		tokensOut = 0
+	}
+	fen := float64(tokensIn)*arkInputFenPerToken + float64(tokensOut)*arkOutputFenPerToken
+	if fen < 0 {
+		fen = 0
+	}
+	return int(fen + 0.5) // round-half-up to nearest 分
 }
 
 type reviewArtifacts struct {
