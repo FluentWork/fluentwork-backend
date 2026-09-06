@@ -54,6 +54,9 @@ type Store interface {
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.
+// In MySQL mode it also opens an aicost.Store and wires its RecordCostTx into
+// the returned MySQLStore, so MarkSessionReviewedWithCost can insert the cost
+// ledger row inside its own transaction through the aicost package.
 func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -76,7 +79,31 @@ func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, err
 		_ = db.Close()
 		return nil, nil, fmt.Errorf("ping mysql: %w", err)
 	}
-	return NewMySQLStore(db), db.Close, nil
+
+	// Open the cost ledger store so its RecordCostTx participates in the
+	// session review transaction. Both stores share the same *sql.DB — they
+	// only differ in which tables they own. Closing the session DB will
+	// close the underlying pool; the aicost closer is invoked separately.
+	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("open ai_cost store: %w", err)
+	}
+
+	sessionStore := NewMySQLStore(db)
+	sessionStore.SetCostTx(costStore.RecordCostTx)
+
+	closer := func() error {
+		var firstErr error
+		if err := costCloser(); err != nil {
+			firstErr = err
+		}
+		if err := db.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
+	}
+	return sessionStore, closer, nil
 }
 
 func ensureParseTime(dsn string) string {

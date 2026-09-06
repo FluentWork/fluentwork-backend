@@ -14,11 +14,25 @@ import (
 // MySQLStore persists sessions and tickets in MySQL 8.
 type MySQLStore struct {
 	db *sql.DB
+	// costTx inserts one ai_cost_logs row into the same database transaction
+	// that MarkSessionReviewedWithCost opens. It is wired by session.OpenStore
+	// to aicost.MySQLStore.RecordCostTx so the INSERT SQL lives in exactly
+	// one place (the aicost package). MarkSessionReviewedWithCost refuses to
+	// run without it wired — protecting the "review + cost must commit
+	// together" invariant from accidental silent fallback.
+	costTx func(ctx context.Context, tx any, log aicost.Log) error
 }
 
 // NewMySQLStore wraps an opened database handle.
 func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
+}
+
+// SetCostTx wires the function used to insert cost ledger rows inside
+// MarkSessionReviewedWithCost's transaction. It must be called before any
+// review write — typically by session.OpenStore in MySQL mode.
+func (s *MySQLStore) SetCostTx(costTx func(ctx context.Context, tx any, log aicost.Log) error) {
+	s.costTx = costTx
 }
 
 // Ping verifies database connectivity.
@@ -418,7 +432,14 @@ func (s *MySQLStore) MarkSessionReviewed(ctx context.Context, sessionID string, 
 // "成本写入失败视为任务失败", and "不允许后补"). When session.status is already
 // StatusReviewed (idempotent retry) we commit without the cost insert to avoid
 // double-billing on retry storms.
+//
+// The cost INSERT itself is delegated to s.costTx (wired by session.OpenStore to
+// aicost.MySQLStore.RecordCostTx) so the cost ledger SQL lives in exactly one
+// place — the aicost package.
 func (s *MySQLStore) MarkSessionReviewedWithCost(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time, costLog aicost.Log) (Session, error) {
+	if s.costTx == nil {
+		return Session{}, errors.New("session: MySQLStore.costTx not wired; call SetCostTx before MarkSessionReviewedWithCost")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, err
@@ -446,11 +467,7 @@ func (s *MySQLStore) MarkSessionReviewedWithCost(ctx context.Context, sessionID 
 			return Session{}, err
 		}
 		// Same transaction: cost ledger row. Either both commit or both rollback.
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO ai_cost_logs (
-				id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, cost_fen, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, costLog.ID, costLog.UserID, costLog.TaskType, costLog.Model, costLog.TokensIn, costLog.TokensOut, costLog.AudioSec, costLog.CostFen, costLog.CreatedAt); err != nil {
+		if err := s.costTx(ctx, tx, costLog); err != nil {
 			return Session{}, fmt.Errorf("insert ai_cost_logs: %w", err)
 		}
 		session.Status = StatusReviewed

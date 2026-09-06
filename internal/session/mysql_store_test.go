@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,7 +29,14 @@ func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
+	// MarkSessionReviewedWithCost delegates the cost INSERT to
+	// aicost.MySQLStore.RecordCostTx — wire it so the production code path
+	// (costTx → aicost.RecordCostTx → INSERT INTO ai_cost_logs) is what the
+	// tests exercise, not a duplicated inline INSERT. Both stores share the
+	// same sqlmock handle so expectations are matched against the same Tx.
+	costStore := aicost.NewMySQLStore(mockDB)
 	store := NewMySQLStore(mockDB)
+	store.SetCostTx(costStore.RecordCostTx)
 	cleanup := func() { _ = mockDB.Close() }
 	return store, mock, cleanup
 }
@@ -36,6 +44,18 @@ func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
 // sessionColumns is exported for matching (the production constant lives in
 // mysql_store.go as an unexported string).
 var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at")
+
+// aicostUserIDArg mirrors aicost.nullableString for the user_id column: nil
+// pointer → nil driver arg, otherwise the trimmed string. The production path
+// goes through aicost.MySQLStore.RecordCostTx which calls nullableString, so
+// the test must expect the post-conversion value — sqlmock matches arguments
+// by reflect.TypeOf which would reject *string vs string.
+func aicostUserIDArg(value *string) any {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	return strings.TrimSpace(*value)
+}
 
 // endedSessionRows returns a Row set for a session with status="ended".
 // MaterialID is NULL, ReviewJSON is empty — the test supplies its own via
@@ -98,8 +118,8 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO ai_cost_logs`).
 		WithArgs(
-			costLog.ID, // nullableString converts *string → string or nil
-			costLog.UserID,
+			costLog.ID, // string
+			aicostUserIDArg(costLog.UserID), // nullableString → nil or trimmed string
 			costLog.TaskType,
 			costLog.Model,
 			costLog.TokensIn,
@@ -151,8 +171,15 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO ai_cost_logs`).
 		WithArgs(
-			costLog.ID, costLog.UserID, costLog.TaskType, costLog.Model,
-			costLog.TokensIn, costLog.TokensOut, costLog.AudioSec, costLog.CostFen, costLog.CreatedAt,
+			costLog.ID,
+			aicostUserIDArg(costLog.UserID),
+			costLog.TaskType,
+			costLog.Model,
+			costLog.TokensIn,
+			costLog.TokensOut,
+			costLog.AudioSec,
+			costLog.CostFen,
+			costLog.CreatedAt,
 		).
 		WillReturnError(errors.New("cost insert failed: ai_cost_logs.user_id FK violation"))
 	mock.ExpectRollback()
@@ -257,5 +284,35 @@ func TestMySQLStore_MarkSessionReviewedWithCost_NotFound(t *testing.T) {
 func TestSessionColumnCountMatchesScanSession(t *testing.T) {
 	if sessionColumnCount != 9 {
 		t.Fatalf("sessionColumnCount = %d, mysql_store.scanSession expects 9; update both", sessionColumnCount)
+	}
+}
+
+// MarkSessionReviewedWithCost must refuse to run when costTx is not wired.
+// This guards the atomic-write invariant: silently falling back to inline
+// INSERT would duplicate SQL across two packages and re-introduce the dead
+// code path that the RecordCostTx refactor removed.
+func TestMySQLStore_MarkSessionReviewedWithCost_RejectsUnwiredCostTx(t *testing.T) {
+	mockDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = mockDB.Close() }()
+
+	store := NewMySQLStore(mockDB) // no SetCostTx — costTx stays nil
+	_, err = store.MarkSessionReviewedWithCost(
+		context.Background(),
+		"any-session",
+		[]byte(`{}`),
+		time.Now().UTC(),
+		aicost.Log{ID: "x", TaskType: arkReviewTaskType, CreatedAt: time.Now().UTC()},
+	)
+	if err == nil {
+		t.Fatal("expected error when costTx is not wired")
+	}
+	if !strings.Contains(err.Error(), "costTx not wired") {
+		t.Fatalf("expected error mentioning costTx wiring, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("no SQL should have been issued, got unmet expectations: %v", err)
 	}
 }
