@@ -108,3 +108,37 @@ gh issue create --title "B19: ..." --label "..." --body-file ...
    ↓ PR merged
 ✅ Closed
 ```
+
+## 8. GitHub 落库状态(已完成 2026-09-06)
+
+- **GitHub Issue 范围**:#42 (closed) / #43 (closed) / #44-#51 (8 masters) / #52-#97 (46 sub-tickets) / #21 + #28 (评论贴拆解)
+- 总计 **58 个 GitHub 操作**
+- 详细 list 见 `落库清单.md`(本目录)
+- 跨仓 iOS 对应表 见 `跨仓对应表.md`(本目录)
+
+## 9. 本地修改 → GitHub 同步工作流
+
+如需在本地修改某个 skill 的内容,然后同步到 GitHub:
+
+```bash
+# 1. 编辑对应文件,例如修改 B17
+$ vim 03-skill-B17-TTS-Provider.md
+
+# 2. 如只是修改已有 issue body(推荐):
+$ gh issue edit 44 --body-file body.md
+
+# 3. 如要重新创建(会创建新 issue,旧 issue 需手动 close):
+$ python3 create-issues.py --apply
+
+# 4. 提交本地变更
+$ git add .scratch/
+$ git commit -m "docs(scratch): 更新 B17 ..."
+$ git push
+```
+
+> ⚠️ 推荐用 `gh issue edit` 修改已有 issue,避免重建时 GitHub 创建重复 issue。
+
+## 10. 跨仓评审
+
+打开 `跨仓对应表.md` 查看 backend → iOS issue 一一对应关系,方便跨仓 review。
+```
