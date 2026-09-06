@@ -19,6 +19,10 @@ type Store interface {
 	Ping(ctx context.Context) error
 	CreateLog(ctx context.Context, log Log) error
 	ListRecent(ctx context.Context, userID string, limit int) ([]Log, error)
+	// RecordCostTx records one cost ledger row within an external database transaction.
+	// Implementations that cannot participate in external transactions (e.g. in-memory
+	// stores) return nil — callers must check the return value and handle accordingly.
+	RecordCostTx(ctx context.Context, tx any, log Log) error
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

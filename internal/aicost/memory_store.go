@@ -54,6 +54,13 @@ func (s *MemoryStore) ListRecent(_ context.Context, userID string, limit int) ([
 	return filtered, nil
 }
 
+// RecordCostTx implements Store. MemoryStore cannot participate in external transactions,
+// so this is a no-op — callers must handle the nil error case when using the
+// memory store in tests.
+func (*MemoryStore) RecordCostTx(_ context.Context, _ any, _ Log) error {
+	return nil // no-op for in-memory store
+}
+
 func cloneLog(log Log) Log {
 	cloned := log
 	if log.UserID != nil {

@@ -102,6 +102,21 @@ func scanLog(scanner interface{ Scan(dest ...any) error }) (Log, error) {
 	return log, nil
 }
 
+// RecordCostTx implements Store. It inserts one cost ledger row within an external
+// database transaction. The caller is responsible for committing or rolling back tx.
+func (s *MySQLStore) RecordCostTx(ctx context.Context, tx any, log Log) error {
+	dbTx, ok := tx.(*sql.Tx)
+	if !ok {
+		return nil // not a *sql.Tx — caller must handle separately
+	}
+	_, err := dbTx.ExecContext(ctx, `
+		INSERT INTO ai_cost_logs (
+			id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, cost_fen, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, log.ID, nullableString(log.UserID), log.TaskType, log.Model, log.TokensIn, log.TokensOut, log.AudioSec, log.CostFen, log.CreatedAt)
+	return err
+}
+
 func nullableString(value *string) any {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return nil
