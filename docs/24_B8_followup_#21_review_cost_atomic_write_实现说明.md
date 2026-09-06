@@ -20,8 +20,10 @@
    * MySQL 版断言 `tx` 是 `*sql.Tx`，并 `ExecContext` 同样的 INSERT
 2. `session.Store.MarkSessionReviewedWithCost(...)` — review 与 cost 在同一事务内 commit
    * memory 版用 mutex 把两写锁在一起；幂等命中（status 已是 reviewed）只 commit 不重复记
-   * MySQL 版 `BeginTx + SELECT ... FOR UPDATE + UPDATE sessions + INSERT ai_cost_logs + Commit`；
+   * MySQL 版 `BeginTx + SELECT ... FOR UPDATE + UPDATE sessions + 委托 costTx 写 ai_cost_logs + Commit`；
      任一步出错 `Rollback` 整笔；幂等命中也走 Commit 但跳过 cost insert
+   * `MySQLStore.costTx` 由 `session.OpenStore` 在 MySQL 分支里 wire 到
+     `aicost.MySQLStore.RecordCostTx`，成本 INSERT 的 SQL 只在 aicost 包维护一份
 3. `processSessionFinished` 编排层：
    * `artifacts.Cost == nil` → 走 `MarkSessionReviewed`（stub 不写账本）
    * `artifacts.Cost != nil` → 走 `MarkSessionReviewedWithCost`（真实 AI 用量）
@@ -29,13 +31,15 @@
 5. `computeCostFen` 用 Ark Mini 2026-09 list price 计价（0.3 / 0.6 元每 M token → 0.03 / 0.06 分每 token）
 6. 干掉迁移遗留：`Service.costRecorder`、`CostRecorder` 接口、`SetCostRecorder`、`recordReviewCost`，
    以及 `cmd/app-server` / `cmd/worker` 的 aicost 注入（`#21` 之前已经被原子写取代）
+7. `internal/session/mysql_store_test.go` 用 `DATA-DOG/go-sqlmock` 覆盖 MySQL 真实事务路径（5 个
+   `MarkSessionReviewedWithCost` 行为用例 + 1 个列数哨兵），不再依赖 docker；`session.OpenStore`
+   测试 helper 在 MySQL 模式下额外 wire `aicost.MySQLStore.RecordCostTx` 以保持生产路径一致
 
 本批**明确不做**：
 
 1. 不动 Ark provider 实现本身（`internal/reviewgen/ark.go` 不在范围）
 2. 不改 `ai_cost_logs` 表结构（仅写入路径换事务）
-3. 不补 `MySQLStore` 的单元测试 — MySQL 写入走真实数据库，
-   后续若引入 sqlmock 或 compose-based 集成测试再补（见 "未覆盖路径"）
+3. 不补 docker-compose / 真实 MySQL 集成测试；sqlmock 已覆盖 SQL 字符串、事务边界、幂等语义
 
 ## 当前实现口径
 
@@ -55,9 +59,17 @@ processSessionFinished
         ├── SELECT ... FROM practice_sessions WHERE id=? FOR UPDATE
         ├── switch session.Status
         │   ├── reviewed → Commit (no cost insert; 幂等)
-        │   ├── ended    → UPDATE sessions + INSERT ai_cost_logs + Commit
+        │   ├── ended    → UPDATE sessions
+        │   │             + costTx(ctx, tx, log)  // 委托 aicost.MySQLStore.RecordCostTx
+        │   │             + Commit
         │   └── other    → Rollback + ErrConflict
         └── 任一错误 → Rollback + 返回错误
+
+session.OpenStore (MySQL 分支)
+├── sql.Open(mysql, dsn)
+├── aicost.OpenStore(cfg)         // 共享同一个 *sql.DB
+├── NewMySQLStore(db)
+└── store.SetCostTx(costStore.RecordCostTx)
 ```
 
 ### 计价口径
@@ -114,16 +126,20 @@ processSessionFinished
 | `TestMarkSessionReviewedWithCost_Memory_BothWritesLand` | review_json + cost log 同 mutex 提交 |
 | `TestMarkSessionReviewedWithCost_Memory_IdempotentNoDoubleBill` | 二次 Mark 不重复写 cost |
 | `TestMarkSessionReviewedWithCost_Memory_RejectsNonEnded` | 非 Ended 返回 `ErrConflict` |
+| `TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded` | sqlmock：BeginTx / SELECT FOR UPDATE / UPDATE / INSERT ai_cost_logs（走 aicost.RecordCostTx）/ Commit 全部命中 |
+| `TestMySQLStore_MarkSessionReviewedWithCost_RollsbackOnCostInsertFailure` | sqlmock：cost INSERT 失败 → Rollback（验证事务回滚） |
+| `TestMySQLStore_MarkSessionReviewedWithCost_IdempotentNoDoubleBill` | sqlmock：status=reviewed → BeginTx/SELECT/Commit，**不**发 UPDATE/INSERT（幂等） |
+| `TestMySQLStore_MarkSessionReviewedWithCost_RejectsNonEnded` | sqlmock：非 Ended → Rollback + ErrConflict |
+| `TestMySQLStore_MarkSessionReviewedWithCost_NotFound` | sqlmock：SELECT 返 ErrNoRows → Rollback + ErrNotFound |
+| `TestMySQLStore_MarkSessionReviewedWithCost_RejectsUnwiredCostTx` | `SetCostTx` 未调 → 拒绝运行、不发任何 SQL |
+| `TestSessionColumnCountMatchesScanSession` | 列数哨兵：mysql_store.scanSession 与测试期望 9 列对齐 |
 
 ## 未覆盖路径
 
-1. `MySQLStore.MarkSessionReviewedWithCost` 真实事务行为（`BeginTx + FOR UPDATE + UPDATE + INSERT + Commit/Rollback`）
-   * 当前依赖 `cmd/smoke-review-ready` 走真实 MySQL 路径间接验证
-   * 后续若引入 `go-sqlmock` 或 compose-based 集成测试可补
-2. `MySQLStore.RecordCostTx` 错误分支（tx 类型断言失败 / INSERT 失败）
-   * 同上
-3. `computeCostFen` 在 `result.Model` 切换为 model-specific 时的分支
+1. `computeCostFen` 在 `result.Model` 切换为 model-specific 时的分支
    * 等 Ark 实际提供 model-specific 价格后再补
+2. 真实 MySQL 端到端（不走 sqlmock）
+   * 当前依赖 `cmd/smoke-review-ready` 走真实 MySQL 路径间接验证
 
 ## 这么切的原因
 
@@ -134,7 +150,8 @@ processSessionFinished
 
 ## 下一步
 
-1. ~~atomic review + cost 接入~~ — 2026-09-06 落（5 commit：`d270708` / `d877eed` / `2488dc8` / `67501d9` / `b99b811`）
-2. 给 `MySQLStore.MarkSessionReviewedWithCost` 加 sqlmock 集成测试（不引入 docker）
-3. Ark 出 model-specific pricing 后，把 `computeCostFen` 的 switch 分支补上
-4. 观察线上 `cost_fen` 与 Ark billing 的对账偏差，确认口径稳定
+1. ~~atomic review + cost 接入~~ — 2026-09-06 落（commit：`d270708` / `d877eed` / `2488dc8` / `67501d9` / `b99b811` / `0af46b0` / `f4b8dee` / `c78f9b5`）
+2. ~~给 `MySQLStore.MarkSessionReviewedWithCost` 加 sqlmock 集成测试（不引入 docker）~~ — 2026-09-06 落（commit `f4b8dee`，7 个用例覆盖原子写 / 回滚 / 幂等 / 状态校验 / NotFound / 列数哨兵 / costTx 未接线守护）
+3. ~~把 `MySQLStore.MarkSessionReviewedWithCost` 的 inline INSERT 委托给 `aicost.MySQLStore.RecordCostTx`~~ — 2026-09-06 落（commit `c78f9b5`），让 cost SQL 只在 aicost 包维护一份
+4. Ark 出 model-specific pricing 后，把 `computeCostFen` 的 switch 分支补上
+5. 观察线上 `cost_fen` 与 Ark billing 的对账偏差，确认口径稳定
