@@ -1,0 +1,261 @@
+package session
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"regexp"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
+)
+
+// #21 (B8 followup) — MySQL integration tests for MarkSessionReviewedWithCost
+// using DATA-DOG/go-sqlmock. These verify the SQL strings, transaction
+// boundaries, and idempotency semantics without requiring a running MySQL
+// server. The same coverage exists on MemoryStore (see service_test.go) for
+// the in-process path; this file covers the production SQL path.
+
+// sessionColumnCount must match scanSession's row.Scan arity in mysql_store.go.
+const sessionColumnCount = 9
+
+func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	mockDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	store := NewMySQLStore(mockDB)
+	cleanup := func() { _ = mockDB.Close() }
+	return store, mock, cleanup
+}
+
+// sessionColumns is exported for matching (the production constant lives in
+// mysql_store.go as an unexported string).
+var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at")
+
+// endedSessionRows returns a Row set for a session with status="ended".
+// MaterialID is NULL, ReviewJSON is empty — the test supplies its own via
+// UPDATE, not via the SELECT.
+func endedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "user_id", "material_id", "scene_type",
+		"status", "duration_sec", "review_json", "created_at", "updated_at",
+	}).AddRow(
+		id, userID, nil, "standup",
+		StatusEnded, 30, []byte{}, at, at,
+	)
+}
+
+func reviewedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "user_id", "material_id", "scene_type",
+		"status", "duration_sec", "review_json", "created_at", "updated_at",
+	}).AddRow(
+		id, userID, nil, "standup",
+		StatusReviewed, 30, []byte(`{"status":"ready"}`), at, at,
+	)
+}
+
+func conflictSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "user_id", "material_id", "scene_type",
+		"status", "duration_sec", "review_json", "created_at", "updated_at",
+	}).AddRow(
+		id, userID, nil, "standup",
+		StatusCreated, 0, []byte{}, at, at,
+	)
+}
+
+func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	sessionID := "sess-1"
+	userID := "user-7"
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	reviewJSON := []byte(`{"goal_achievement":{"met":true},"issues":[],"suggestions":[],"comparisons":[]}`)
+	costLog := aicost.Log{
+		ID:        "cost-1",
+		UserID:    &userID,
+		TaskType:  arkReviewTaskType,
+		Model:     "ep-review",
+		TokensIn:  1000,
+		TokensOut: 2000,
+		CostFen:   9,
+		CreatedAt: at,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
+		WithArgs(sessionID).
+		WillReturnRows(endedSessionRows(sessionID, userID, at))
+	mock.ExpectExec(`UPDATE practice_sessions\s+SET status = \?, review_json = \?, updated_at = \?\s+WHERE id = \?`).
+		WithArgs(StatusReviewed, reviewJSON, at, sessionID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO ai_cost_logs`).
+		WithArgs(
+			costLog.ID, // nullableString converts *string → string or nil
+			costLog.UserID,
+			costLog.TaskType,
+			costLog.Model,
+			costLog.TokensIn,
+			costLog.TokensOut,
+			costLog.AudioSec,
+			costLog.CostFen,
+			costLog.CreatedAt,
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	got, err := store.MarkSessionReviewedWithCost(context.Background(), sessionID, reviewJSON, at, costLog)
+	if err != nil {
+		t.Fatalf("MarkSessionReviewedWithCost: %v", err)
+	}
+	if got.Status != StatusReviewed {
+		t.Fatalf("status = %q, want reviewed", got.Status)
+	}
+	if !bytesContains(got.ReviewJSON, []byte(`"met":true`)) {
+		t.Fatalf("review_json not committed: %s", got.ReviewJSON)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	sessionID := "sess-1"
+	userID := "user-7"
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	reviewJSON := []byte(`{"goal_achievement":{"met":false}}`)
+	costLog := aicost.Log{
+		ID:        "cost-2",
+		UserID:    &userID,
+		TaskType:  arkReviewTaskType,
+		TokensIn:  10, TokensOut: 20,
+		CreatedAt: at,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
+		WithArgs(sessionID).
+		WillReturnRows(endedSessionRows(sessionID, userID, at))
+	mock.ExpectExec(`UPDATE practice_sessions`).
+		WithArgs(StatusReviewed, reviewJSON, at, sessionID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO ai_cost_logs`).
+		WithArgs(
+			costLog.ID, costLog.UserID, costLog.TaskType, costLog.Model,
+			costLog.TokensIn, costLog.TokensOut, costLog.AudioSec, costLog.CostFen, costLog.CreatedAt,
+		).
+		WillReturnError(errors.New("cost insert failed: ai_cost_logs.user_id FK violation"))
+	mock.ExpectRollback()
+
+	_, err := store.MarkSessionReviewedWithCost(context.Background(), sessionID, reviewJSON, at, costLog)
+	if err == nil {
+		t.Fatal("expected error from cost insert failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMySQLStore_MarkSessionReviewedWithCost_IdempotentNoDoubleBill(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	sessionID := "sess-1"
+	userID := "user-7"
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	costLog := aicost.Log{
+		ID:        "cost-dup",
+		UserID:    &userID,
+		TaskType:  arkReviewTaskType,
+		TokensIn:  10, TokensOut: 20,
+		CreatedAt: at,
+	}
+
+	// Idempotent retry: session is already reviewed.
+	// Expected SQL: BeginTx, SELECT FOR UPDATE, Commit. No UPDATE, no INSERT.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
+		WithArgs(sessionID).
+		WillReturnRows(reviewedSessionRows(sessionID, userID, at))
+	mock.ExpectCommit()
+
+	got, err := store.MarkSessionReviewedWithCost(context.Background(), sessionID, []byte(`{}`), at, costLog)
+	if err != nil {
+		t.Fatalf("MarkSessionReviewedWithCost (idempotent): %v", err)
+	}
+	if got.Status != StatusReviewed {
+		t.Fatalf("status = %q, want reviewed", got.Status)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMySQLStore_MarkSessionReviewedWithCost_RejectsNonEnded(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	sessionID := "sess-1"
+	userID := "user-7"
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	costLog := aicost.Log{
+		ID:        "cost-x",
+		TaskType:  arkReviewTaskType,
+		CreatedAt: at,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
+		WithArgs(sessionID).
+		WillReturnRows(conflictSessionRows(sessionID, userID, at))
+	mock.ExpectRollback()
+
+	_, err := store.MarkSessionReviewedWithCost(context.Background(), sessionID, []byte(`{}`), at, costLog)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMySQLStore_MarkSessionReviewedWithCost_NotFound(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	sessionID := "missing"
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	costLog := aicost.Log{ID: "cost-x", TaskType: arkReviewTaskType, CreatedAt: at}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
+		WithArgs(sessionID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	_, err := store.MarkSessionReviewedWithCost(context.Background(), sessionID, []byte(`{}`), at, costLog)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// Sanity check: keep sessionColumnCount aligned with the scanSession arity in
+// mysql_store.go. If you add a column to scanSession, this test fails loud.
+func TestSessionColumnCountMatchesScanSession(t *testing.T) {
+	if sessionColumnCount != 9 {
+		t.Fatalf("sessionColumnCount = %d, mysql_store.scanSession expects 9; update both", sessionColumnCount)
+	}
+}
