@@ -7,3 +7,6 @@ coverage.out
 .env.*
 /cmd/*/voice-gateway
 /cmd/integration-voice-gateway/integration-voice-gateway
+
+# .scratch/ is intentionally tracked (W3 issue planning artifacts)
+.tmp-issues/

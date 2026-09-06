@@ -1,0 +1,260 @@
+{
+  "masters": {
+    "B17": 44,
+    "B18": 45,
+    "B19": 46,
+    "B21": 47,
+    "B22": 48,
+    "B23": 49,
+    "B24": 50,
+    "B25": 51
+  },
+  "subtickets": {
+    "B17": [
+      {
+        "id": "T-TTS-1",
+        "title": "Provider 接口定义 + unit tests",
+        "num": 52
+      },
+      {
+        "id": "T-TTS-2",
+        "title": "火山独立 TTS HTTP/2 client + 流式 chunk channel",
+        "num": 53
+      },
+      {
+        "id": "T-TTS-3",
+        "title": "双工内置 TTS fallback 实现",
+        "num": 54
+      },
+      {
+        "id": "T-TTS-4",
+        "title": "4 个 D-2 音色常量 + voice_config 透传",
+        "num": 55
+      },
+      {
+        "id": "T-TTS-5",
+        "title": "5xx 触发 fallback metrics + OpenAPI 同步",
+        "num": 56
+      }
+    ],
+    "B18": [
+      {
+        "id": "T-B18-1",
+        "title": "数据模型 + Store 接口",
+        "num": 57
+      },
+      {
+        "id": "T-B18-2",
+        "title": "Evaluator + LLM Prompt + JSON 解析",
+        "num": 58
+      },
+      {
+        "id": "T-B18-3",
+        "title": "Service.RunEvalJob + 限速 1 QPS",
+        "num": 59
+      },
+      {
+        "id": "T-B18-4",
+        "title": "EnqueueEval 触发点 + session.EndSession 联动",
+        "num": 60
+      },
+      {
+        "id": "T-B18-5",
+        "title": "HTTP 路由 + Handler + 200/202/404",
+        "num": 61
+      },
+      {
+        "id": "T-B18-6",
+        "title": "OpenAPI 同步 + metric + 文档",
+        "num": 62
+      }
+    ],
+    "B19": [
+      {
+        "id": "T-HIT-1",
+        "title": "路由 + 鉴权中间件 + 路由挂载",
+        "num": 63
+      },
+      {
+        "id": "T-HIT-2",
+        "title": "`HitsService.RecordHits` UPSERT 事务",
+        "num": 64
+      },
+      {
+        "id": "T-HIT-3",
+        "title": "`HitsService.RecentHits` 联表 + `ttl_at_ms`",
+        "num": 65
+      },
+      {
+        "id": "T-HIT-4",
+        "title": "100 QPS 压测脚本 + OpenAPI 同步",
+        "num": 66
+      }
+    ],
+    "B21": [
+      {
+        "id": "T-B21-1",
+        "title": "数据模型 + Store 接口",
+        "num": 67
+      },
+      {
+        "id": "T-B21-2",
+        "title": "`Service.Create` + URL fetcher stub",
+        "num": 68
+      },
+      {
+        "id": "T-B21-3",
+        "title": "Refiner LLM 调用 + JSON 解析",
+        "num": 69
+      },
+      {
+        "id": "T-B21-4",
+        "title": "Refiner.PhraseBlockStore 批量写入",
+        "num": 70
+      },
+      {
+        "id": "T-B21-5",
+        "title": "Refiner 状态机 queued→processing→ready/failed",
+        "num": 71
+      },
+      {
+        "id": "T-B21-6",
+        "title": "HTTP 路由 + Handler",
+        "num": 72
+      },
+      {
+        "id": "T-B21-7",
+        "title": "OpenAPI 同步 + 软删除 + metric",
+        "num": 73
+      }
+    ],
+    "B22": [
+      {
+        "id": "T-B22-0",
+        "title": "0012 迁移 + 回滚 SQL",
+        "num": 74
+      },
+      {
+        "id": "T-B22-1",
+        "title": "闪测 SM-2 `selectBlocksForRound`",
+        "num": 75
+      },
+      {
+        "id": "T-B22-2",
+        "title": "闪测 Judge LLM Prompt + LLMJudge",
+        "num": 76
+      },
+      {
+        "id": "T-B22-3",
+        "title": "闪测 Service + Handler + 路由",
+        "num": 77
+      },
+      {
+        "id": "T-B22-4",
+        "title": "闪测 drill_records 写入 + state 更新",
+        "num": 78
+      },
+      {
+        "id": "T-B22-5",
+        "title": "隐私 PrivacyService 单事务",
+        "num": 79
+      },
+      {
+        "id": "T-B22-6",
+        "title": "隐私 DELETE /account/data Handler",
+        "num": 80
+      },
+      {
+        "id": "T-B22-7",
+        "title": "隐私 POST /account/export Handler",
+        "num": 81
+      },
+      {
+        "id": "T-B22-8",
+        "title": "撤销 POST /support/undelete-user",
+        "num": 82
+      },
+      {
+        "id": "T-B22-9",
+        "title": "OpenAPI 同步 + metric + 文档",
+        "num": 83
+      }
+    ],
+    "B23": [
+      {
+        "id": "T-B23-1",
+        "title": "数据模型 + Store + streak 逻辑",
+        "num": 84
+      },
+      {
+        "id": "T-B23-2",
+        "title": "Generator + LLM Prompt",
+        "num": 85
+      },
+      {
+        "id": "T-B23-3",
+        "title": "Service + Checkin 业务",
+        "num": 86
+      },
+      {
+        "id": "T-B23-4",
+        "title": "Scheduler + cron 集成",
+        "num": 87
+      },
+      {
+        "id": "T-B23-5",
+        "title": "HTTP 路由 + Handler",
+        "num": 88
+      },
+      {
+        "id": "T-B23-6",
+        "title": "OpenAPI 同步 + metric + 文档",
+        "num": 89
+      }
+    ],
+    "B24": [
+      {
+        "id": "T-B24-1",
+        "title": "数据模型 + Cursor 编解码",
+        "num": 90
+      },
+      {
+        "id": "T-B24-2",
+        "title": "`Service.List` + Cursor 分页",
+        "num": 91
+      },
+      {
+        "id": "T-B24-3",
+        "title": "`Service.GetDetail` + B18/B22 联动",
+        "num": 92
+      },
+      {
+        "id": "T-B24-4",
+        "title": "HTTP 路由 + OpenAPI 同步",
+        "num": 93
+      }
+    ],
+    "B25": [
+      {
+        "id": "T-PIN-1",
+        "title": "路由注册 + handler 骨架",
+        "num": 94
+      },
+      {
+        "id": "T-PIN-2",
+        "title": "`PatchPin` + `PatchFavorite` handler + service",
+        "num": 95
+      },
+      {
+        "id": "T-PIN-3",
+        "title": "`PostFavorite` deprecated + metrics",
+        "num": 96
+      },
+      {
+        "id": "T-PIN-4",
+        "title": "`GetBlocks` 服务端排序 + OpenAPI",
+        "num": 97
+      }
+    ]
+  }
+}
