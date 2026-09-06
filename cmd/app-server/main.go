@@ -16,7 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
@@ -84,16 +83,6 @@ func run() error {
 		}
 	}()
 
-	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := costCloser(); closeErr != nil {
-			logger.Error("closing ai cost store", "err", closeErr)
-		}
-	}()
-
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},
 		corpus.Reassigner{Store: corpusStore},
@@ -105,7 +94,6 @@ func run() error {
 	contentSvc := content.NewService(contentStore, content.CorpusBlockSource{Store: corpusStore}, logger)
 	contentHandler := content.NewHandler(contentSvc, accountHandler)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
-	sessionSvc.SetCostRecorder(aicost.NewService(costStore, logger))
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
 		APIKey:   cfg.ArkAPIKey,

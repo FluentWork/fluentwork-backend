@@ -14,9 +14,10 @@
 - `internal/aicost/mysql_store.go`
 - `internal/aicost/service.go`
 - `internal/aicost/service_test.go`
-- `session.Service` 已接入 `SetCostRecorder(...)`
-- `cmd/app-server` / `cmd/worker` / `cmd/smoke-review-ready` 已完成依赖注入
-- `review worker` 已加“stub 跳过记账、真实 AI 必须有 recorder”的约束
+- `session.Store` 已具备 `MarkSessionReviewedWithCost(...)`：review + ai_cost_logs 走同一事务
+- `cmd/app-server` / `cmd/worker` 已不再注入 aicost.Service（cost 写入由 session store 一并完成）
+- `cmd/smoke-review-ready` 仍保留 aicost.Service 用于事后读取 `ai_cost_logs` 做冒烟验证
+- review worker 仍走 stub fallback；当生成器返回真实结果时在事务里写入 `ai_cost_logs`
 
 ## 模块边界
 

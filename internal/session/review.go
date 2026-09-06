@@ -321,31 +321,6 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 	}, nil
 }
 
-func (s *Service) recordReviewCost(ctx context.Context, session Session, artifacts reviewArtifacts) error {
-	if artifacts.Cost == nil {
-		s.logger.Info("ai cost skipped",
-			"session_id", session.ID,
-			"user_id", session.UserID,
-			"generator", artifacts.Generator,
-			"task_type", "review.eval",
-			"stage", "billing",
-			"reason", "no_ai_usage",
-		)
-		return nil
-	}
-	if s.costRecorder == nil {
-		return fmt.Errorf("aicost recorder is required for generator %q", artifacts.Generator)
-	}
-	req := *artifacts.Cost
-	if strings.TrimSpace(req.UserID) == "" {
-		req.UserID = session.UserID
-	}
-	if _, err := s.costRecorder.Record(ctx, req); err != nil {
-		return fmt.Errorf("record ai cost: %w", err)
-	}
-	return nil
-}
-
 func renderTranscript(utterances []Utterance) string {
 	if len(utterances) == 0 {
 		return ""

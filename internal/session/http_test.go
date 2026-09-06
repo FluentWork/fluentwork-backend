@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
@@ -38,7 +37,6 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
-	sessionSvc.SetCostRecorder(aicost.NewService(aicost.NewMemoryStore(), logger))
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, accountStore.Ping)
 	return server, accountSvc
@@ -62,7 +60,6 @@ func setupServerWithReviewGen(t *testing.T, gen session.ReviewGenerator) (*https
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
-	sessionSvc.SetCostRecorder(aicost.NewService(aicost.NewMemoryStore(), logger))
 	sessionSvc.SetReviewGenerator(gen)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	return httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, accountStore.Ping), sessionSvc

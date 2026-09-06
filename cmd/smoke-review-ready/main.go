@@ -72,7 +72,6 @@ func run() error {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	costSvc := aicost.NewService(costStore, logger)
-	sessionSvc.SetCostRecorder(costSvc)
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
 		APIKey:   cfg.ArkAPIKey,

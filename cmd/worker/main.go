@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -45,18 +44,7 @@ func run() error {
 		}
 	}()
 
-	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := costCloser(); closeErr != nil {
-			logger.Error("closing ai cost store", "err", closeErr)
-		}
-	}()
-
 	svc := session.NewService(store, cfg, logger)
-	svc.SetCostRecorder(aicost.NewService(costStore, logger))
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
 		APIKey:   cfg.ArkAPIKey,
