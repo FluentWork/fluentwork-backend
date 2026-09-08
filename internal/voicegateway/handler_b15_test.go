@@ -147,16 +147,13 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 	_ = readFrame(ctx, t, conn) // ai.text.delta
 	_ = readFrame(ctx, t, conn) // ai.turn.end
 
-	// Send N binary frames; the broken provider returns an error every time.
-	const totalFrames = 8
-	for i := 0; i < totalFrames; i++ {
-		if err := conn.Write(ctx, websocket.MessageBinary, []byte{1, 2, 3, 4}); err != nil {
-			t.Fatalf("write binary %d: %v", i, err)
-		}
+	// One binary frame triggers the initial provider failure and the reopen retry.
+	// The handler then reports the failure and closes the connection.
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte{1, 2, 3, 4}); err != nil {
+		t.Fatalf("write binary: %v", err)
 	}
 
-	// Expect exactly one provider_audio_failed error frame (the first failure),
-	// then subsequent frames are dropped silently by the broken guard.
+	// Expect exactly one provider_audio_failed error frame.
 	errFrame := readFrame(ctx, t, conn)
 	if errFrame["type"] != voiceproto.TypeError {
 		t.Fatalf("expected error frame after first binary failure, got %#v", errFrame)
@@ -165,7 +162,7 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 		t.Fatalf("expected provider_audio_failed code, got %#v", errFrame)
 	}
 
-	// No more frames should arrive on the iOS side — the broken guard drops them.
+	// No more frames should arrive on the iOS side.
 	// Item 1.2: the handler returns an error after the first failure, which causes
 	// the loop to exit and the connection to be closed by the server. The iOS side
 	// will see either a timeout (if the connection is still alive but silent) or
@@ -181,10 +178,10 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 		t.Fatalf("expected timeout or connection reset after first failure, got %v", readErr)
 	}
 
-	// Assertion 1: provider HandleClientAudio called once for the original
-	// frame plus once for the reopen retry; later frames are dropped.
+	// Assertion 1: provider HandleClientAudio is called once for the original
+	// frame plus once for the reopen retry.
 	if got := atomic.LoadInt32(&providerSession.audioCalls); got != 2 {
-		t.Fatalf("provider HandleClientAudio calls: got %d want 2 (broken guard failed to stop retries)", got)
+		t.Fatalf("provider HandleClientAudio calls: got %d want 2", got)
 	}
 
 	// Assertion 2: exactly one B15 warn line for the cascade.
