@@ -205,7 +205,7 @@ func TestVolcDuplexSession_KeepaliveProbeFailureSurfacesToHandler(t *testing.T) 
 		audioFormat: "pcm-s16le",
 		lastAudioAt: frozen.Add(-2 * time.Minute),
 		nowFn:       func() time.Time { return frozen },
-		probeFn: func(ctx context.Context) error {
+		probeFn: func(_ context.Context) error {
 			probeCalled = true
 			return probeErr
 		},
@@ -239,7 +239,7 @@ func TestVolcDuplexSession_KeepaliveProbeSuccessUpdatesTimestamp(t *testing.T) {
 		audioFormat: "pcm-s16le",
 		lastAudioAt: frozen.Add(-2 * time.Minute),
 		nowFn:       func() time.Time { return frozen },
-		probeFn:     func(ctx context.Context) error { return nil },
+		probeFn:     func(_ context.Context) error { return nil },
 	}
 
 	if !sess.shouldProbe() {
