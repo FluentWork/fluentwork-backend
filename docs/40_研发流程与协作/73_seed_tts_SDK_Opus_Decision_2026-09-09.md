@@ -1,6 +1,6 @@
 # ADR-0073: iOS 端 TTS Opus 解码方案
 
-**Status**: PROPOSED
+**Status**: ACCEPTED
 
 **Date**: 2026-09-09
 
