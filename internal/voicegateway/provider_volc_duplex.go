@@ -403,7 +403,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				Type:    voiceproto.TypeAITurnEnd,
 				TurnID:  turnID,
 				Outcome: string(turn.Outcome), // B15: explicit outcome in ai.turn.end
-				LogID:   logID, // B15-I3: vendor trace log_id
+				LogID:   logID,                // B15-I3: vendor trace log_id
 			},
 		})
 	}

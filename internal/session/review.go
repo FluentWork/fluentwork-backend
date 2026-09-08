@@ -24,8 +24,10 @@ const (
 
 // #21 (B8 followup) — Ark Mini per-million-token pricing in 元 (CNY).
 // These are the public list prices for Volcano Ark Doubao models as of 2026-09:
-//   input  : 0.3 CNY / 1M tokens
-//   output : 0.6 CNY / 1M tokens
+//
+//	input  : 0.3 CNY / 1M tokens
+//	output : 0.6 CNY / 1M tokens
+//
 // CostFen is recorded in 分 (1 元 = 100 分), so the multiplier is 0.1 * 100 / 1_000_000.
 // When Ark introduces model-specific pricing, switch on result.Model.
 const (

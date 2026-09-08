@@ -37,7 +37,8 @@ func NewHandler(svc *Service) *Handler {
 
 // RegisterInternalRoutes mounts the aicost HTTP routes under /internal/v1.
 // Routes:
-//   GET /internal/v1/ai-cost-logs?user_id=&limit=
+//
+//	GET /internal/v1/ai-cost-logs?user_id=&limit=
 //
 // `user_id` is optional — when empty the endpoint returns rows across all users.
 // `limit` defaults to 50 and is capped at 500 (matching MemoryStore/MySQLStore

@@ -900,9 +900,9 @@ func TestMarkSessionReviewedWithCost_Memory_IdempotentNoDoubleBill(t *testing.T)
 
 	review := []byte(`{"goal_achievement":{"met":true},"issues":[],"suggestions":[],"comparisons":[]}`)
 	costLog := aicost.Log{
-		ID:        "cost-dup",
-		TaskType:  arkReviewTaskType,
-		TokensIn:  10, TokensOut: 20,
+		ID:       "cost-dup",
+		TaskType: arkReviewTaskType,
+		TokensIn: 10, TokensOut: 20,
 		CreatedAt: time.Now().UTC(),
 	}
 	if _, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, review, time.Now().UTC(), costLog); err != nil {

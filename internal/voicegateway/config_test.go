@@ -12,7 +12,7 @@ import (
 
 // os helpers — small wrappers so tests stay readable without pulling in
 // extra packages.
-func getwd() (string, error)              { return os.Getwd() }
+func getwd() (string, error)               { return os.Getwd() }
 func readFile(path string) ([]byte, error) { return os.ReadFile(path) }
 
 func TestLoadConfigDefaults(t *testing.T) {
