@@ -86,9 +86,9 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (Vo
 		}
 	}
 	return &devEchoSession{
-		echoText:     p.EchoText,
-		fixture:     fixture,
-		nextSeq:      1,
+		echoText: p.EchoText,
+		fixture:  fixture,
+		nextSeq:  1,
 	}, nil
 }
 
@@ -97,8 +97,8 @@ const devEchoChunkBytes = 640
 
 type devEchoSession struct {
 	echoText string
-	fixture io.ReadCloser
-	nextSeq int
+	fixture  io.ReadCloser
+	nextSeq  int
 }
 
 // Start emits a placeholder AI greeting so iOS sees a normal session
@@ -328,7 +328,7 @@ func sineApprox(x float64) float64 {
 	// Already in range after the fold above.
 	// sin(x) ≈ x - x³/6 + x⁵/120 - x⁷/5040 (7th-order Taylor)
 	x2 := x * x
-	return x*(1 - x2*(1.0/6.0 - x2*(1.0/120.0 - x2*(1.0/5040.0))))
+	return x * (1 - x2*(1.0/6.0-x2*(1.0/120.0-x2*(1.0/5040.0))))
 }
 
 // Ensure io and binary are used (we already import them above).

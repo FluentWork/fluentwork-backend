@@ -994,9 +994,10 @@ func TestHandler_UsesServerASRTextForBadgeDetectionWhenClientTextEmpty(t *testin
 // scoring wedged, etc.) the user.speech.end control loop must not wait for it.
 // We drive a slow corpus source (1.5s delay) past the emitter's 200ms timeout
 // and assert:
-//   1. user.speech.end returns to the client within ~200ms, not 1.5s
-//   2. session.end is processed normally afterwards
-//   3. no badge frame is written (timeout counts as a miss)
+//  1. user.speech.end returns to the client within ~200ms, not 1.5s
+//  2. session.end is processed normally afterwards
+//  3. no badge frame is written (timeout counts as a miss)
+//
 // This proves the live provider path is decoupled from detection latency.
 func TestHandler_DetectTimeoutDoesNotBlockUserSpeechEnd(t *testing.T) {
 	t.Parallel()
@@ -1016,8 +1017,8 @@ func TestHandler_DetectTimeoutDoesNotBlockUserSpeechEnd(t *testing.T) {
 	det := session.NewHitDetector(slowSrc)
 	var wg sync.WaitGroup
 	emitter := voicegateway.NewBadgeEmitter(det, nil, voicegateway.BadgeEmitterOptions{
-		Timeout:       200 * time.Millisecond,
-		DedupeTTL:     5 * time.Second,
+		Timeout:        200 * time.Millisecond,
+		DedupeTTL:      5 * time.Second,
 		DedupeCapacity: 128,
 	}, &wg)
 

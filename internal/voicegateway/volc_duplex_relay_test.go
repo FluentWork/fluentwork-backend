@@ -179,7 +179,7 @@ func TestVolcDuplexProvider_OmitsRelayWhenTranscriptEmpty(t *testing.T) {
 
 	consumer := &stubConsumer{
 		ticket: "good-ticket",
-		out: voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
+		out:    voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
 	}
 	stubSession := &volcStubSession{
 		turnResult: voicepoc.TurnResult{

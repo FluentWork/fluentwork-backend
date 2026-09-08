@@ -118,7 +118,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO ai_cost_logs`).
 		WithArgs(
-			costLog.ID, // string
+			costLog.ID,                      // string
 			aicostUserIDArg(costLog.UserID), // nullableString → nil or trimmed string
 			costLog.TaskType,
 			costLog.Model,
@@ -155,10 +155,10 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	reviewJSON := []byte(`{"goal_achievement":{"met":false}}`)
 	costLog := aicost.Log{
-		ID:        "cost-2",
-		UserID:    &userID,
-		TaskType:  arkReviewTaskType,
-		TokensIn:  10, TokensOut: 20,
+		ID:       "cost-2",
+		UserID:   &userID,
+		TaskType: arkReviewTaskType,
+		TokensIn: 10, TokensOut: 20,
 		CreatedAt: at,
 	}
 
@@ -201,10 +201,10 @@ func TestMySQLStore_MarkSessionReviewedWithCost_IdempotentNoDoubleBill(t *testin
 	userID := "user-7"
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	costLog := aicost.Log{
-		ID:        "cost-dup",
-		UserID:    &userID,
-		TaskType:  arkReviewTaskType,
-		TokensIn:  10, TokensOut: 20,
+		ID:       "cost-dup",
+		UserID:   &userID,
+		TaskType: arkReviewTaskType,
+		TokensIn: 10, TokensOut: 20,
 		CreatedAt: at,
 	}
 
