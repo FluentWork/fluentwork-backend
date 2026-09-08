@@ -444,7 +444,9 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 			// ai.turn.end means we've read all chunks.
 			if typ == websocket.MessageText {
 				var frame map[string]any
-				json.Unmarshal(data, &frame)
+				if err := json.Unmarshal(data, &frame); err != nil {
+					t.Fatalf("decode text frame at chunk %d: %v", gotChunks+1, err)
+				}
 				if frame["type"] == voiceproto.TypeAITurnEnd {
 					goto done
 				}

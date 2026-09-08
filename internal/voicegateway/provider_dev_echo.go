@@ -271,11 +271,12 @@ func (s *devEchoSession) SnapshotUtterances() []EndUtterance {
 
 // Close closes the fixture file if still open.
 func (s *devEchoSession) Close(_ context.Context) error {
-	if s.fixture != nil {
-		s.fixture.Close()
-		s.fixture = nil
+	if s.fixture == nil {
+		return nil
 	}
-	return nil
+	err := s.fixture.Close()
+	s.fixture = nil
+	return err
 }
 
 // FixturePCMLoader loads a 16kHz mono PCM file for the dev-echo fixture.

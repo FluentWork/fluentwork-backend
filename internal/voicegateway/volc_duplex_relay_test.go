@@ -2,7 +2,6 @@ package voicegateway_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -234,16 +233,4 @@ func TestVolcDuplexProvider_OmitsRelayWhenTranscriptEmpty(t *testing.T) {
 	if first["type"] != voiceproto.TypeAITextDelta {
 		t.Fatalf("expected ai.text.delta, got %#v", first)
 	}
-}
-
-// helper retained in package so we can decode raw frames in tests without
-// duplicating boilerplate. Wraps json.Unmarshal so a single failing case
-// fails the test with a readable message.
-func decodeFrame(t *testing.T, raw []byte) map[string]any {
-	t.Helper()
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("decode frame %q: %v", raw, err)
-	}
-	return out
 }

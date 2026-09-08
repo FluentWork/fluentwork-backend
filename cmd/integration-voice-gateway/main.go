@@ -101,7 +101,7 @@ func run() error {
 
 	conn, _, err := websocket.Dial(ctx, target, nil)
 	if err != nil {
-		return fmt.Errorf("Dial: %w", err)
+		return fmt.Errorf("dial: %w", err)
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
@@ -245,7 +245,7 @@ func newGatewayForScenario(s scenario, providerASR string) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-func derivedPhraseFor(s scenario, providerASR string) string {
+func derivedPhraseFor(_ scenario, providerASR string) string {
 	if providerASR != "" {
 		return providerASR
 	}

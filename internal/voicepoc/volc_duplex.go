@@ -269,10 +269,14 @@ func (s *DuplexSession) AppendPCMChunk(ctx context.Context, chunk []byte) error 
 type TurnOutcome string
 
 const (
-	TurnOutcomeOK      TurnOutcome = "ok"      // response.done with content
-	TurnOutcomePartial TurnOutcome = "partial" // wait expired with some progress but no done
-	TurnOutcomeTimeout TurnOutcome = "timeout" // wait expired with no progress at all
-	TurnOutcomeError   TurnOutcome = "error"   // provider sent error event / recv failed
+	// TurnOutcomeOK means the provider returned response.done with content.
+	TurnOutcomeOK TurnOutcome = "ok"
+	// TurnOutcomePartial means the wait expired after some progress but before response.done.
+	TurnOutcomePartial TurnOutcome = "partial"
+	// TurnOutcomeTimeout means the wait expired without any progress.
+	TurnOutcomeTimeout TurnOutcome = "timeout"
+	// TurnOutcomeError means the provider sent an error event or receiving failed.
+	TurnOutcomeError TurnOutcome = "error"
 )
 
 // TurnResult captures one user-audio turn observation for B14 V1/V3 probes.
