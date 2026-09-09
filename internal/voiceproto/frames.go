@@ -15,6 +15,7 @@ const (
 	TypeSessionStart           = "session.start"
 	TypeUserSpeechStart        = "user.speech.start"
 	TypeUserSpeechEnd          = "user.speech.end"
+	TypeClientTurnAbort        = "client.turn.abort"
 	TypeClientASRTranscription = "client.asr.transcription"
 	TypeAITextDelta            = "ai.text.delta"
 	TypeAIAudioChunk           = "ai.audio.chunk"
@@ -62,6 +63,12 @@ type SessionEnd struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// UserSpeechStart opens a user-speech window (C→S). No turn_id — the
+// turn is identified on user.speech.end or client.turn.abort.
+type UserSpeechStart struct {
+	Type string `json:"type"`
+}
+
 // UserSpeechEnd is the client→gateway end-of-utterance signal.
 //
 // Text is an optional client ASR transcript used by B7 hit-detection (B12).
@@ -78,6 +85,36 @@ type UserSpeechEnd struct {
 	Type   string `json:"type"`
 	Text   string `json:"text,omitempty"`
 	TurnID string `json:"turn_id,omitempty"`
+}
+
+// ClientTurnAbort outcomes (C→S). Subset of TurnOutcome: abort is never "ok".
+const (
+	ClientTurnAbortTimeout       = "timeout"
+	ClientTurnAbortUserAbandoned = "user_abandoned"
+	ClientTurnAbortError         = "error"
+)
+
+// ValidClientTurnAbortOutcome reports whether outcome is a legal abort reason.
+func ValidClientTurnAbortOutcome(outcome string) bool {
+	switch strings.TrimSpace(outcome) {
+	case ClientTurnAbortTimeout, ClientTurnAbortUserAbandoned, ClientTurnAbortError:
+		return true
+	default:
+		return false
+	}
+}
+
+// ClientTurnAbort is the client→gateway cancel of an in-progress recording
+// turn (I20 T-I20-1). Distinct from B15: this fires before user.speech.end,
+// must not start collectTurn, and must not close the WSS session.
+//
+// Outcome is required: timeout | user_abandoned | error. Session stays alive;
+// the next user.speech.start begins a new turn. session_id is omitted — the
+// session is the WSS connection, same as user.speech.end.
+type ClientTurnAbort struct {
+	Type    string `json:"type"`
+	TurnID  string `json:"turn_id,omitempty"`
+	Outcome string `json:"outcome"`
 }
 
 // ClientASRTranscription is a gateway→client frame emitted when the voice

@@ -512,6 +512,47 @@ func (h *Handler) handleControl(
 		}
 		return nil
 
+	case voiceproto.TypeClientTurnAbort:
+		// I20: recording abort. iOS already stopped PCM and will not send
+		// user.speech.end. Accepting this frame (instead of unsupported_frame)
+		// keeps the session alive for the next user.speech.start.
+		var abort voiceproto.ClientTurnAbort
+		if err := json.Unmarshal(data, &abort); err != nil {
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "invalid_frame",
+				Message: err.Error(),
+			})
+		}
+		if !voiceproto.ValidClientTurnAbortOutcome(abort.Outcome) {
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "invalid_frame",
+				Message: "client.turn.abort.outcome must be timeout, user_abandoned, or error",
+			})
+		}
+		h.logger.Info("client.turn.abort accepted",
+			"session_id", session.SessionID,
+			"turn_id", strings.TrimSpace(abort.TurnID),
+			"outcome", abort.Outcome,
+			"stage", "asr",
+		)
+		if !rt.started || rt.provider == nil {
+			return nil
+		}
+		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
+		if err != nil {
+			// Do not emit error frames here: iOS maps them to .failed and
+			// would kill the session this frame exists to keep alive.
+			h.logger.Warn("provider turn abort forward failed; session stays open",
+				"session_id", session.SessionID,
+				"turn_id", strings.TrimSpace(abort.TurnID),
+				"err", err,
+			)
+			return nil
+		}
+		return writeProviderOutbound(ctx, conn, outbound)
+
 	case voiceproto.TypeInterrupt:
 		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
 		if !rt.started || rt.provider == nil {

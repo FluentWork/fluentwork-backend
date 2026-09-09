@@ -137,7 +137,8 @@ Examples:
 | `docs/30_B8_评价炼化Worker_实现说明.md` | B8 review worker 评价与炼化 | `fb779e3` |
 | `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 Prompt 回归（#28） | `f38677d` |
 | `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md` | 网关 B15 Turn Timeout / Session Exit | `834729d` |
-| `docs/33_B15_v1_schema_freeze.md` | B15 契约只留 v2；v1 冻结纠正 | (本提交) |
+| `docs/33_B15_v1_schema_freeze.md` | B15 契约只留 v2；v1 冻结纠正 | `eb0cdc3` |
+| `docs/34_I20_client_turn_abort_实现说明.md` | 网关接受 `client.turn.abort` | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -147,7 +148,7 @@ Examples:
 | B13 | Client ASR Relay | ✅ 完成 |
 | B14 | T3/T4 注入生效 | ✅ 完成 |
 | B15 | Turn Timeout & Session Exit（网关，非 #28） | ✅ 后端完成；iOS 已对齐 `outcome=timeout` → `.failed("turn_timeout")` |
-| I20 | 全链路收口 | 🔄 实施中 |
+| I20 | 全链路收口 | 🔄 实施中（网关已接受 `client.turn.abort`） |
 
 ## 高风险路径
 
@@ -178,5 +179,7 @@ Examples:
 | `docs/30_B8_评价炼化Worker_实现说明.md` | B8 评价炼化 Worker 实现说明 |
 | `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 离线评估集（#28） |
 | `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md` | 网关 B15 Turn Timeout 后端收口 |
+| `docs/33_B15_v1_schema_freeze.md` | B15 v1 schema 冻结纠正 |
+| `docs/34_I20_client_turn_abort_实现说明.md` | 网关接受 `client.turn.abort` |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

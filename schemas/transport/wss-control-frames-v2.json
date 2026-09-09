@@ -9,6 +9,7 @@
     { "$ref": "#/$defs/sessionStart" },
     { "$ref": "#/$defs/userSpeechStart" },
     { "$ref": "#/$defs/userSpeechEnd" },
+    { "$ref": "#/$defs/clientTurnAbort" },
     { "$ref": "#/$defs/aiTextDelta" },
     { "$ref": "#/$defs/aiAudioChunk" },
     { "$ref": "#/$defs/aiTTSStart" },
@@ -68,6 +69,20 @@
         "type": { "const": "user.speech.end" },
         "text": { "type": "string", "maxLength": 4096 },
         "turn_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "clientTurnAbort": {
+      "description": "I20: client aborts an in-progress recording turn. Outcome is timeout / user_abandoned / error; never ok. Not B15's post-speech-end 70s collectTurn timeout. Session stays alive; gateway must not start collectTurn.",
+      "type": "object",
+      "required": ["type", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "client.turn.abort" },
+        "turn_id": { "type": "string", "minLength": 1 },
+        "outcome": {
+          "type": "string",
+          "enum": ["timeout", "user_abandoned", "error"]
+        }
       }
     },
     "aiTextDelta": {

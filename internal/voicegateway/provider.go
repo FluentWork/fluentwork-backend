@@ -103,7 +103,7 @@ func (s *mockVoiceProviderSession) HandleClientControl(_ context.Context, frameT
 		}, nil
 	}
 	switch frameType {
-	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd, voiceproto.TypeInterrupt:
+	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd, voiceproto.TypeInterrupt, voiceproto.TypeClientTurnAbort:
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("mock provider does not support control frame %s", frameType)

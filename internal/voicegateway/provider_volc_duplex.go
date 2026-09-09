@@ -230,6 +230,14 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// Non-timeout error, return immediately
 		return nil, err
 
+	case voiceproto.TypeClientTurnAbort:
+		// Cancel the open user-speech window without CommitAudio / collectTurn.
+		// The next user.speech.start begins a fresh turn; WSS stays open.
+		s.turnStarted = time.Time{}
+		s.activeTurnID = ""
+		s.logger.Info("client.turn.abort dropped in-progress user speech")
+		return nil, nil
+
 	case voiceproto.TypeInterrupt:
 		s.logger.Info("interrupt forwarded to live provider boundary")
 		return nil, nil

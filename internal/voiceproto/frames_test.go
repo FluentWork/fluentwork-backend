@@ -17,6 +17,11 @@ func TestControlFrameRoundTrip(t *testing.T) {
 		voiceproto.SessionReady{Type: voiceproto.TypeSessionReady, SessionID: "s1", UserID: "u1"},
 		voiceproto.SessionStart{Type: voiceproto.TypeSessionStart, SceneType: "demo"},
 		voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "turn-1"},
+		voiceproto.ClientTurnAbort{
+			Type:    voiceproto.TypeClientTurnAbort,
+			TurnID:  "turn-1",
+			Outcome: voiceproto.ClientTurnAbortTimeout,
+		},
 		voiceproto.AITTSStart{
 			Type:       voiceproto.TypeAITTSStart,
 			TurnID:     "turn-9",
@@ -109,6 +114,119 @@ func TestSchemaV2AddsTTSFrames(t *testing.T) {
 	}
 	if refs["#/$defs/aiTTSAudio"] {
 		t.Fatal("aiTTSAudio must not be in JSON control oneOf; it is a binary message")
+	}
+}
+
+func TestSchemaV2IncludesClientTurnAbort(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	abort, ok := defs["clientTurnAbort"].(map[string]any)
+	if !ok {
+		t.Fatal("v2 schema missing $defs.clientTurnAbort")
+	}
+	props, ok := abort["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("clientTurnAbort missing properties")
+	}
+	if _, ok := props["session_id"]; ok {
+		t.Fatal("client.turn.abort must not carry session_id")
+	}
+	outcome, ok := props["outcome"].(map[string]any)
+	if !ok {
+		t.Fatal("clientTurnAbort missing outcome")
+	}
+	enum, _ := outcome["enum"].([]any)
+	want := map[string]bool{"timeout": true, "user_abandoned": true, "error": true}
+	if len(enum) != 3 {
+		t.Fatalf("outcome enum = %#v", enum)
+	}
+	for _, v := range enum {
+		s, _ := v.(string)
+		if !want[s] {
+			t.Fatalf("unexpected outcome enum value %q", s)
+		}
+	}
+
+	oneOf, ok := doc["oneOf"].([]any)
+	if !ok {
+		t.Fatal("schema missing oneOf")
+	}
+	found := false
+	for _, item := range oneOf {
+		m, _ := item.(map[string]any)
+		if m["$ref"] == "#/$defs/clientTurnAbort" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("v2 oneOf missing clientTurnAbort")
+	}
+}
+
+func TestSchemaV1OmitsClientTurnAbort(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	if _, ok := defs["clientTurnAbort"]; ok {
+		t.Fatal("v1 must stay frozen without clientTurnAbort")
+	}
+}
+
+func TestClientTurnAbortJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	frame := voiceproto.ClientTurnAbort{
+		Type:    voiceproto.TypeClientTurnAbort,
+		TurnID:  "turn-1",
+		Outcome: voiceproto.ClientTurnAbortTimeout,
+	}
+	raw, err := json.Marshal(frame)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(raw, &asMap); err != nil {
+		t.Fatalf("unmarshal map: %v", err)
+	}
+	if asMap["type"] != voiceproto.TypeClientTurnAbort {
+		t.Fatalf("type = %#v", asMap["type"])
+	}
+	if asMap["outcome"] != "timeout" {
+		t.Fatalf("outcome = %#v", asMap["outcome"])
+	}
+	if _, ok := asMap["session_id"]; ok {
+		t.Fatalf("session_id must omit: %s", raw)
+	}
+
+	var decoded voiceproto.ClientTurnAbort
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded != frame {
+		t.Fatalf("round trip: %+v", decoded)
+	}
+
+	if voiceproto.ValidClientTurnAbortOutcome("ok") {
+		t.Fatal("ok must not be a valid abort outcome")
+	}
+	if !voiceproto.ValidClientTurnAbortOutcome(voiceproto.ClientTurnAbortUserAbandoned) {
+		t.Fatal("user_abandoned must be valid")
 	}
 }
 
@@ -308,6 +426,7 @@ func TestControlFrameTypeConstantsAreUnique(t *testing.T) {
 		voiceproto.TypeSessionStart,
 		voiceproto.TypeUserSpeechStart,
 		voiceproto.TypeUserSpeechEnd,
+		voiceproto.TypeClientTurnAbort,
 		voiceproto.TypeClientASRTranscription,
 		voiceproto.TypeAITextDelta,
 		voiceproto.TypeAIAudioChunk,

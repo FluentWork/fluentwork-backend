@@ -282,6 +282,36 @@ func TestVolcDuplexSession_KeepaliveProbeRespectsTimeout(t *testing.T) {
 	}
 }
 
+func TestVolcDuplexAbortClearsTurnWithoutCollect(t *testing.T) {
+	t.Parallel()
+
+	sess := &volcDuplexProviderSession{
+		logger:       slog.Default(),
+		audioFormat:  "pcm-s16le",
+		turnStarted:  time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
+		activeTurnID: "turn-1",
+		nextSeq:      4,
+	}
+
+	out, err := sess.HandleClientControl(context.Background(), voiceproto.TypeClientTurnAbort, voiceproto.MustMarshal(voiceproto.ClientTurnAbort{
+		Type:    voiceproto.TypeClientTurnAbort,
+		TurnID:  "turn-1",
+		Outcome: voiceproto.ClientTurnAbortTimeout,
+	}))
+	if err != nil {
+		t.Fatalf("abort should not error: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("abort must not emit outbound (would start collectTurn / ai.turn.end), got %#v", out)
+	}
+	if !sess.turnStarted.IsZero() {
+		t.Fatalf("turnStarted should clear, got %s", sess.turnStarted)
+	}
+	if sess.activeTurnID != "" {
+		t.Fatalf("activeTurnID should clear, got %q", sess.activeTurnID)
+	}
+}
+
 func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
 	t.Parallel()
 
