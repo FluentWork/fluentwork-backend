@@ -403,3 +403,86 @@ func (s *MemoryStore) ListSessionHits(_ context.Context, sessionID string) ([]Re
 	})
 	return out, nil
 }
+
+// ListDueBlocks implements Store.
+func (s *MemoryStore) ListDueBlocks(_ context.Context, userID string, now time.Time, states []string, limit int) ([]PhraseBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	allowed := make(map[string]struct{}, len(states))
+	for _, st := range states {
+		allowed[st] = struct{}{}
+	}
+	now = now.UTC()
+	items := make([]PhraseBlock, 0)
+	for _, block := range s.blocks {
+		if block.UserID != userID || block.DeletedAt != nil {
+			continue
+		}
+		if _, ok := allowed[block.State]; !ok {
+			continue
+		}
+		if block.NextDueAt.After(now) {
+			continue
+		}
+		items = append(items, cloneBlock(block))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].NextDueAt.Equal(items[j].NextDueAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].NextDueAt.Before(items[j].NextDueAt)
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+// UpdateSchedule implements Store.
+func (s *MemoryStore) UpdateSchedule(_ context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	block, ok := s.blocks[blockID]
+	if !ok || block.UserID != userID || block.DeletedAt != nil {
+		return PhraseBlock{}, ErrNotFound
+	}
+	block.State = state
+	block.SuccessStreak = successStreak
+	block.NextDueAt = nextDueAt.UTC()
+	block.UpdatedAt = updatedAt.UTC()
+	s.blocks[blockID] = block
+	return cloneBlock(block), nil
+}
+
+// SoftDeleteAllForUser implements Store.
+func (s *MemoryStore) SoftDeleteAllForUser(_ context.Context, userID string, deletedAt time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, block := range s.blocks {
+		if block.UserID != userID || block.DeletedAt != nil {
+			continue
+		}
+		block.DeletedAt = cloneTimePtr(&deletedAt)
+		block.UpdatedAt = deletedAt.UTC()
+		s.blocks[id] = block
+		n++
+	}
+	return n, nil
+}
+
+// RestoreDeletedForUser implements Store.
+func (s *MemoryStore) RestoreDeletedForUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, block := range s.blocks {
+		if block.UserID != userID || block.DeletedAt == nil {
+			continue
+		}
+		block.DeletedAt = nil
+		s.blocks[id] = block
+		n++
+	}
+	return n, nil
+}

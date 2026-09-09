@@ -66,6 +66,10 @@ type Store interface {
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
 	RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error)
 	ListSessionHits(ctx context.Context, sessionID string) ([]RecentHit, error)
+	ListDueBlocks(ctx context.Context, userID string, now time.Time, states []string, limit int) ([]PhraseBlock, error)
+	UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error)
+	SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
+	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

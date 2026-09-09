@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.3
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, and B19 B7 hit injection.
+  version: 0.3.4
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, and A4 privacy.
 servers:
   - url: /api/v1
 paths:
@@ -60,6 +60,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MergeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/data:
+    delete:
+      summary: Soft-delete the authenticated user's data (A4)
+      description: |
+        Requires confirmation_code `DELETE-MY-DATA`. Soft-deletes users,
+        phrase_blocks, and practice_sessions; hard-deletes drill_records;
+        anonymizes ai_cost_logs. Idempotent on a second call. Wrong confirmation
+        returns 422 FAILED_PRECONDITION. Per 48 §1.1.6.
+      operationId: deleteAccountData
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountDataRequest"
+      responses:
+        "200":
+          description: Cascade counts and backup purge deadline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAccountDataResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/export:
+    post:
+      summary: Enqueue a personal data export job
+      description: |
+        Returns export_id immediately. Email delivery is a V1.5 stub
+        (estimated_ready_at is now + 24h). Per 48 §1.1.7.
+      operationId: exportAccountData
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportAccountDataRequest"
+      responses:
+        "200":
+          description: Export job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportAccountDataResponse"
         default:
           description: Error
           content:
@@ -431,6 +489,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /drill/round:
+    get:
+      summary: Fetch due flash-drill cards
+      description: |
+        Returns up to `size` due phrase blocks (default 10, max 20).
+        new/training first, then automated. Per 48 §1.5.
+      operationId: getDrillRound
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: size
+          in: query
+          required: false
+          schema: { type: integer, default: 10, minimum: 1, maximum: 20 }
+      responses:
+        "200":
+          description: Drill round
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DrillRound"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /drill/judge:
+    post:
+      summary: Score one drill attempt and advance SM-2
+      description: |
+        Semantic judge with 1.5s timeout. Parse/timeout is a miss.
+        Fail → next_due_at now+1h. Pass streak under 3 → +24h training.
+        Pass streak≥3 → automated +7d. Automated pass → +30d. Per 48 §1.5.
+      operationId: postDrillJudge
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrillJudgeRequest"
+      responses:
+        "200":
+          description: Judge result and updated schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DrillJudgeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /internal/v1/tts/synthesize:
     post:
       servers:
@@ -542,6 +656,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /internal/v1/support/undelete-user:
+    post:
+      servers:
+        - url: /
+      summary: Restore a user within the 30-day A4 window
+      description: |
+        Internal endpoint (X-Internal-Token). Restores users, phrase_blocks,
+        practice_sessions, and ai_cost_logs; deletes tombstones; writes
+        audit_logs. Expired window or not-deleted account returns 422.
+        Per 48 §2.8.
+      operationId: undeleteUser
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UndeleteUserRequest"
+      responses:
+        "200":
+          description: Restore counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UndeleteUserResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -574,6 +720,83 @@ components:
           type: string
           nullable: true
         already_merged: { type: boolean }
+    DeleteAccountDataRequest:
+      type: object
+      required: [confirmation_code]
+      properties:
+        confirmation_code:
+          type: string
+          description: Must be DELETE-MY-DATA
+    DeleteAccountDataResponse:
+      type: object
+      required: [cascaded, backup_purge_at, already_deleted]
+      properties:
+        cascaded:
+          type: object
+          additionalProperties: { type: integer }
+        backup_purge_at: { type: string, format: date-time }
+        already_deleted: { type: boolean }
+    ExportAccountDataRequest:
+      type: object
+      properties:
+        email_to: { type: string }
+    ExportAccountDataResponse:
+      type: object
+      required: [export_id, email_to, estimated_ready_at]
+      properties:
+        export_id: { type: string }
+        email_to: { type: string }
+        estimated_ready_at: { type: string, format: date-time }
+    DrillRound:
+      type: object
+      required: [size, cards]
+      properties:
+        size: { type: integer }
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/DrillCard"
+    DrillCard:
+      type: object
+      required: [block_id, intent_zh, expression_en, state]
+      properties:
+        block_id: { type: string }
+        intent_zh: { type: string }
+        expression_en: { type: string }
+        state: { type: string }
+    DrillJudgeRequest:
+      type: object
+      required: [block_id, asr_text]
+      properties:
+        block_id: { type: string }
+        asr_text: { type: string }
+        response_ms: { type: integer }
+        session_id: { type: string }
+    DrillJudgeResponse:
+      type: object
+      required: [pass, judge_reason, success_streak, state, next_due_at, recorded]
+      properties:
+        pass: { type: boolean }
+        judge_reason: { type: string }
+        success_streak: { type: integer }
+        state: { type: string }
+        next_due_at: { type: string, format: date-time }
+        recorded: { type: boolean }
+    UndeleteUserRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string }
+        reason: { type: string }
+        actor: { type: string }
+    UndeleteUserResponse:
+      type: object
+      required: [user_id, restored]
+      properties:
+        user_id: { type: string }
+        restored:
+          type: object
+          additionalProperties: { type: integer }
     CreateSessionResponse:
       type: object
       required: [session_id, wss_url, ticket, ticket_expires_in, ticket_expires_at, scene_type, status]

@@ -25,7 +25,7 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const userColumns = `id, email, phone, device_id, is_guest, pwd_hash, status, merged_into_user_id, created_at, updated_at`
+const userColumns = `id, email, phone, device_id, is_guest, pwd_hash, status, merged_into_user_id, created_at, updated_at, deleted_at, tombstone_at`
 
 // CreateUser inserts a user row.
 func (s *MySQLStore) CreateUser(ctx context.Context, user User) error {
@@ -141,6 +141,65 @@ func (s *MySQLStore) DeleteRefreshTokensForUser(ctx context.Context, userID stri
 	return err
 }
 
+// MarkDeleted implements Store.
+func (s *MySQLStore) MarkDeleted(ctx context.Context, userID string, at, tombstoneAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET status = ?, deleted_at = ?, tombstone_at = ?, updated_at = ?
+		WHERE id = ? AND deleted_at IS NULL
+	`, UserStatusDeleted, at.UTC(), tombstoneAt.UTC(), at.UTC(), userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 1 {
+		return nil
+	}
+	_, err = s.GetUser(ctx, userID)
+	return err
+}
+
+// ClearDeleted implements Store.
+func (s *MySQLStore) ClearDeleted(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET status = ?, deleted_at = NULL, tombstone_at = NULL, updated_at = ?
+		WHERE id = ?
+	`, UserStatusActive, time.Now().UTC(), userID)
+	return err
+}
+
+// InsertTombstone implements Store.
+func (s *MySQLStore) InsertTombstone(ctx context.Context, row Tombstone) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO tombstones (id, user_id, entity_type, entity_id, deleted_at, purge_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, row.ID, row.UserID, row.EntityType, row.EntityID, row.DeletedAt.UTC(), row.PurgeAt.UTC(), row.CreatedAt.UTC())
+	return err
+}
+
+// DeleteTombstonesForUser implements Store.
+func (s *MySQLStore) DeleteTombstonesForUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM tombstones WHERE user_id = ?`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+// InsertAudit implements Store.
+func (s *MySQLStore) InsertAudit(ctx context.Context, row AuditLog) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO audit_logs (id, actor, action, user_id, reason, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, row.ID, row.Actor, row.Action, row.UserID, nullString(&row.Reason), row.CreatedAt.UTC())
+	return err
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -148,6 +207,7 @@ type rowScanner interface {
 func scanUser(row rowScanner) (User, error) {
 	var user User
 	var email, phone, deviceID, pwdHash, mergedInto sql.NullString
+	var deletedAt, tombstoneAt sql.NullTime
 	err := row.Scan(
 		&user.ID,
 		&email,
@@ -159,6 +219,8 @@ func scanUser(row rowScanner) (User, error) {
 		&mergedInto,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&deletedAt,
+		&tombstoneAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -171,7 +233,17 @@ func scanUser(row rowScanner) (User, error) {
 	user.DeviceID = ptrString(deviceID)
 	user.PasswordHash = ptrString(pwdHash)
 	user.MergedIntoUserID = ptrString(mergedInto)
+	user.DeletedAt = ptrTime(deletedAt)
+	user.TombstoneAt = ptrTime(tombstoneAt)
 	return user, nil
+}
+
+func ptrTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	copied := value.Time.UTC()
+	return &copied
 }
 
 func nullString(value *string) sql.NullString {
