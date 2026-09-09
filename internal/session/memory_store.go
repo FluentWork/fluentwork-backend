@@ -95,6 +95,29 @@ func (s *MemoryStore) ListSessions(_ context.Context, userID string, lastStarted
 	return items, nil
 }
 
+// ListActiveUserIDs returns distinct non-deleted users with a session since since.
+func (s *MemoryStore) ListActiveUserIDs(_ context.Context, since time.Time) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	since = since.UTC()
+	seen := map[string]struct{}{}
+	for _, session := range s.sessions {
+		if session.DeletedAt != nil || session.UserID == "" {
+			continue
+		}
+		if session.CreatedAt.UTC().Before(since) {
+			continue
+		}
+		seen[session.UserID] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // CreateTicket inserts a one-time WSS ticket.
 func (s *MemoryStore) CreateTicket(_ context.Context, ticket Ticket) error {
 	s.mu.Lock()

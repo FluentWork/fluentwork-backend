@@ -56,7 +56,7 @@ func TestHandler_RoundAndJudgeHTTP(t *testing.T) {
 	recs := drill.NewMemoryRecordStore()
 	svc := drill.NewService(blocks, recs, &drill.LLMJudge{LLM: drill.StaticCompleter{Body: `{"pass":true}`}}, logger)
 	drillHandler := drill.NewHandler(svc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, drillHandler, nil, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, drillHandler, nil, nil, nil, accountStore.Ping)
 
 	roundRec := httptest.NewRecorder()
 	roundReq := httptest.NewRequest(http.MethodGet, "/api/v1/drill/round", nil)

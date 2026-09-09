@@ -24,6 +24,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
+	"github.com/FluentWork/fluentwork-backend/internal/topic"
 )
 
 var ginOnce sync.Once
@@ -48,6 +49,7 @@ func New(
 	drillHandler *drill.Handler,
 	historyHandler *sessionhistory.Handler,
 	materialsHandler *materials.Handler,
+	topicHandler *topic.Handler,
 	ready func(context.Context) error,
 ) *Server {
 	ginOnce.Do(func() {
@@ -92,6 +94,9 @@ func New(
 	if materialsHandler != nil {
 		materials.RegisterRoutes(apiGroup, materialsHandler)
 	}
+	if topicHandler != nil {
+		topic.RegisterRoutes(apiGroup, topicHandler)
+	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))
 	})
@@ -126,24 +131,25 @@ func readiness(ready func(context.Context) error) gin.HandlerFunc {
 
 func discovery(c *gin.Context) {
 	httpjson.OK(c, gin.H{
-		"service":    "app-server",
-		"api_prefix": "/api/v1",
-		"openapi":    "/openapi.yaml",
-		"healthz":    "/healthz",
-		"readyz":     "/readyz",
-		"metrics":    "/metrics",
-		"tts":        "/internal/v1/tts/synthesize",
-		"hits":       "/internal/v1/voicegateway/hits",
-		"history":    "/api/v1/sessions",
-		"privacy":    "/api/v1/account/data",
-		"materials":  "/api/v1/materials",
+		"service":     "app-server",
+		"api_prefix":  "/api/v1",
+		"openapi":     "/openapi.yaml",
+		"healthz":     "/healthz",
+		"readyz":      "/readyz",
+		"metrics":     "/metrics",
+		"tts":         "/internal/v1/tts/synthesize",
+		"hits":        "/internal/v1/voicegateway/hits",
+		"history":     "/api/v1/sessions",
+		"privacy":     "/api/v1/account/data",
+		"materials":   "/api/v1/materials",
+		"topic_cards": "/api/v1/topic-cards",
 	})
 }
 
 func serveMetrics(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(
-		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics()+review.PrometheusMetrics()+materials.PrometheusMetrics(),
+		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics()+review.PrometheusMetrics()+materials.PrometheusMetrics()+topic.PrometheusMetrics(),
 	))
 }
 

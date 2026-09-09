@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
+	"github.com/FluentWork/fluentwork-backend/internal/topic"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -69,6 +70,18 @@ func run() error {
 		svc.SetReviewGenerator(reviewGenerator)
 	}
 	svc.SetEvalProcessor(review.NewService(store, corpusStore, drill.NewArkCompleter(cfg), logger))
+
+	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := topicCloser(); closeErr != nil {
+			logger.Error("closing topic store", "err", closeErr)
+		}
+	}()
+	topicSched := topic.NewScheduler(topic.NewGenerator(topicStore, drill.NewArkCompleter(cfg), topic.PracticeSignals{Blocks: corpusStore, Sessions: store}), store, logger)
+
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
 
@@ -98,6 +111,7 @@ func run() error {
 		if ok {
 			continue
 		}
+		topicSched.RunIfDue(ctx, time.Now())
 
 		timer := time.NewTimer(pollEvery)
 		select {

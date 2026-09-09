@@ -28,6 +28,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
+	"github.com/FluentWork/fluentwork-backend/internal/topic"
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -154,18 +155,33 @@ func run() error {
 	materialSvc := materials.NewService(materialStore, corpusStore, drill.NewArkCompleter(cfg), logger)
 	materialHandler := materials.NewHandler(materialSvc, accountHandler)
 
+	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := topicCloser(); closeErr != nil {
+			logger.Error("closing topic store", "err", closeErr)
+		}
+	}()
+	topicGen := topic.NewGenerator(topicStore, drill.NewArkCompleter(cfg), topic.PracticeSignals{Blocks: corpusStore, Sessions: sessionStore})
+	topicSvc := topic.NewService(topicStore, topicGen, logger)
+	topicHandler := topic.NewHandler(topicSvc, accountHandler)
+	topicSched := topic.NewScheduler(topicGen, sessionStore, logger)
+
 	privacy := account.NewPrivacyService(accountStore, []account.DataWiper{
 		corpus.PrivacyWiper{Store: corpusStore},
 		session.PrivacyWiper{Store: sessionStore},
 		aicost.PrivacyWiper{Store: costStore},
 		materials.PrivacyWiper{Store: materialStore},
+		topic.PrivacyWiper{Store: topicStore},
 	}, []account.HardDeleter{
 		drill.RecordWiper{Store: drillRecords},
 	}, logger)
 	accountHandler.SetPrivacy(privacy)
 
 	historyHandler := sessionhistory.NewHandler(sessionhistory.NewService(sessionStore, reviewEval, logger), accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, materialHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, materialHandler, topicHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -215,6 +231,7 @@ func run() error {
 				if ok {
 					continue
 				}
+				topicSched.RunIfDue(ctx, time.Now())
 				timer := time.NewTimer(pollEvery)
 				select {
 				case <-ctx.Done():

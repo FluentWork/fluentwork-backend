@@ -29,7 +29,7 @@ func setupMaterials(t *testing.T) (*httpserver.Server, *materials.Service, strin
 	accountHandler := account.NewHandler(accountSvc)
 	svc := materials.NewService(store, nil, nil, logger)
 	h := materials.NewHandler(svc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, nil, nil, h, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, nil, nil, h, nil, accountStore.Ping)
 
 	guestRec := httptest.NewRecorder()
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"mat-1"}`)))

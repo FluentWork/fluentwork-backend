@@ -88,6 +88,28 @@ func (s *MySQLStore) ListSessions(ctx context.Context, userID string, lastStarte
 	return out, rows.Err()
 }
 
+// ListActiveUserIDs returns distinct non-deleted users with a session since since.
+func (s *MySQLStore) ListActiveUserIDs(ctx context.Context, since time.Time) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT user_id FROM practice_sessions
+		WHERE created_at >= ? AND deleted_at IS NULL
+		ORDER BY user_id
+	`, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // CreateTicket inserts a one-time WSS ticket row.
 func (s *MySQLStore) CreateTicket(ctx context.Context, ticket Ticket) error {
 	_, err := s.db.ExecContext(ctx, `

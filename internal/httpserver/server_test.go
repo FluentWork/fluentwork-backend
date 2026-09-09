@@ -14,7 +14,7 @@ func TestReadyzOK(t *testing.T) {
 	store := account.NewMemoryStore()
 	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
 	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
-	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	server.Handler().ServeHTTP(rec, req)
@@ -27,7 +27,7 @@ func TestUnknownRouteUsesErrorEnvelope(t *testing.T) {
 	store := account.NewMemoryStore()
 	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
 	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
-	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	req.Header.Set("X-Request-ID", "missing-route")
@@ -44,7 +44,7 @@ func TestMetricsExposesTTSFallbackCounter(t *testing.T) {
 	store := account.NewMemoryStore()
 	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
 	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
-	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	server.Handler().ServeHTTP(rec, req)
@@ -59,6 +59,7 @@ func TestMetricsExposesTTSFallbackCounter(t *testing.T) {
 		"review_eval_timeout_total",
 		"review_eval_parse_error_total",
 		"material_refine_timeout_total",
+		"topic_card_checkin_total",
 	} {
 		if !strings.Contains(body, name) {
 			t.Fatalf("metrics missing %s: %s", name, body)

@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.7
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, and B21 materials.
+  version: 0.3.8
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, B21 materials, and B23 topic cards.
 servers:
   - url: /api/v1
 paths:
@@ -692,6 +692,72 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: Missing or A4-deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /topic-cards:
+    get:
+      summary: List today's topic cards
+      operationId: listTopicCards
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Today's cards (possibly empty before generation)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicCardList"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /topic-cards/{id}/checkin:
+    post:
+      summary: Check in a topic card
+      operationId: checkinTopicCard
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reflection:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Checkin recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicCheckinResult"
+        "403":
+          description: Owned by another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Already checked in
           content:
             application/json:
               schema:
@@ -1478,6 +1544,39 @@ components:
         error_code: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    TopicCardList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopicCard"
+    TopicCard:
+      type: object
+      required: [id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, valid_until, created_at, updated_at]
+      properties:
+        id: { type: string }
+        for_date: { type: string, format: date-time }
+        title: { type: string }
+        prompt_en: { type: string }
+        prompt_zh: { type: string }
+        card_type:
+          type: string
+          enum: [warmup, practice, stretch]
+        seed_tags:
+          type: array
+          items: { type: string }
+        valid_until: { type: string, format: date-time }
+        checked_in_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TopicCheckinResult:
+      type: object
+      required: [checkin_id, streak_days]
+      properties:
+        checkin_id: { type: string }
+        streak_days: { type: integer }
     Error:
       type: object
       required: [code, message, request_id]
