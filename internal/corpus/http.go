@@ -26,6 +26,8 @@ func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.GET("/corpus/blocks", h.accounts.RequireAuth(), h.GetBlocks)
 	rg.PUT("/corpus/blocks/:id", h.accounts.RequireAuth(), h.PutBlock)
 	rg.DELETE("/corpus/blocks/:id", h.accounts.RequireAuth(), h.DeleteBlock)
+	rg.PATCH("/corpus/blocks/:id/pin", h.accounts.RequireAuth(), h.PatchPin)
+	rg.PATCH("/corpus/blocks/:id/favorite", h.accounts.RequireAuth(), h.PatchFavorite)
 	rg.POST("/corpus/blocks/:id/favorite", h.accounts.RequireAuth(), h.PostFavorite)
 	rg.POST("/corpus/blocks/batch-accept", h.accounts.RequireAuth(), h.PostBatchAccept)
 }
@@ -46,6 +48,7 @@ func (h *Handler) GetBlocks(c *gin.Context) {
 		UpdatedAfter: c.Query("updated_after"),
 		Limit:        limit,
 		FavoriteOnly: c.Query("favorite_only") == "true",
+		PinnedOnly:   c.Query("pinned_only") == "true",
 	})
 	if err != nil {
 		httpjson.Error(c, err)
@@ -86,8 +89,68 @@ func (h *Handler) DeleteBlock(c *gin.Context) {
 	httpjson.OK(c, gin.H{"deleted": true})
 }
 
-// PostFavorite handles POST /corpus/blocks/:id/favorite.
+// PatchPinRequest is the body of PATCH /corpus/blocks/:id/pin.
+type PatchPinRequest struct {
+	Pinned *bool `json:"pinned"`
+}
+
+// PatchFavoriteRequest is the body of PATCH /corpus/blocks/:id/favorite.
+type PatchFavoriteRequest struct {
+	Favorite *bool `json:"favorite"`
+}
+
+// PatchPin handles PATCH /api/v1/corpus/blocks/:id/pin.
+func (h *Handler) PatchPin(c *gin.Context) {
+	actorID, ok := mustActorID(c)
+	if !ok {
+		return
+	}
+	var req PatchPinRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	if req.Pinned == nil {
+		httpjson.Error(c, apierr.InvalidArgument("pinned is required"))
+		return
+	}
+	result, err := h.svc.UpdatePin(c.Request.Context(), actorID, c.Param("id"), *req.Pinned)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PatchFavorite handles PATCH /api/v1/corpus/blocks/:id/favorite.
+func (h *Handler) PatchFavorite(c *gin.Context) {
+	actorID, ok := mustActorID(c)
+	if !ok {
+		return
+	}
+	var req PatchFavoriteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	if req.Favorite == nil {
+		httpjson.Error(c, apierr.InvalidArgument("favorite is required"))
+		return
+	}
+	result, err := h.svc.UpdateFavorite(c.Request.Context(), actorID, c.Param("id"), *req.Favorite)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostFavorite handles deprecated POST /corpus/blocks/:id/favorite.
 func (h *Handler) PostFavorite(c *gin.Context) {
+	IncDeprecatedPostFavorite(c.GetHeader("User-Agent"))
+	c.Header("Deprecation", "true")
+	c.Header("Sunset", PostFavoriteSunsetHTTPDate)
+	c.Header("Link", `</api/v1/corpus/blocks/`+c.Param("id")+`/pin>; rel="successor-version"`)
 	actorID, ok := mustActorID(c)
 	if !ok {
 		return

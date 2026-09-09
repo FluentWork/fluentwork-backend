@@ -72,6 +72,7 @@ type ListBlocksRequest struct {
 	UpdatedAfter string
 	Limit        int
 	FavoriteOnly bool
+	PinnedOnly   bool
 }
 
 // ListBlocksResponse is the paginated corpus list returned to clients.

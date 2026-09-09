@@ -122,7 +122,7 @@ func discovery(c *gin.Context) {
 
 func serveMetrics(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(tts.PrometheusMetrics()))
+	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(tts.PrometheusMetrics()+corpus.PrometheusMetrics()))
 }
 
 func serveOpenAPI(c *gin.Context) {
