@@ -19,6 +19,7 @@ import (
 //
 //	VOICE_GATEWAY_PROVIDER=dev-echo
 //	VOICE_DEV_ECHO_TEXT="let's ship it"
+//	VOICE_DEV_ECHO_TTS_MOCK=true   # optional 9/13 empty-run TTS frames
 //
 // and the dev-echo provider returns that text as ServerASRText on every
 // user.speech.end — cmd/voice-gateway wires a self-contained B12 emitter for
@@ -32,7 +33,9 @@ func NewVoiceProvider(cfg Config, logger *slog.Logger) VoiceProvider {
 	case "volc-duplex":
 		return NewVolcDuplexProvider(cfg, logger)
 	case "dev-echo":
-		return NewDevEchoVoiceProvider(cfg.DevEchoText, logger)
+		provider := NewDevEchoVoiceProvider(cfg.DevEchoText, logger)
+		provider.TTSMock = cfg.DevEchoTTSMock
+		return provider
 	case "", "mock":
 		fallthrough
 	default:

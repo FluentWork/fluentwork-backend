@@ -33,7 +33,11 @@ type Config struct {
 	// Provider == "dev-echo". Empty text makes the provider a no-op (logs
 	// a warning on session open).
 	DevEchoText string
-	IdleTimeout time.Duration
+	// DevEchoTTSMock, when true, makes the dev-echo provider emit frozen
+	// WSS V2 ai.tts.start + 10 binary audio frames + ai.tts.end on each
+	// user.speech.end. Used for the 9/13 cross-repo empty-run. Off by default.
+	DevEchoTTSMock bool
+	IdleTimeout    time.Duration
 }
 
 // LoadConfig reads voice-gateway configuration from the environment.
@@ -66,6 +70,8 @@ func LoadConfig() Config {
 		Provider:             envOr("VOICE_GATEWAY_PROVIDER", "mock"),
 		ClientAudioFormat:    envOr("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed"),
 		DevEchoText:          envOr("VOICE_DEV_ECHO_TEXT", ""),
+		DevEchoTTSMock: envTruthy("VOICE_DEV_ECHO_TTS_MOCK") ||
+			envTruthy("DEV_ECHO_TTS_MOCK"),
 		VolcSpeechAPIKey: envFirst(
 			"VOICE_GATEWAY_VOLC_SPEECH_API_KEY",
 			"VOLC_POC_API_KEY",
@@ -129,6 +135,15 @@ func (c Config) Validate() error {
 		return fmt.Errorf("VOICE_GATEWAY_IDLE_TIMEOUT must be positive")
 	}
 	return nil
+}
+
+func envTruthy(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func envOr(key, fallback string) string {

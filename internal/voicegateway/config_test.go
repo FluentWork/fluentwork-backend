@@ -23,6 +23,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("VOICE_GATEWAY_IDLE_TIMEOUT", "")
 	t.Setenv("VOICE_GATEWAY_PROVIDER", "mock")
 	t.Setenv("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed")
+	t.Setenv("VOICE_DEV_ECHO_TTS_MOCK", "")
+	t.Setenv("DEV_ECHO_TTS_MOCK", "")
 	t.Setenv("VOICE_GATEWAY_VOLC_SPEECH_API_KEY", "")
 	t.Setenv("VOLC_POC_API_KEY", "")
 	t.Setenv("VOLC_SPEECH_API_KEY", "")
@@ -46,6 +48,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.IdleTimeout != 2*time.Minute {
 		t.Fatalf("IdleTimeout = %s", cfg.IdleTimeout)
+	}
+	if cfg.DevEchoTTSMock {
+		t.Fatal("DevEchoTTSMock should default to false")
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
@@ -240,6 +245,18 @@ func TestLoadConfigEnvStillWinsOverDotenv(t *testing.T) {
 	}
 	if cfg.VolcSpeechAPIKey != "shell-key" {
 		t.Fatalf("VolcSpeechAPIKey = %q, want shell-key", cfg.VolcSpeechAPIKey)
+	}
+}
+
+func TestLoadConfigDevEchoTTSMock(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("VOICE_GATEWAY_PROVIDER", "dev-echo")
+	t.Setenv("VOICE_DEV_ECHO_TTS_MOCK", "true")
+	t.Setenv("DEV_ECHO_TTS_MOCK", "")
+
+	cfg := voicegateway.LoadConfig()
+	if !cfg.DevEchoTTSMock {
+		t.Fatal("expected DevEchoTTSMock=true from VOICE_DEV_ECHO_TTS_MOCK")
 	}
 }
 

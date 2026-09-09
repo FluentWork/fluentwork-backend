@@ -2,6 +2,7 @@ package voicegateway_test
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -477,6 +478,97 @@ done:
 	if gotChunks != wantChunks {
 		t.Fatalf("expected %d chunks, got %d", wantChunks, gotChunks)
 	}
+}
+
+func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out: voicegateway.ConsumedTicket{
+			TicketID:  "t-tts",
+			SessionID: "s-tts",
+			UserID:    "u-tts",
+		},
+	}
+	provider := voicegateway.NewDevEchoVoiceProvider("echo", nil)
+	provider.TTSMock = true
+
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type:   voiceproto.TypeAuth,
+		Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn)
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readNextControlFrame(ctx, t, conn)
+	_ = readNextControlFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		TurnID: "turn-empty-run",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	relay := readNextControlFrame(ctx, t, conn)
+	if relay["type"] != voiceproto.TypeClientASRTranscription {
+		t.Fatalf("expected ASR relay, got %#v", relay)
+	}
+	start := readNextControlFrame(ctx, t, conn)
+	if start["type"] != "ai.tts.start" {
+		t.Fatalf("expected ai.tts.start, got %#v", start)
+	}
+
+	for i := 0; i < 10; i++ {
+		typ, data := readNextMessage(ctx, t, conn)
+		if typ != websocket.MessageBinary {
+			t.Fatalf("audio[%d]: expected binary, got %v", i, typ)
+		}
+		if binary.BigEndian.Uint32(data[:4]) != uint32(i) {
+			t.Fatalf("audio[%d] seq = %d", i, binary.BigEndian.Uint32(data[:4]))
+		}
+	}
+
+	end := readNextControlFrame(ctx, t, conn)
+	if end["type"] != "ai.tts.end" {
+		t.Fatalf("expected ai.tts.end, got %#v", end)
+	}
+	turnEnd := readNextControlFrame(ctx, t, conn)
+	if turnEnd["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end, got %#v", turnEnd)
+	}
+}
+
+func readNextMessage(ctx context.Context, t *testing.T, conn *websocket.Conn) (websocket.MessageType, []byte) {
+	t.Helper()
+	readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	typ, data, err := conn.Read(readCtx)
+	if err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	return typ, data
 }
 
 // readNextControlFrame is the local helper that pulls the next text control frame

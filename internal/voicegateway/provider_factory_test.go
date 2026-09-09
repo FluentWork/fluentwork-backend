@@ -57,10 +57,18 @@ func TestNewVoiceProviderSelectsDevEcho(t *testing.T) {
 	t.Parallel()
 
 	provider := voicegateway.NewVoiceProvider(voicegateway.Config{
-		Provider:    "dev-echo",
-		DevEchoText: "let's ship it",
+		Provider:       "dev-echo",
+		DevEchoText:    "let's ship it",
+		DevEchoTTSMock: true,
 	}, nil)
-	if _, ok := provider.(voicegateway.DevEchoVoiceProvider); !ok {
+	echo, ok := provider.(voicegateway.DevEchoVoiceProvider)
+	if !ok {
 		t.Fatalf("expected DevEchoVoiceProvider, got %T", provider)
+	}
+	if echo.EchoText != "let's ship it" {
+		t.Fatalf("EchoText = %q", echo.EchoText)
+	}
+	if !echo.TTSMock {
+		t.Fatal("expected TTSMock to be copied from config")
 	}
 }
