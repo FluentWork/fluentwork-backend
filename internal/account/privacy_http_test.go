@@ -46,7 +46,7 @@ func setupPrivacyServer(t *testing.T) (*httpserver.Server, *account.Service, *ac
 	}, []account.HardDeleter{drill.RecordWiper{Store: recs}}, logger)
 	accountHandler.SetPrivacy(privacy)
 	drillHandler := drill.NewHandler(drill.NewService(blocks, recs, &drill.LLMJudge{LLM: drill.StaticCompleter{Body: `{"pass":true}`}}, logger), accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpus.NewHandler(corpus.NewService(blocks, logger), accountHandler), nil, nil, nil, nil, drillHandler, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpus.NewHandler(corpus.NewService(blocks, logger), accountHandler), nil, nil, nil, nil, drillHandler, nil, nil, accountStore.Ping)
 	tokens, err := accountSvc.IssueGuest(context.Background(), "device-privacy-1")
 	if err != nil {
 		t.Fatalf("guest: %v", err)

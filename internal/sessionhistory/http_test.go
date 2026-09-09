@@ -32,7 +32,7 @@ func setupHistory(t *testing.T) (*httpserver.Server, *session.MemoryStore, strin
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
 	history := sessionhistory.NewHandler(sessionhistory.NewService(sessionStore, nil, logger), accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, nil, history, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, nil, history, nil, accountStore.Ping)
 
 	guestRec := httptest.NewRecorder()
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"hist-1"}`)))

@@ -25,7 +25,7 @@ func TestSQLContainsRequiredTables(t *testing.T) {
 		combined.WriteByte('\n')
 	}
 	text := combined.String()
-	for _, table := range []string{"users", "auth_tokens", "ai_cost_logs", "practice_sessions", "session_tickets", "utterances", "session_jobs", "phrase_blocks", "daily_reads"} {
+	for _, table := range []string{"users", "auth_tokens", "ai_cost_logs", "practice_sessions", "session_tickets", "utterances", "session_jobs", "phrase_blocks", "daily_reads", "materials"} {
 		if !strings.Contains(text, "CREATE TABLE IF NOT EXISTS "+table) {
 			t.Fatalf("migrations missing table %s", table)
 		}

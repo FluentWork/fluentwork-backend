@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.6
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, and B24 session history.
+  version: 0.3.7
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, and B21 materials.
 servers:
   - url: /api/v1
 paths:
@@ -625,6 +625,77 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DrillJudgeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /materials:
+    post:
+      summary: Create a material and enqueue phrase-block refine
+      operationId: createMaterial
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                kind:
+                  type: string
+                  enum: [paste, sentence, url]
+                  default: paste
+                content:
+                  type: string
+                  maxLength: 5000
+      responses:
+        "202":
+          description: Material queued for refine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateMaterialResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /materials/{id}:
+    get:
+      summary: Poll material refine status
+      operationId: getMaterial
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Material including refine_status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "403":
+          description: Owned by another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Missing or A4-deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: Error
           content:
@@ -1383,6 +1454,30 @@ components:
         chunk_en:
           type: string
           description: Phrase block expression_en (48_ chunk_en)
+    CreateMaterialResponse:
+      type: object
+      required: [material_id, refine_status]
+      properties:
+        material_id: { type: string }
+        refine_status:
+          type: string
+          enum: [queued, processing, ready, failed]
+    Material:
+      type: object
+      required: [id, kind, content, refine_status, block_count, created_at, updated_at]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [paste, sentence, url]
+        content: { type: string }
+        refine_status:
+          type: string
+          enum: [queued, processing, ready, failed]
+        block_count: { type: integer }
+        error_code: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Error:
       type: object
       required: [code, message, request_id]

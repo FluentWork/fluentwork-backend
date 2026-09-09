@@ -131,6 +131,7 @@ Examples:
 | 文档 | 任务 | 提交 |
 |------|------|------|
 | `docs/26_B24_历史回顾API_实现说明.md` | B24 会话列表/详情 | `d90d4e4` |
+| `docs/27_B21_素材模块_实现说明.md` | B21 素材创建与提炼 | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -163,6 +164,8 @@ Examples:
 | `docs/00_开发入口与第一波范围.md` | 项目启动和第一波范围 |
 | `docs/02_第二波开发范围与任务清单.md` | 第二波开发任务 |
 | `docs/23_B15_Turn_Timeout_And_Session_Exit.md` | B15 Issue 详情 |
+| `docs/i20-fix-plan.md` | I20 全链路收口计划 |
 | `docs/26_B24_历史回顾API_实现说明.md` | B24 历史回顾 API 实现说明 |
+| `docs/27_B21_素材模块_实现说明.md` | B21 素材模块实现说明 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

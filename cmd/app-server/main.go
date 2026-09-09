@@ -23,6 +23,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	"github.com/FluentWork/fluentwork-backend/internal/materials"
 	reviewpkg "github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -140,17 +141,31 @@ func run() error {
 	}()
 	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: drill.NewArkCompleter(cfg)}, logger)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
+
+	materialStore, materialCloser, err := materials.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := materialCloser(); closeErr != nil {
+			logger.Error("closing materials store", "err", closeErr)
+		}
+	}()
+	materialSvc := materials.NewService(materialStore, corpusStore, drill.NewArkCompleter(cfg), logger)
+	materialHandler := materials.NewHandler(materialSvc, accountHandler)
+
 	privacy := account.NewPrivacyService(accountStore, []account.DataWiper{
 		corpus.PrivacyWiper{Store: corpusStore},
 		session.PrivacyWiper{Store: sessionStore},
 		aicost.PrivacyWiper{Store: costStore},
+		materials.PrivacyWiper{Store: materialStore},
 	}, []account.HardDeleter{
 		drill.RecordWiper{Store: drillRecords},
 	}, logger)
 	accountHandler.SetPrivacy(privacy)
 
 	historyHandler := sessionhistory.NewHandler(sessionhistory.NewService(sessionStore, reviewEval, logger), accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, materialHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
