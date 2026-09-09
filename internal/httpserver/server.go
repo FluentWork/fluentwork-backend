@@ -18,6 +18,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
@@ -41,6 +42,7 @@ func New(
 	sessions *session.Handler,
 	costHandler *aicost.Handler,
 	ttsHandler *tts.Handler,
+	drillHandler *drill.Handler,
 	ready func(context.Context) error,
 ) *Server {
 	ginOnce.Do(func() {
@@ -57,6 +59,7 @@ func New(
 	apiGroup := engine.Group("/api/v1")
 	if accounts != nil {
 		account.RegisterRoutes(apiGroup, accounts)
+		account.RegisterInternalRoutes(engine.Group("/internal/v1"), accounts, cfg.InternalAPIToken)
 	}
 	if corpusHandler != nil {
 		corpus.RegisterRoutes(apiGroup, corpusHandler)
@@ -74,6 +77,9 @@ func New(
 	}
 	if ttsHandler != nil {
 		tts.RegisterInternalRoutes(engine.Group("/internal/v1"), ttsHandler, cfg.InternalAPIToken)
+	}
+	if drillHandler != nil {
+		drill.RegisterRoutes(apiGroup, drillHandler)
 	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))
@@ -117,12 +123,16 @@ func discovery(c *gin.Context) {
 		"metrics":    "/metrics",
 		"tts":        "/internal/v1/tts/synthesize",
 		"hits":       "/internal/v1/voicegateway/hits",
+		"drill":      "/api/v1/drill/round",
+		"privacy":    "/api/v1/account/data",
 	})
 }
 
 func serveMetrics(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(tts.PrometheusMetrics()+corpus.PrometheusMetrics()))
+	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(
+		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics(),
+	))
 }
 
 func serveOpenAPI(c *gin.Context) {

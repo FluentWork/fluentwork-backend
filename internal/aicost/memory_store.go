@@ -61,11 +61,49 @@ func (*MemoryStore) RecordCostTx(_ context.Context, _ any, _ Log) error {
 	return nil // no-op for in-memory store
 }
 
+// AnonymizeUser nulls user_id and stores the original in UserIDAnonymized.
+func (s *MemoryStore) AnonymizeUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i, log := range s.logs {
+		if log.UserID == nil || *log.UserID != userID {
+			continue
+		}
+		orig := *log.UserID
+		s.logs[i].UserIDAnonymized = &orig
+		s.logs[i].UserID = nil
+		n++
+	}
+	return n, nil
+}
+
+// RestoreUser moves user_id_anonymized back onto user_id.
+func (s *MemoryStore) RestoreUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i, log := range s.logs {
+		if log.UserIDAnonymized == nil || *log.UserIDAnonymized != userID {
+			continue
+		}
+		copied := *log.UserIDAnonymized
+		s.logs[i].UserID = &copied
+		s.logs[i].UserIDAnonymized = nil
+		n++
+	}
+	return n, nil
+}
+
 func cloneLog(log Log) Log {
 	cloned := log
 	if log.UserID != nil {
 		copied := *log.UserID
 		cloned.UserID = &copied
+	}
+	if log.UserIDAnonymized != nil {
+		copied := *log.UserIDAnonymized
+		cloned.UserIDAnonymized = &copied
 	}
 	return cloned
 }

@@ -260,6 +260,90 @@ func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID stri
 	return err
 }
 
+// ListDueBlocks implements Store.
+func (s *MySQLStore) ListDueBlocks(ctx context.Context, userID string, now time.Time, states []string, limit int) ([]PhraseBlock, error) {
+	if len(states) == 0 || limit <= 0 {
+		return []PhraseBlock{}, nil
+	}
+	placeholders := strings.Repeat("?,", len(states))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := []any{userID}
+	for _, st := range states {
+		args = append(args, st)
+	}
+	args = append(args, now.UTC(), limit)
+	rows, err := s.db.QueryContext(ctx, `
+                SELECT `+blockColumns+`
+                FROM phrase_blocks
+                WHERE user_id = ? AND deleted_at IS NULL
+                  AND state IN (`+placeholders+`)
+                  AND next_due_at <= ?
+                ORDER BY next_due_at ASC, id ASC
+                LIMIT ?
+        `, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	blocks := make([]PhraseBlock, 0)
+	for rows.Next() {
+		block, err := scanBlock(rows)
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks, rows.Err()
+}
+
+// UpdateSchedule implements Store.
+func (s *MySQLStore) UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error) {
+	result, err := s.db.ExecContext(ctx, `
+                UPDATE phrase_blocks
+                SET state = ?, success_streak = ?, next_due_at = ?, updated_at = ?
+                WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+        `, state, successStreak, nextDueAt.UTC(), updatedAt.UTC(), blockID, userID)
+	if err != nil {
+		return PhraseBlock{}, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return PhraseBlock{}, err
+	}
+	if n != 1 {
+		return PhraseBlock{}, ErrNotFound
+	}
+	return s.GetBlock(ctx, userID, blockID)
+}
+
+// SoftDeleteAllForUser implements Store.
+func (s *MySQLStore) SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+                UPDATE phrase_blocks
+                SET deleted_at = ?, updated_at = ?, pinned_at = NULL, is_favorite = 0
+                WHERE user_id = ? AND deleted_at IS NULL
+        `, deletedAt.UTC(), deletedAt.UTC(), userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+// RestoreDeletedForUser implements Store.
+func (s *MySQLStore) RestoreDeletedForUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+                UPDATE phrase_blocks
+                SET deleted_at = NULL
+                WHERE user_id = ? AND deleted_at IS NOT NULL
+        `, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
 // RecordHits implements Store. One transaction UPSERTs the ledger and
 // increments total_uses only when MySQL reports a fresh insert (RowsAffected==1).
 func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {

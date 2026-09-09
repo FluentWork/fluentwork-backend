@@ -21,6 +21,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -123,7 +124,28 @@ func run() error {
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	ttsHandler := tts.NewHandler(newTTSProvider(logger))
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, accountStore.Ping)
+
+	drillRecords, drillCloser, err := drill.OpenRecordStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := drillCloser(); closeErr != nil {
+			logger.Error("closing drill record store", "err", closeErr)
+		}
+	}()
+	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: drill.NewArkCompleter(cfg)}, logger)
+	drillHandler := drill.NewHandler(drillSvc, accountHandler)
+	privacy := account.NewPrivacyService(accountStore, []account.DataWiper{
+		corpus.PrivacyWiper{Store: corpusStore},
+		session.PrivacyWiper{Store: sessionStore},
+		aicost.PrivacyWiper{Store: costStore},
+	}, []account.HardDeleter{
+		drill.RecordWiper{Store: drillRecords},
+	}, logger)
+	accountHandler.SetPrivacy(privacy)
+
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

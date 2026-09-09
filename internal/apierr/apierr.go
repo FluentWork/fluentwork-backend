@@ -50,6 +50,11 @@ func Conflict(message string) *Error {
 	return &Error{Code: "CONFLICT", Message: message, HTTPStatus: 409}
 }
 
+// FailedPrecondition returns a 422 error.
+func FailedPrecondition(message string) *Error {
+	return &Error{Code: "FAILED_PRECONDITION", Message: message, HTTPStatus: 422}
+}
+
 // Unavailable returns a 503 error.
 func Unavailable(message string) *Error {
 	return &Error{Code: "UNAVAILABLE", Message: message, HTTPStatus: 503}

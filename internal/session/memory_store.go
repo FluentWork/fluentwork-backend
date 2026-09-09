@@ -383,6 +383,40 @@ func (s *MemoryStore) ReassignUser(_ context.Context, fromUserID, toUserID strin
 	return nil
 }
 
+// SoftDeleteForUser marks practice_sessions.deleted_at for A4.
+func (s *MemoryStore) SoftDeleteForUser(_ context.Context, userID string, deletedAt time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	at := deletedAt.UTC()
+	for id, session := range s.sessions {
+		if session.UserID != userID || session.DeletedAt != nil {
+			continue
+		}
+		session.DeletedAt = &at
+		session.UpdatedAt = at
+		s.sessions[id] = session
+		n++
+	}
+	return n, nil
+}
+
+// RestoreDeletedForUser clears A4 soft-delete on practice_sessions.
+func (s *MemoryStore) RestoreDeletedForUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, session := range s.sessions {
+		if session.UserID != userID || session.DeletedAt == nil {
+			continue
+		}
+		session.DeletedAt = nil
+		s.sessions[id] = session
+		n++
+	}
+	return n, nil
+}
+
 func cloneSession(session Session) Session {
 	cloned := session
 	if session.MaterialID != nil {
@@ -391,6 +425,10 @@ func cloneSession(session Session) Session {
 	}
 	if session.ReviewJSON != nil {
 		cloned.ReviewJSON = append([]byte(nil), session.ReviewJSON...)
+	}
+	if session.DeletedAt != nil {
+		copied := *session.DeletedAt
+		cloned.DeletedAt = &copied
 	}
 	return cloned
 }

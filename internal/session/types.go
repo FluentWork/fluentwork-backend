@@ -52,6 +52,8 @@ type Session struct {
 	ReviewJSON  []byte
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// DeletedAt is A4 soft-delete. MySQL scanSession does not load this column.
+	DeletedAt *time.Time
 }
 
 // Job is an outbox row consumed by the review worker.

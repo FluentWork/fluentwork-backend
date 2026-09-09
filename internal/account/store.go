@@ -30,6 +30,11 @@ type Store interface {
 	FindGuestMergedInto(ctx context.Context, targetID string) (User, error)
 	ReplaceRefreshToken(ctx context.Context, token RefreshToken) error
 	DeleteRefreshTokensForUser(ctx context.Context, userID string) error
+	MarkDeleted(ctx context.Context, userID string, at, tombstoneAt time.Time) error
+	ClearDeleted(ctx context.Context, userID string) error
+	InsertTombstone(ctx context.Context, row Tombstone) error
+	DeleteTombstonesForUser(ctx context.Context, userID string) (int, error)
+	InsertAudit(ctx context.Context, row AuditLog) error
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

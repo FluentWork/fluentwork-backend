@@ -9,10 +9,12 @@ import (
 
 // MemoryStore is a process-local Store used by tests and local development.
 type MemoryStore struct {
-	mu       sync.Mutex
-	users    map[string]User
-	byDevice map[string]string
-	tokens   map[string]RefreshToken
+	mu         sync.Mutex
+	users      map[string]User
+	byDevice   map[string]string
+	tokens     map[string]RefreshToken
+	tombstones []Tombstone
+	audits     []AuditLog
 }
 
 // NewMemoryStore constructs an empty in-memory account store.
@@ -150,6 +152,91 @@ func (s *MemoryStore) DeleteRefreshTokensForUser(_ context.Context, userID strin
 	return nil
 }
 
+// MarkDeleted implements Store.
+func (s *MemoryStore) MarkDeleted(_ context.Context, userID string, at, tombstoneAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if user.DeletedAt != nil {
+		return nil
+	}
+	user.Status = UserStatusDeleted
+	user.DeletedAt = cloneTimePtr(&at)
+	user.TombstoneAt = cloneTimePtr(&tombstoneAt)
+	user.UpdatedAt = at
+	s.users[userID] = user
+	return nil
+}
+
+// ClearDeleted implements Store.
+func (s *MemoryStore) ClearDeleted(_ context.Context, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	user.Status = UserStatusActive
+	user.DeletedAt = nil
+	user.TombstoneAt = nil
+	s.users[userID] = user
+	return nil
+}
+
+// InsertTombstone implements Store.
+func (s *MemoryStore) InsertTombstone(_ context.Context, row Tombstone) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tombstones = append(s.tombstones, row)
+	return nil
+}
+
+// DeleteTombstonesForUser implements Store.
+func (s *MemoryStore) DeleteTombstonesForUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.tombstones[:0]
+	n := 0
+	for _, row := range s.tombstones {
+		if row.UserID == userID {
+			n++
+			continue
+		}
+		kept = append(kept, row)
+	}
+	s.tombstones = kept
+	return n, nil
+}
+
+// InsertAudit implements Store.
+func (s *MemoryStore) InsertAudit(_ context.Context, row AuditLog) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.audits = append(s.audits, row)
+	return nil
+}
+
+// Tombstones returns a copy for tests.
+func (s *MemoryStore) Tombstones() []Tombstone {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Tombstone, len(s.tombstones))
+	copy(out, s.tombstones)
+	return out
+}
+
+// Audits returns a copy for tests.
+func (s *MemoryStore) Audits() []AuditLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]AuditLog, len(s.audits))
+	copy(out, s.audits)
+	return out
+}
+
 func cloneUser(user User) User {
 	cloned := user
 	cloned.Email = cloneStringPtr(user.Email)
@@ -157,7 +244,17 @@ func cloneUser(user User) User {
 	cloned.DeviceID = cloneStringPtr(user.DeviceID)
 	cloned.PasswordHash = cloneStringPtr(user.PasswordHash)
 	cloned.MergedIntoUserID = cloneStringPtr(user.MergedIntoUserID)
+	cloned.DeletedAt = cloneTimePtr(user.DeletedAt)
+	cloned.TombstoneAt = cloneTimePtr(user.TombstoneAt)
 	return cloned
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
 }
 
 func cloneStringPtr(value *string) *string {

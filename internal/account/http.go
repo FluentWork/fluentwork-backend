@@ -17,7 +17,8 @@ const ContextIsGuestKey = "is_guest"
 
 // Handler exposes account HTTP endpoints.
 type Handler struct {
-	svc *Service
+	svc     *Service
+	privacy *PrivacyService
 }
 
 // NewHandler constructs account HTTP handlers.
@@ -29,6 +30,10 @@ func NewHandler(svc *Service) *Handler {
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/auth/guest", h.PostGuest)
 	rg.POST("/account/merge", h.RequireRegistered(), h.PostMerge)
+	if h != nil && h.privacy != nil {
+		rg.DELETE("/account/data", h.RequireAuth(), h.DeleteData)
+		rg.POST("/account/export", h.RequireAuth(), h.PostExport)
+	}
 }
 
 // RequireAuth rejects missing or invalid bearer tokens. Guests are allowed.

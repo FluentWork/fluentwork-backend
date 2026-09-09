@@ -10,8 +10,18 @@ import (
 
 // User statuses from the account baseline in the backend technical design.
 const (
-	UserStatusActive = "active"
-	UserStatusMerged = "merged"
+	UserStatusActive  = "active"
+	UserStatusMerged  = "merged"
+	UserStatusDeleted = "deleted"
+)
+
+const (
+	// ConfirmationDeleteMyData is the A4 confirmation phrase for DELETE /account/data.
+	ConfirmationDeleteMyData = "DELETE-MY-DATA"
+	// UndeleteWindow is the support restore window after A4 delete.
+	UndeleteWindow = 30 * 24 * time.Hour
+	// ExportReadyDelay is the stub SLA returned by POST /account/export.
+	ExportReadyDelay = 24 * time.Hour
 )
 
 // User is the account aggregate used by guest auth and merge.
@@ -24,6 +34,8 @@ type User struct {
 	PasswordHash     *string
 	Status           string
 	MergedIntoUserID *string
+	DeletedAt        *time.Time
+	TombstoneAt      *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
@@ -64,4 +76,71 @@ type GuestRequest struct {
 // MergeRequest is the body of POST /account/merge.
 type MergeRequest struct {
 	DeviceID string `json:"device_id"`
+}
+
+// DeleteDataRequest is DELETE /account/data.
+type DeleteDataRequest struct {
+	ConfirmationCode string `json:"confirmation_code"`
+}
+
+// DeleteDataResult is returned by A4 delete (48_ §1.1.6).
+type DeleteDataResult struct {
+	Cascaded       map[string]int `json:"cascaded"`
+	BackupPurgeAt  string         `json:"backup_purge_at"`
+	AlreadyDeleted bool           `json:"already_deleted"`
+}
+
+// ExportDataRequest is POST /account/export.
+type ExportDataRequest struct {
+	EmailTo string `json:"email_to"`
+}
+
+// ExportDataResult is the async export enqueue stub.
+type ExportDataResult struct {
+	ExportID         string `json:"export_id"`
+	EmailTo          string `json:"email_to"`
+	EstimatedReadyAt string `json:"estimated_ready_at"`
+}
+
+// UndeleteUserRequest is POST /internal/v1/support/undelete-user.
+type UndeleteUserRequest struct {
+	UserID string `json:"user_id"`
+	Reason string `json:"reason"`
+	Actor  string `json:"actor"`
+}
+
+// UndeleteUserResult is returned after a successful support restore.
+type UndeleteUserResult struct {
+	Restored map[string]int `json:"restored"`
+	UserID   string         `json:"user_id"`
+}
+
+// Tombstone is one A4 tombstones row.
+type Tombstone struct {
+	ID         string
+	UserID     string
+	EntityType string
+	EntityID   string
+	DeletedAt  time.Time
+	PurgeAt    time.Time
+	CreatedAt  time.Time
+}
+
+// AuditLog is one support audit_logs row.
+type AuditLog struct {
+	ID        string
+	Actor     string
+	Action    string
+	UserID    string
+	Reason    string
+	CreatedAt time.Time
+}
+
+// ExportJob is an in-process export enqueue stub (email send is V1.5).
+type ExportJob struct {
+	ID               string
+	UserID           string
+	EmailTo          string
+	EstimatedReadyAt time.Time
+	CreatedAt        time.Time
 }

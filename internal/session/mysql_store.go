@@ -541,6 +541,34 @@ func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID stri
 	return tx.Commit()
 }
 
+// SoftDeleteForUser marks practice_sessions.deleted_at without changing scanSession.
+func (s *MySQLStore) SoftDeleteForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE practice_sessions
+		SET deleted_at = ?, updated_at = ?
+		WHERE user_id = ? AND deleted_at IS NULL
+	`, deletedAt.UTC(), deletedAt.UTC(), userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+// RestoreDeletedForUser clears A4 soft-delete on practice_sessions.
+func (s *MySQLStore) RestoreDeletedForUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE practice_sessions
+		SET deleted_at = NULL
+		WHERE user_id = ? AND deleted_at IS NOT NULL
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
 func scanSession(row *sql.Row) (Session, error) {
 	var session Session
 	var materialID sql.NullString

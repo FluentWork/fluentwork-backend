@@ -117,6 +117,34 @@ func (s *MySQLStore) RecordCostTx(ctx context.Context, tx any, log Log) error {
 	return err
 }
 
+// AnonymizeUser copies user_id into user_id_anonymized and nulls user_id.
+func (s *MySQLStore) AnonymizeUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE ai_cost_logs
+		SET user_id_anonymized = user_id, user_id = NULL
+		WHERE user_id = ?
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+// RestoreUser restores user_id from user_id_anonymized.
+func (s *MySQLStore) RestoreUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE ai_cost_logs
+		SET user_id = user_id_anonymized, user_id_anonymized = NULL
+		WHERE user_id_anonymized = ?
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
 func nullableString(value *string) any {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return nil
