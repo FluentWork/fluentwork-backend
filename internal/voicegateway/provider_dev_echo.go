@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -43,9 +44,13 @@ import (
 // can't be confused with a real provider in incident response.
 type DevEchoVoiceProvider struct {
 	EchoText    string
-	FixturePath string // T2: optional path to a 16kHz mono PCM fixture file
+	FixturePath string // T2: optional path to a 16kHz mono PCM file
 	Fixture     []byte // T2: in-memory fixture bytes (preferred over FixturePath in tests)
-	Logger      *slog.Logger
+	// TTSMock emits frozen WSS V2 ai.tts.* frames (start + 10 binary + end)
+	// on user.speech.end. Dev-only; used for the 9/13 empty-run. When set,
+	// the T2 PCM fixture path is skipped so leftover PCM cannot mix with TTS.
+	TTSMock bool
+	Logger  *slog.Logger
 }
 
 // NewDevEchoVoiceProvider reads its configuration from struct fields.
@@ -70,35 +75,50 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (Vo
 		)
 	}
 	var fixture io.ReadCloser
-	switch {
-	case len(p.Fixture) > 0:
-		fixture = io.NopCloser(bytes.NewReader(p.Fixture))
-	case p.FixturePath != "":
-		f, err := os.Open(p.FixturePath)
-		if err != nil {
-			p.Logger.Warn("dev-echo fixture file not found, proceeding without audio fixture",
-				"session_id", ticket.SessionID,
-				"fixture_path", p.FixturePath,
-				"err", err,
-			)
-		} else {
-			fixture = f
+	if !p.TTSMock {
+		switch {
+		case len(p.Fixture) > 0:
+			fixture = io.NopCloser(bytes.NewReader(p.Fixture))
+		case p.FixturePath != "":
+			f, err := os.Open(p.FixturePath)
+			if err != nil {
+				p.Logger.Warn("dev-echo fixture file not found, proceeding without audio fixture",
+					"session_id", ticket.SessionID,
+					"fixture_path", p.FixturePath,
+					"err", err,
+				)
+			} else {
+				fixture = f
+			}
 		}
 	}
 	return &devEchoSession{
 		echoText: p.EchoText,
 		fixture:  fixture,
-		nextSeq:  1,
+		ttsMock:  p.TTSMock,
+		logger:   p.Logger,
+		nextSeq:  0,
 	}, nil
 }
 
 // 20ms of 16 kHz mono s16le.
 const devEchoChunkBytes = 640
 
+// Frozen empty-run TTS mock: 10 × 20ms frames at 24 kHz opus.
+const (
+	devEchoTTSMockFrameCount = 10
+	devEchoTTSMockVoiceID    = "mock_voice_01"
+	devEchoTTSMockSampleRate = 24_000
+	devEchoTTSMockCodec      = "opus"
+	devEchoTTSMockFrameMs    = 20
+)
+
 type devEchoSession struct {
 	echoText string
 	fixture  io.ReadCloser
-	nextSeq  int
+	ttsMock  bool
+	logger   *slog.Logger
+	nextSeq  uint32
 }
 
 // Start emits a placeholder AI greeting so iOS sees a normal session
@@ -141,6 +161,9 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 	var end voiceproto.UserSpeechEnd
 	if err := json.Unmarshal(data, &end); err == nil && strings.TrimSpace(end.TurnID) != "" {
 		turnID = strings.TrimSpace(end.TurnID)
+	}
+	if s.ttsMock {
+		return s.emitMockTTSTurn(turnID), nil
 	}
 	echoText := strings.TrimSpace(s.echoText)
 	if echoText == "" && s.fixture == nil {
@@ -222,6 +245,79 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 	}
 
 	return outbound, nil
+}
+
+func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
+	var outbound []ProviderOutbound
+	echoText := strings.TrimSpace(s.echoText)
+	if echoText != "" {
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.ClientASRTranscription{
+				Type:   voiceproto.TypeClientASRTranscription,
+				Text:   echoText,
+				TurnID: turnID,
+			},
+			ServerASRText: echoText,
+		})
+	}
+
+	outbound = append(outbound, ProviderOutbound{
+		Control: map[string]any{
+			"type":        "ai.tts.start",
+			"turn_id":     turnID,
+			"voice_id":    devEchoTTSMockVoiceID,
+			"sample_rate": devEchoTTSMockSampleRate,
+			"codec":       devEchoTTSMockCodec,
+		},
+	})
+	if s.logger != nil {
+		s.logger.Info("dev-echo emitted ai.tts.start", "turn_id", turnID, "codec", devEchoTTSMockCodec)
+	}
+
+	for i := 0; i < devEchoTTSMockFrameCount; i++ {
+		payload := []byte(fmt.Sprintf("mock-opus-frame-%d", i))
+		outbound = append(outbound, ProviderOutbound{
+			Binary: encodeDevEchoTTSAudio(s.nextSeq, payload),
+		})
+		s.nextSeq++
+	}
+	if s.logger != nil {
+		s.logger.Info("dev-echo emitted ai.tts.audio", "count", devEchoTTSMockFrameCount)
+	}
+
+	outbound = append(outbound,
+		ProviderOutbound{
+			Control: map[string]any{
+				"type":              "ai.tts.end",
+				"turn_id":           turnID,
+				"completion_status": "ok",
+				"duration_ms":       devEchoTTSMockFrameCount * devEchoTTSMockFrameMs,
+			},
+		},
+		ProviderOutbound{
+			Control: voiceproto.AITurnEnd{
+				Type:    voiceproto.TypeAITurnEnd,
+				TurnID:  turnID,
+				Outcome: "ok",
+				LogID:   "dev-echo",
+			},
+		},
+	)
+	if s.logger != nil {
+		s.logger.Info("dev-echo emitted ai.tts.end",
+			"turn_id", turnID,
+			"completion_status", "ok",
+			"duration_ms", devEchoTTSMockFrameCount*devEchoTTSMockFrameMs,
+		)
+	}
+	return outbound
+}
+
+func encodeDevEchoTTSAudio(seq uint32, payload []byte) []byte {
+	frame := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(frame[:4], seq)
+	copy(frame[4:], payload)
+	return frame
 }
 
 // HandleClientAudio (T2): continues streaming the PCM fixture back to the client
