@@ -3,6 +3,7 @@ package httpserver
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
@@ -36,5 +37,22 @@ func TestUnknownRouteUsesErrorEnvelope(t *testing.T) {
 	}
 	if rec.Header().Get("X-Request-ID") != "missing-route" {
 		t.Fatalf("request id header = %q", rec.Header().Get("X-Request-ID"))
+	}
+}
+
+func TestMetricsExposesTTSFallbackCounter(t *testing.T) {
+	store := account.NewMemoryStore()
+	cfg := config.Config{HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret}
+	svc := account.NewService(store, account.NopReassigner{}, cfg, nil)
+	server := New(cfg, nil, account.NewHandler(svc), nil, nil, nil, nil, nil, store.Ping)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "tts_fallback_triggered_total") {
+		t.Fatalf("metrics missing tts_fallback_triggered_total: %s", body)
 	}
 }

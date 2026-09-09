@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.0
-  description: Contracts for guest auth, merge, sessions, and second-wave review full model.
+  version: 0.3.1
+  description: Contracts for guest auth, merge, sessions, second-wave review, and B17 TTS synthesize.
 servers:
   - url: /api/v1
 paths:
@@ -361,12 +361,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /internal/v1/tts/synthesize:
+    post:
+      servers:
+        - url: /
+      summary: Synthesize speech with Volc streaming TTS and duplex fallback
+      description: |
+        Internal endpoint (X-Internal-Token). Primary provider is Volc HTTP/2
+        unidirectional TTS. After three consecutive HTTP 5xx responses, traffic
+        switches to the duplex TTS fallback and increments
+        tts_fallback_triggered_total{from="volc_streaming",to="volc_duplex"}
+        on GET /metrics.
+      operationId: synthesizeTTS
+      security:
+        - internalToken: []
+      parameters:
+        - name: voice_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Overrides JSON voice_id. D-2 catalog or a raw Volc speaker id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TTSSynthesizeRequest"
+      responses:
+        "200":
+          description: Concatenated audio chunks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TTSSynthesizeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
   schemas:
     TokenResponse:
       type: object
@@ -723,6 +767,26 @@ components:
           type: number
           nullable: true
         generator: { type: string }
+    TTSSynthesizeRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+        voice_id:
+          type: string
+          description: D-2 id (zh_male_tech_01, en_female_professional, en_male_narrator, en_female_clear) or a raw Volc speaker
+    TTSSynthesizeResponse:
+      type: object
+      required: [voice_id, chunks, audio_base64, used_fallback]
+      properties:
+        voice_id: { type: string }
+        chunks: { type: integer }
+        audio_base64: { type: string }
+        used_fallback:
+          type: boolean
+          description: true after Manager switched from volc_streaming to volc_duplex
     Error:
       type: object
       required: [code, message, request_id]

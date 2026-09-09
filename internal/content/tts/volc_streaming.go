@@ -152,7 +152,7 @@ func (p *VolcStreamingProvider) Stream(ctx context.Context, text string, voice V
 		if resp.StatusCode != http.StatusOK {
 			logID := resp.Header.Get("X-Tt-Logid")
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("%w: http %d log_id=%s", ErrHTTPStatus, resp.StatusCode, logID)
+			return nil, &httpStatusError{Status: resp.StatusCode, LogID: logID}
 		}
 		break
 	}

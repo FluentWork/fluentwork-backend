@@ -50,6 +50,7 @@ func New(
 	engine.Use(withLogger(logger), RequestID(), Recover(logger), AccessLog(logger))
 	engine.GET("/healthz", liveness)
 	engine.GET("/readyz", readiness(ready))
+	engine.GET("/metrics", serveMetrics)
 	engine.GET("/", discovery)
 	engine.GET("/openapi.yaml", serveOpenAPI)
 	engine.GET("/openapi/v1.yaml", serveOpenAPI)
@@ -113,8 +114,14 @@ func discovery(c *gin.Context) {
 		"openapi":    "/openapi.yaml",
 		"healthz":    "/healthz",
 		"readyz":     "/readyz",
+		"metrics":    "/metrics",
 		"tts":        "/internal/v1/tts/synthesize",
 	})
+}
+
+func serveMetrics(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(tts.PrometheusMetrics()))
 }
 
 func serveOpenAPI(c *gin.Context) {
