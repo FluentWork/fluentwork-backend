@@ -116,6 +116,7 @@ func discovery(c *gin.Context) {
 		"readyz":     "/readyz",
 		"metrics":    "/metrics",
 		"tts":        "/internal/v1/tts/synthesize",
+		"hits":       "/internal/v1/voicegateway/hits",
 	})
 }
 

@@ -60,6 +60,8 @@ type Store interface {
 	SetFavorite(ctx context.Context, userID, blockID string, isFavorite bool, pinnedAt *time.Time, updatedAt time.Time) (PhraseBlock, error)
 	SoftDeleteBlock(ctx context.Context, userID, blockID string, deletedAt time.Time) error
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
+	RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error)
+	ListSessionHits(ctx context.Context, sessionID string) ([]RecentHit, error)
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

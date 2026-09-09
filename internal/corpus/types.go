@@ -52,6 +52,8 @@ type PhraseBlock struct {
 	NextDueAt       time.Time
 	EaseFactor      float64
 	RealUseCount    int
+	TotalUses       int
+	LastUsedAt      *time.Time
 	IsFavorite      bool
 	PinnedAt        *time.Time
 	SourceSessionID *string

@@ -19,6 +19,7 @@ const internalTokenHeader = "X-Internal-Token"
 // in-memory dev store and MySQL).
 func RegisterInternalRoutes(rg gin.IRouter, h *Handler, expectedToken string) {
 	rg.GET("/corpus/blocks", requireInternalToken(expectedToken), h.ListBlocksInternal)
+	RegisterHitsInternalRoutes(rg, h, expectedToken)
 }
 
 func requireInternalToken(expected string) gin.HandlerFunc {
