@@ -134,7 +134,8 @@ Examples:
 | `docs/27_B21_素材模块_实现说明.md` | B21 素材创建与提炼 | `37d3614` |
 | `docs/28_B23_话题卡_实现说明.md` | B23 每日话题卡与打卡 | `ffd585f` |
 | `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 与 fallback | `8d28c9b` |
-| `docs/30_B8_评价炼化Worker_实现说明.md` | B8 review worker 评价与炼化 | (本提交) |
+| `docs/30_B8_评价炼化Worker_实现说明.md` | B8 review worker 评价与炼化 | `fb779e3` |
+| `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 Prompt 回归（#28） | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -173,5 +174,6 @@ Examples:
 | `docs/28_B23_话题卡_实现说明.md` | B23 话题卡实现说明 |
 | `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 实现说明 |
 | `docs/30_B8_评价炼化Worker_实现说明.md` | B8 评价炼化 Worker 实现说明 |
+| `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 离线评估集（#28） |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |
