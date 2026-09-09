@@ -19,6 +19,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
+	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
@@ -120,7 +121,8 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, accountStore.Ping)
+	ttsHandler := tts.NewHandler(newTTSProvider(logger))
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -214,6 +216,33 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func newTTSProvider(logger *slog.Logger) tts.Provider {
+	apiKey := firstNonEmpty(os.Getenv("VOLC_SPEECH_API_KEY"), os.Getenv("VOLC_SPEECH_API_KEY_DEV"))
+	if apiKey == "" {
+		if logger != nil {
+			logger.Info("tts provider disabled: VOLC_SPEECH_API_KEY is empty")
+		}
+		return nil
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &tts.VolcStreamingProvider{
+		APIKey:     apiKey,
+		ResourceID: envOr("VOLC_SPEECH_RESOURCE_TTS", "seed-tts-2.0"),
+		Logger:     logger.With("component", "tts.volc_streaming"),
+	}
 }
 
 func durationOr(key string, fallback time.Duration) time.Duration {

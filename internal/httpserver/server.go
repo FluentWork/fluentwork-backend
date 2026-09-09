@@ -16,6 +16,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
+	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -39,6 +40,7 @@ func New(
 	contentHandler *content.Handler,
 	sessions *session.Handler,
 	costHandler *aicost.Handler,
+	ttsHandler *tts.Handler,
 	ready func(context.Context) error,
 ) *Server {
 	ginOnce.Do(func() {
@@ -68,6 +70,9 @@ func New(
 	}
 	if costHandler != nil {
 		aicost.RegisterInternalRoutes(engine.Group("/internal/v1"), costHandler, cfg.InternalAPIToken)
+	}
+	if ttsHandler != nil {
+		tts.RegisterInternalRoutes(engine.Group("/internal/v1"), ttsHandler, cfg.InternalAPIToken)
 	}
 	engine.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, apierr.NotFound("route not found"))
@@ -108,6 +113,7 @@ func discovery(c *gin.Context) {
 		"openapi":    "/openapi.yaml",
 		"healthz":    "/healthz",
 		"readyz":     "/readyz",
+		"tts":        "/internal/v1/tts/synthesize",
 	})
 }
 
