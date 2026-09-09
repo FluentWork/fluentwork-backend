@@ -124,6 +124,13 @@ Examples:
 2. **门禁**：`go test ./...` + `go build ./...`（本地 `./scripts/dev-check.sh`）。GitHub 在 push 到 `main` 后跑 `go-build-and-test`，不要求 PR
 3. 只有用户明确要求时才开 PR
 4. 不把 gstack review 当作提交或合并门禁
+5. **实现说明与代码一并提交**：门禁通过后必须新增 `docs/NN_<ticket>_实现说明.md`（原理、方案、若修 bug 则写根因、新方案理由、门禁证据），并在下方「最近实现说明」登记。不要把长文堆进本文件正文。
+
+## 最近实现说明
+
+| 文档 | 任务 | 提交 |
+|------|------|------|
+| `docs/26_B24_历史回顾API_实现说明.md` | B24 会话列表/详情 | `d90d4e4` |
 
 ## 关键 Issue 追踪
 
@@ -156,6 +163,6 @@ Examples:
 | `docs/00_开发入口与第一波范围.md` | 项目启动和第一波范围 |
 | `docs/02_第二波开发范围与任务清单.md` | 第二波开发任务 |
 | `docs/23_B15_Turn_Timeout_And_Session_Exit.md` | B15 Issue 详情 |
-| `docs/i20-fix-plan.md` | I20 全链路收口计划 |
+| `docs/26_B24_历史回顾API_实现说明.md` | B24 历史回顾 API 实现说明 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

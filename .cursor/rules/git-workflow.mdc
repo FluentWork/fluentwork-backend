@@ -9,4 +9,5 @@ alwaysApply: true
 - The ship gate is **build and test**: `go test ./...` and `go build ./...` (use `./scripts/dev-check.sh` locally). GitHub runs `go-build-and-test` on push to `main`; it is not a PR merge gate.
 - Do not require gstack review attestation (`GSTACK_REVIEWED=1`) or extra review gates before commit or push.
 - Commit on `main` and `git push origin main` after the gate passes.
+- After the gate passes, add `docs/NN_<ticket>_实现说明.md` covering: principle, approach, bug root cause (if any), why the new design, and test evidence. Commit that file with the code. Register it in AGENTS.md「最近实现说明」. Do not dump the long write-up into AGENTS.md.
 - Keep commits conventional: `<type>(<scope>): <description>`.
