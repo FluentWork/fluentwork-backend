@@ -262,12 +262,12 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 	}
 
 	outbound = append(outbound, ProviderOutbound{
-		Control: map[string]any{
-			"type":        "ai.tts.start",
-			"turn_id":     turnID,
-			"voice_id":    devEchoTTSMockVoiceID,
-			"sample_rate": devEchoTTSMockSampleRate,
-			"codec":       devEchoTTSMockCodec,
+		Control: voiceproto.AITTSStart{
+			Type:       voiceproto.TypeAITTSStart,
+			TurnID:     turnID,
+			VoiceID:    devEchoTTSMockVoiceID,
+			SampleRate: devEchoTTSMockSampleRate,
+			Codec:      devEchoTTSMockCodec,
 		},
 	})
 	if s.logger != nil {
@@ -276,22 +276,25 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 
 	for i := 0; i < devEchoTTSMockFrameCount; i++ {
 		payload := []byte(fmt.Sprintf("mock-opus-frame-%d", i))
-		outbound = append(outbound, ProviderOutbound{
-			Binary: encodeDevEchoTTSAudio(s.nextSeq, payload),
-		})
+		frame, err := (voiceproto.AITTSAudio{Seq: s.nextSeq, Payload: payload}).Encode()
+		if err != nil {
+			return outbound
+		}
+		outbound = append(outbound, ProviderOutbound{Binary: frame})
 		s.nextSeq++
 	}
 	if s.logger != nil {
 		s.logger.Info("dev-echo emitted ai.tts.audio", "count", devEchoTTSMockFrameCount)
 	}
 
+	durationMs := devEchoTTSMockFrameCount * devEchoTTSMockFrameMs
 	outbound = append(outbound,
 		ProviderOutbound{
-			Control: map[string]any{
-				"type":              "ai.tts.end",
-				"turn_id":           turnID,
-				"completion_status": "ok",
-				"duration_ms":       devEchoTTSMockFrameCount * devEchoTTSMockFrameMs,
+			Control: voiceproto.AITTSEnd{
+				Type:             voiceproto.TypeAITTSEnd,
+				TurnID:           turnID,
+				CompletionStatus: "ok",
+				DurationMs:       &durationMs,
 			},
 		},
 		ProviderOutbound{
@@ -311,13 +314,6 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 		)
 	}
 	return outbound
-}
-
-func encodeDevEchoTTSAudio(seq uint32, payload []byte) []byte {
-	frame := make([]byte, 4+len(payload))
-	binary.BigEndian.PutUint32(frame[:4], seq)
-	copy(frame[4:], payload)
-	return frame
 }
 
 // HandleClientAudio (T2): continues streaming the PCM fixture back to the client

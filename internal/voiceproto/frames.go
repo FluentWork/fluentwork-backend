@@ -2,6 +2,7 @@
 package voiceproto
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -17,6 +18,9 @@ const (
 	TypeClientASRTranscription = "client.asr.transcription"
 	TypeAITextDelta            = "ai.text.delta"
 	TypeAIAudioChunk           = "ai.audio.chunk"
+	TypeAITTSStart             = "ai.tts.start"
+	TypeAITTSAudio             = "ai.tts.audio"
+	TypeAITTSEnd               = "ai.tts.end"
 	TypeAITurnEnd              = "ai.turn.end"
 	TypeInterrupt              = "interrupt"
 	TypeFeedbackBadge          = "feedback.badge"
@@ -93,6 +97,56 @@ type ClientASRTranscription struct {
 	Type   string `json:"type"`
 	Text   string `json:"text"`
 	TurnID string `json:"turn_id,omitempty"`
+}
+
+// AITTSStart warms the client decoder before binary TTS audio (WSS V2).
+type AITTSStart struct {
+	Type       string `json:"type"`
+	TurnID     string `json:"turn_id"`
+	VoiceID    string `json:"voice_id"`
+	SampleRate int    `json:"sample_rate"`
+	Codec      string `json:"codec"`
+}
+
+// AITTSAudio is a WebSocket binary TTS frame, not JSON.
+// Wire layout matches iOS WSAudioFrameCodec: 4-byte big-endian seq + payload.
+type AITTSAudio struct {
+	Seq     uint32
+	Payload []byte
+}
+
+// AITTSEnd terminates the TTS stream after the last binary audio message.
+type AITTSEnd struct {
+	Type             string `json:"type"`
+	TurnID           string `json:"turn_id"`
+	CompletionStatus string `json:"completion_status"`
+	DurationMs       *int   `json:"duration_ms,omitempty"`
+}
+
+// Encode writes the frozen binary ai.tts.audio layout. Payload must be non-empty.
+func (f AITTSAudio) Encode() ([]byte, error) {
+	if len(f.Payload) == 0 {
+		return nil, fmt.Errorf("ai.tts.audio payload must be non-empty")
+	}
+	out := make([]byte, 4+len(f.Payload))
+	binary.BigEndian.PutUint32(out[:4], f.Seq)
+	copy(out[4:], f.Payload)
+	return out, nil
+}
+
+// DecodeAITTSAudio parses a WebSocket binary TTS message.
+func DecodeAITTSAudio(raw []byte) (AITTSAudio, error) {
+	if len(raw) < 5 {
+		return AITTSAudio{}, fmt.Errorf("ai.tts.audio truncated: %d bytes", len(raw))
+	}
+	payload := append([]byte(nil), raw[4:]...)
+	if len(payload) == 0 {
+		return AITTSAudio{}, fmt.Errorf("ai.tts.audio payload must be non-empty")
+	}
+	return AITTSAudio{
+		Seq:     binary.BigEndian.Uint32(raw[:4]),
+		Payload: payload,
+	}, nil
 }
 
 // AITurnEnd marks the explicit end boundary of one assistant turn.

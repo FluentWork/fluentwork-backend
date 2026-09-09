@@ -16,6 +16,18 @@ func TestControlFrameRoundTrip(t *testing.T) {
 		voiceproto.SessionReady{Type: voiceproto.TypeSessionReady, SessionID: "s1", UserID: "u1"},
 		voiceproto.SessionStart{Type: voiceproto.TypeSessionStart, SceneType: "demo"},
 		voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "turn-1"},
+		voiceproto.AITTSStart{
+			Type:       voiceproto.TypeAITTSStart,
+			TurnID:     "turn-9",
+			VoiceID:    "mock_voice_01",
+			SampleRate: 24000,
+			Codec:      "opus",
+		},
+		voiceproto.AITTSEnd{
+			Type:             voiceproto.TypeAITTSEnd,
+			TurnID:           "turn-9",
+			CompletionStatus: "ok",
+		},
 		voiceproto.Interrupt{Type: voiceproto.TypeInterrupt},
 		voiceproto.SessionEnd{Type: voiceproto.TypeSessionEnd, Reason: "user"},
 		voiceproto.ErrorFrame{Type: voiceproto.TypeError, Code: "unauthenticated", Message: "bad ticket"},
@@ -63,6 +75,159 @@ func TestSchemaFilePresent(t *testing.T) {
 		if _, ok := defs[name]; !ok {
 			t.Fatalf("schema missing $defs.%s", name)
 		}
+	}
+}
+
+func TestSchemaV2AddsTTSFrames(t *testing.T) {
+	t.Parallel()
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	for _, name := range []string{"aiTTSStart", "aiTTSAudio", "aiTTSEnd"} {
+		if _, ok := defs[name]; !ok {
+			t.Fatalf("v2 schema missing $defs.%s", name)
+		}
+	}
+	oneOf, ok := doc["oneOf"].([]any)
+	if !ok {
+		t.Fatal("schema missing oneOf")
+	}
+	refs := map[string]bool{}
+	for _, item := range oneOf {
+		m, _ := item.(map[string]any)
+		ref, _ := m["$ref"].(string)
+		refs[ref] = true
+	}
+	if !refs["#/$defs/aiTTSStart"] || !refs["#/$defs/aiTTSEnd"] {
+		t.Fatalf("v2 oneOf missing ai.tts start/end: %#v", refs)
+	}
+	if refs["#/$defs/aiTTSAudio"] {
+		t.Fatal("aiTTSAudio must not be in JSON control oneOf; it is a binary message")
+	}
+}
+
+func TestAITTSStartEndJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	start := voiceproto.AITTSStart{
+		Type:       voiceproto.TypeAITTSStart,
+		TurnID:     "turn-1",
+		VoiceID:    "mock_voice_01",
+		SampleRate: 24000,
+		Codec:      "opus",
+	}
+	raw, err := json.Marshal(start)
+	if err != nil {
+		t.Fatalf("marshal start: %v", err)
+	}
+	typ, err := voiceproto.DecodeType(raw)
+	if err != nil || typ != voiceproto.TypeAITTSStart {
+		t.Fatalf("DecodeType start: %q %v", typ, err)
+	}
+	var decoded voiceproto.AITTSStart
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal start: %v", err)
+	}
+	if decoded != start {
+		t.Fatalf("start round trip: %+v", decoded)
+	}
+
+	end := voiceproto.AITTSEnd{
+		Type:             voiceproto.TypeAITTSEnd,
+		TurnID:           "turn-1",
+		CompletionStatus: "interrupted",
+	}
+	raw, err = json.Marshal(end)
+	if err != nil {
+		t.Fatalf("marshal end: %v", err)
+	}
+	if typ, err = voiceproto.DecodeType(raw); err != nil || typ != voiceproto.TypeAITTSEnd {
+		t.Fatalf("DecodeType end: %q %v", typ, err)
+	}
+	var decodedEnd voiceproto.AITTSEnd
+	if err := json.Unmarshal(raw, &decodedEnd); err != nil {
+		t.Fatalf("unmarshal end: %v", err)
+	}
+	if decodedEnd.DurationMs != nil {
+		t.Fatal("optional duration_ms should omit")
+	}
+	ms := 200
+	end.DurationMs = &ms
+	raw, err = json.Marshal(end)
+	if err != nil {
+		t.Fatalf("marshal end with duration: %v", err)
+	}
+	if err := json.Unmarshal(raw, &decodedEnd); err != nil {
+		t.Fatalf("unmarshal end with duration: %v", err)
+	}
+	if decodedEnd.DurationMs == nil || *decodedEnd.DurationMs != 200 {
+		t.Fatalf("duration_ms = %#v", decodedEnd.DurationMs)
+	}
+}
+
+func TestAITTSAudioBinaryRoundTrip(t *testing.T) {
+	t.Parallel()
+	frame := voiceproto.AITTSAudio{Seq: 9, Payload: []byte{0x0A, 0x0B}}
+	raw, err := frame.Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := voiceproto.DecodeAITTSAudio(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Seq != 9 || string(got.Payload) != string(frame.Payload) {
+		t.Fatalf("got %+v", got)
+	}
+	if _, err := (voiceproto.AITTSAudio{Seq: 0, Payload: nil}).Encode(); err == nil {
+		t.Fatal("empty payload must fail")
+	}
+	if _, err := voiceproto.DecodeAITTSAudio([]byte{0, 0, 0, 1}); err == nil {
+		t.Fatal("truncated payload must fail")
+	}
+}
+
+func TestAITTSAudioJSONTypeIsNotAControlPayload(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"type":"ai.tts.audio","turn_id":"turn-1","seq":0,"data":"AAEC"}`)
+	typ, err := voiceproto.DecodeType(raw)
+	if err != nil || typ != voiceproto.TypeAITTSAudio {
+		t.Fatalf("DecodeType: %q %v", typ, err)
+	}
+}
+
+func TestControlFrameTypeConstantsAreUnique(t *testing.T) {
+	t.Parallel()
+	types := []string{
+		voiceproto.TypeAuth,
+		voiceproto.TypeSessionReady,
+		voiceproto.TypeSessionStart,
+		voiceproto.TypeUserSpeechStart,
+		voiceproto.TypeUserSpeechEnd,
+		voiceproto.TypeClientASRTranscription,
+		voiceproto.TypeAITextDelta,
+		voiceproto.TypeAIAudioChunk,
+		voiceproto.TypeAITTSStart,
+		voiceproto.TypeAITTSAudio,
+		voiceproto.TypeAITTSEnd,
+		voiceproto.TypeAITurnEnd,
+		voiceproto.TypeInterrupt,
+		voiceproto.TypeFeedbackBadge,
+		voiceproto.TypeSessionEnd,
+		voiceproto.TypeError,
+		voiceproto.TypePong,
+		voiceproto.TypePing,
+	}
+	seen := map[string]bool{}
+	for _, typ := range types {
+		if seen[typ] {
+			t.Fatalf("duplicate type %q", typ)
+		}
+		seen[typ] = true
 	}
 }
 
