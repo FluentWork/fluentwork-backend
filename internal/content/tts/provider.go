@@ -1,7 +1,6 @@
-// Package tts defines the B17 TTS Provider contract.
+// Package tts implements B17 TTS: Volc unidirectional streaming plus duplex fallback.
 //
-// Implementations (volc streaming, duplex fallback) land in later T-TTS tickets.
-// This package has no vendor SDK dependency.
+// There is no vendor SDK dependency; the HTTP/2 client uses net/http.
 package tts
 
 import (
