@@ -60,6 +60,9 @@ func (s *MemoryStore) ListBlocks(ctx context.Context, filter ListFilter) ([]Phra
 			if filter.FavoriteOnly && !block.IsFavorite {
 				continue
 			}
+			if filter.PinnedOnly && block.PinnedAt == nil {
+				continue
+			}
 			if kw := strings.ToLower(strings.TrimSpace(filter.Keyword)); kw != "" {
 				haystack := strings.ToLower(block.ExpressionEN + " " + block.IntentZH + " " + block.AnchorUserSaid)
 				if !strings.Contains(haystack, kw) {
@@ -90,6 +93,17 @@ func (s *MemoryStore) GetBlock(_ context.Context, userID, blockID string) (Phras
 	defer s.mu.Unlock()
 	block, ok := s.blocks[blockID]
 	if !ok || block.UserID != userID || block.DeletedAt != nil {
+		return PhraseBlock{}, ErrNotFound
+	}
+	return cloneBlock(block), nil
+}
+
+// PeekBlock implements Store.
+func (s *MemoryStore) PeekBlock(_ context.Context, blockID string) (PhraseBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	block, ok := s.blocks[blockID]
+	if !ok {
 		return PhraseBlock{}, ErrNotFound
 	}
 	return cloneBlock(block), nil
@@ -208,26 +222,38 @@ func sameNaturalKey(left, right PhraseBlock) bool {
 }
 
 func compareBlocks(left, right PhraseBlock) int {
-	lp := pinnedValue(left.PinnedAt)
-	rp := pinnedValue(right.PinnedAt)
+	if pr := pinRank(left.PinnedAt != nil) - pinRank(right.PinnedAt != nil); pr != 0 {
+		return pr
+	}
+	if fr := favRank(left.IsFavorite) - favRank(right.IsFavorite); fr != 0 {
+		return fr
+	}
 	switch {
-	case lp.After(rp):
+	case left.UpdatedAt.After(right.UpdatedAt):
 		return -1
-	case lp.Before(rp):
-		return 1
-	case left.CreatedAt.After(right.CreatedAt):
-		return -1
-	case left.CreatedAt.Before(right.CreatedAt):
+	case left.UpdatedAt.Before(right.UpdatedAt):
 		return 1
 	case left.ID > right.ID:
 		return -1
 	case left.ID < right.ID:
 		return 1
 	default:
-		// Same timestamp + same ID (extremely rare in practice; guards against
-		// test flakes when blocks are inserted in the same call with random UUIDs).
 		return strings.Compare(left.ExpressionEN, right.ExpressionEN)
 	}
+}
+
+func pinRank(pinned bool) int {
+	if pinned {
+		return 0
+	}
+	return 1
+}
+
+func favRank(favorite bool) int {
+	if favorite {
+		return 0
+	}
+	return 1
 }
 
 func compareBlocksByUpdated(left, right PhraseBlock) int {
@@ -246,20 +272,19 @@ func compareBlocksByUpdated(left, right PhraseBlock) int {
 }
 
 func isAfterCursor(block PhraseBlock, cursor ListCursor) bool {
-	bp := pinnedValue(block.PinnedAt)
-	cp := pinnedValue(cursor.PinnedAt)
-	switch {
-	case bp.Before(cp):
-		return true
-	case bp.After(cp):
-		return false
-	case block.CreatedAt.Before(cursor.CreatedAt):
-		return true
-	case block.CreatedAt.After(cursor.CreatedAt):
-		return false
-	default:
-		return block.ID < cursor.ID
+	cursorBlock := PhraseBlock{
+		ID:         cursor.ID,
+		IsFavorite: cursor.IsFavorite,
+		UpdatedAt:  cursor.UpdatedAt,
 	}
+	if cursor.IsPinned {
+		cursorBlock.PinnedAt = cursor.PinnedAt
+		if cursorBlock.PinnedAt == nil {
+			t := time.Unix(0, 0).UTC()
+			cursorBlock.PinnedAt = &t
+		}
+	}
+	return compareBlocks(cursorBlock, block) < 0
 }
 
 func isAfterDeltaCursor(block PhraseBlock, cursor ListCursor) bool {
@@ -271,13 +296,6 @@ func isAfterDeltaCursor(block PhraseBlock, cursor ListCursor) bool {
 	default:
 		return block.ID > cursor.ID
 	}
-}
-
-func pinnedValue(value *time.Time) time.Time {
-	if value == nil {
-		return time.Time{}
-	}
-	return value.UTC()
 }
 
 func cloneBlock(block PhraseBlock) PhraseBlock {

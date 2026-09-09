@@ -69,8 +69,8 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 		decodedCursor = &cursor
 	}
 	incremental := strings.TrimSpace(req.UpdatedAfter) != "" || (decodedCursor != nil && decodedCursor.Mode == CursorModeDelta)
-	if incremental && (strings.TrimSpace(req.SceneTag) != "" || strings.TrimSpace(req.FunctionTag) != "" || strings.TrimSpace(req.Keyword) != "" || req.FavoriteOnly) {
-		return ListBlocksResponse{}, apierr.InvalidArgument("updated_after cannot be combined with scene, func, kw, or favorite_only")
+	if incremental && (strings.TrimSpace(req.SceneTag) != "" || strings.TrimSpace(req.FunctionTag) != "" || strings.TrimSpace(req.Keyword) != "" || req.FavoriteOnly || req.PinnedOnly) {
+		return ListBlocksResponse{}, apierr.InvalidArgument("updated_after cannot be combined with scene, func, kw, favorite_only, or pinned_only")
 	}
 	filter := ListFilter{
 		UserID:       userID,
@@ -78,6 +78,7 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 		FunctionTag:  normalizeOptionalEnum(req.FunctionTag),
 		Keyword:      strings.TrimSpace(req.Keyword),
 		FavoriteOnly: req.FavoriteOnly,
+		PinnedOnly:   req.PinnedOnly,
 		Incremental:  incremental,
 		Limit:        normalizeLimit(req.Limit),
 	}
@@ -130,6 +131,9 @@ func (s *Service) ListBlocks(ctx context.Context, req ListBlocksRequest) (ListBl
 			cursor.Mode = CursorModeBrowse
 			cursor.PinnedAt = last.PinnedAt
 			cursor.CreatedAt = last.CreatedAt
+			cursor.UpdatedAt = last.UpdatedAt
+			cursor.IsPinned = last.PinnedAt != nil
+			cursor.IsFavorite = last.IsFavorite
 		}
 		out.NextCursor, err = encodeCursor(cursor)
 		if err != nil {
@@ -181,6 +185,69 @@ func (s *Service) SetFavorite(ctx context.Context, userID, blockID string, req F
 		pinnedAt = nil
 	}
 	saved, err := s.store.SetFavorite(ctx, userID, strings.TrimSpace(blockID), req.IsFavorite, pinnedAt, now)
+	if err != nil {
+		if err == ErrNotFound {
+			return PhraseBlockView{}, apierr.NotFound("block not found")
+		}
+		return PhraseBlockView{}, err
+	}
+	return toView(saved), nil
+}
+
+func (s *Service) authorizeBlock(ctx context.Context, userID, blockID string) (PhraseBlock, error) {
+	block, err := s.store.PeekBlock(ctx, strings.TrimSpace(blockID))
+	if err != nil {
+		if err == ErrNotFound {
+			return PhraseBlock{}, apierr.NotFound("block not found")
+		}
+		return PhraseBlock{}, err
+	}
+	if block.DeletedAt != nil {
+		return PhraseBlock{}, apierr.NotFound("block not found")
+	}
+	if block.UserID != userID {
+		return PhraseBlock{}, apierr.PermissionDenied("block belongs to another user")
+	}
+	return block, nil
+}
+
+// UpdatePin sets or clears pinned_at without changing is_favorite.
+func (s *Service) UpdatePin(ctx context.Context, userID, blockID string, pinned bool) (PhraseBlockView, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return PhraseBlockView{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	block, err := s.authorizeBlock(ctx, userID, blockID)
+	if err != nil {
+		return PhraseBlockView{}, err
+	}
+	now := s.now().UTC()
+	var pinnedAt *time.Time
+	if pinned {
+		pinnedAt = &now
+	}
+	saved, err := s.store.SetFavorite(ctx, userID, block.ID, block.IsFavorite, pinnedAt, now)
+	if err != nil {
+		if err == ErrNotFound {
+			return PhraseBlockView{}, apierr.NotFound("block not found")
+		}
+		return PhraseBlockView{}, err
+	}
+	return toView(saved), nil
+}
+
+// UpdateFavorite sets is_favorite without changing pinned_at.
+func (s *Service) UpdateFavorite(ctx context.Context, userID, blockID string, favorite bool) (PhraseBlockView, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return PhraseBlockView{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	block, err := s.authorizeBlock(ctx, userID, blockID)
+	if err != nil {
+		return PhraseBlockView{}, err
+	}
+	now := s.now().UTC()
+	saved, err := s.store.SetFavorite(ctx, userID, block.ID, favorite, block.PinnedAt, now)
 	if err != nil {
 		if err == ErrNotFound {
 			return PhraseBlockView{}, apierr.NotFound("block not found")
@@ -357,7 +424,14 @@ func encodeCursor(cursor ListCursor) (string, error) {
 	case CursorModeDelta:
 		payload["updated_at"] = cursor.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	default:
-		payload["created_at"] = cursor.CreatedAt.UTC().Format(time.RFC3339Nano)
+		createdAt := cursor.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = cursor.UpdatedAt
+		}
+		payload["created_at"] = createdAt.UTC().Format(time.RFC3339Nano)
+		payload["updated_at"] = cursor.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		payload["is_pinned"] = boolCursorFlag(cursor.IsPinned)
+		payload["is_favorite"] = boolCursorFlag(cursor.IsFavorite)
 		if cursor.PinnedAt != nil {
 			payload["pinned_at"] = cursor.PinnedAt.UTC().Format(time.RFC3339Nano)
 		}
@@ -400,11 +474,22 @@ func decodeCursor(token string) (ListCursor, error) {
 		}
 		cursor.UpdatedAt = updatedAt.UTC()
 	case CursorModeBrowse:
-		createdAt, err := time.Parse(time.RFC3339Nano, payload["created_at"])
-		if err != nil {
-			return ListCursor{}, err
+		if value := strings.TrimSpace(payload["created_at"]); value != "" {
+			createdAt, err := time.Parse(time.RFC3339Nano, value)
+			if err != nil {
+				return ListCursor{}, err
+			}
+			cursor.CreatedAt = createdAt.UTC()
 		}
-		cursor.CreatedAt = createdAt.UTC()
+		if value := strings.TrimSpace(payload["updated_at"]); value != "" {
+			updatedAt, err := time.Parse(time.RFC3339Nano, value)
+			if err != nil {
+				return ListCursor{}, err
+			}
+			cursor.UpdatedAt = updatedAt.UTC()
+		} else {
+			cursor.UpdatedAt = cursor.CreatedAt
+		}
 		if value := strings.TrimSpace(payload["pinned_at"]); value != "" {
 			pinnedAt, err := time.Parse(time.RFC3339Nano, value)
 			if err != nil {
@@ -412,9 +497,23 @@ func decodeCursor(token string) (ListCursor, error) {
 			}
 			pinnedAt = pinnedAt.UTC()
 			cursor.PinnedAt = &pinnedAt
+			cursor.IsPinned = true
+		}
+		if value := strings.TrimSpace(payload["is_pinned"]); value != "" {
+			cursor.IsPinned = value == "1" || value == "true"
+		}
+		if value := strings.TrimSpace(payload["is_favorite"]); value != "" {
+			cursor.IsFavorite = value == "1" || value == "true"
 		}
 	default:
 		return ListCursor{}, fmt.Errorf("invalid cursor mode")
 	}
 	return cursor, nil
+}
+
+func boolCursorFlag(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
 }

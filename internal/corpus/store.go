@@ -25,6 +25,7 @@ type ListFilter struct {
 	FunctionTag  string
 	Keyword      string
 	FavoriteOnly bool
+	PinnedOnly   bool
 	Incremental  bool
 	UpdatedAfter *time.Time
 	After        *ListCursor
@@ -43,11 +44,13 @@ const (
 
 // ListCursor is the keyset pagination cursor for block lists.
 type ListCursor struct {
-	Mode      CursorMode
-	PinnedAt  *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	ID        string
+	Mode       CursorMode
+	PinnedAt   *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	IsPinned   bool
+	IsFavorite bool
+	ID         string
 }
 
 // Store persists phrase blocks for one user corpus.
@@ -55,6 +58,7 @@ type Store interface {
 	Ping(ctx context.Context) error
 	ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error)
 	GetBlock(ctx context.Context, userID, blockID string) (PhraseBlock, error)
+	PeekBlock(ctx context.Context, blockID string) (PhraseBlock, error)
 	SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBlock) ([]PhraseBlock, error)
 	UpdateBlock(ctx context.Context, block PhraseBlock) (PhraseBlock, error)
 	SetFavorite(ctx context.Context, userID, blockID string, isFavorite bool, pinnedAt *time.Time, updatedAt time.Time) (PhraseBlock, error)

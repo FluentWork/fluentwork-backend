@@ -74,21 +74,26 @@ func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]Phras
 	if filter.FavoriteOnly {
 		query += ` AND is_favorite = 1`
 	}
+	if filter.PinnedOnly {
+		query += ` AND pinned_at IS NOT NULL`
+	}
 	if kw := strings.TrimSpace(filter.Keyword); kw != "" {
 		like := "%" + kw + "%"
 		query += ` AND (expression_en LIKE ? OR intent_zh LIKE ? OR anchor_user_said LIKE ?)`
 		args = append(args, like, like, like)
 	}
 	if filter.After != nil {
+		pin := pinRank(filter.After.IsPinned)
+		fav := favRank(filter.After.IsFavorite)
 		query += ` AND (
-                        COALESCE(pinned_at, TIMESTAMP('1000-01-01 00:00:00.000')) < ?
-                        OR (COALESCE(pinned_at, TIMESTAMP('1000-01-01 00:00:00.000')) = ? AND created_at < ?)
-                        OR (COALESCE(pinned_at, TIMESTAMP('1000-01-01 00:00:00.000')) = ? AND created_at = ? AND id < ?)
+                        (CASE WHEN pinned_at IS NOT NULL THEN 0 ELSE 1 END) > ?
+                        OR ((CASE WHEN pinned_at IS NOT NULL THEN 0 ELSE 1 END) = ? AND (CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END) > ?)
+                        OR ((CASE WHEN pinned_at IS NOT NULL THEN 0 ELSE 1 END) = ? AND (CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END) = ? AND updated_at < ?)
+                        OR ((CASE WHEN pinned_at IS NOT NULL THEN 0 ELSE 1 END) = ? AND (CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END) = ? AND updated_at = ? AND id < ?)
                 )`
-		pin := pinnedValue(filter.After.PinnedAt)
-		args = append(args, pin, pin, filter.After.CreatedAt, pin, filter.After.CreatedAt, filter.After.ID)
+		args = append(args, pin, pin, fav, pin, fav, filter.After.UpdatedAt.UTC(), pin, fav, filter.After.UpdatedAt.UTC(), filter.After.ID)
 	}
-	query += ` ORDER BY COALESCE(pinned_at, TIMESTAMP('1000-01-01 00:00:00.000')) DESC, created_at DESC, id DESC LIMIT ?`
+	query += ` ORDER BY CASE WHEN pinned_at IS NOT NULL THEN 0 ELSE 1 END ASC, CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END ASC, updated_at DESC, id DESC LIMIT ?`
 	args = append(args, filter.Limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -113,6 +118,15 @@ func (s *MySQLStore) GetBlock(ctx context.Context, userID, blockID string) (Phra
                 FROM phrase_blocks
                 WHERE id = ? AND user_id = ? AND deleted_at IS NULL
         `, blockID, userID))
+}
+
+// PeekBlock implements Store.
+func (s *MySQLStore) PeekBlock(ctx context.Context, blockID string) (PhraseBlock, error) {
+	return scanBlock(s.db.QueryRowContext(ctx, `
+                SELECT `+blockColumns+`
+                FROM phrase_blocks
+                WHERE id = ?
+        `, blockID))
 }
 
 // SaveAcceptedBlocks implements Store.
