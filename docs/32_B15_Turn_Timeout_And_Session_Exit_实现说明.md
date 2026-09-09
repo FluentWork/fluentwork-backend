@@ -22,7 +22,7 @@ iOS 语音会话有三条会「假活着」的路径：
 | Item 1 outcome | `collectTurn` 每个出口打 `ok` / `partial` / `timeout` / `error`。Volc `turnToOutbound` 原样写入 `ai.turn.end`；DevEcho 干净结束用 `ok`。有 Outcome 就先发 `ai.turn.end` 让 iOS 离开 `.processing`，session 只在 Outcome 未设置的传输错误上 abort。 |
 | Item 2 写失败退出 | `handleAudio` 失败：reopen 一次 → 仍失败则 `rt.broken`、`error` 帧 `provider_audio_failed`、**返回非 nil**，loop 立刻退出。 |
 | Item 3 Warn 去重 | `logWarn`：同一 key 在 5s 窗口内只打第 1 条完整 WARN，每 10 次一条 `(deduplicated)` 汇总。只覆盖音频转发这种会刷屏的路径。 |
-| 契约 | `wss-control-frames-v1/v2` 的 `aiTurnEnd` 增加 `outcome`、`log_id`（与 Go 结构体一致；`additionalProperties: false` 以前会把线上帧判非法）。 |
+| 契约 | 只改 **v2** `aiTurnEnd` 的 `outcome`、`log_id`。v1 是冻结的 V1.0 快照，保持 `type`+`turn_id`。线上 speaking room 走 V2；handler 用 `json.Marshal` 写帧，不按 JSON Schema 校验。 |
 
 Turn 级一次性 WARN（例如 `turn result timeout, retrying`）仍走 `logger.Warn`：它们不是 80 行 cascade，也不在 Handler 的 `logWarn` 作用域里。
 
@@ -44,6 +44,6 @@ Outcome 在 `TurnResult` 和 Go 结构体上早就有了，但：
 
 ## 明确不做 / 留给 iOS
 
-- 本仓不改 `fluentwork-ios`。`docs/23` Item 1 的 iOS 勾选（解码 `outcome=timeout` → `.failed("turn_timeout")`）仍开放，作为 I20 跨仓下一项。
+- iOS 解码 `outcome=timeout` → `.failed("turn_timeout")` 已在 `fluentwork-ios` 收口；本仓不改 iOS。
 - 不把 provider 一次性 WARN 全部改成 `logWarn`。
 - 不重开 #43 keepalive / reopen-once。

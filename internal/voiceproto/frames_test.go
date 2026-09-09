@@ -159,29 +159,55 @@ func TestAITurnEndJSONCarriesOutcomeAndLogID(t *testing.T) {
 func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
 	t.Parallel()
 
-	for _, raw := range [][]byte{sharedschemas.WSSControlFramesV1, sharedschemas.WSSControlFramesV2} {
-		var doc map[string]any
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatalf("schema json: %v", err)
-		}
-		defs, ok := doc["$defs"].(map[string]any)
-		if !ok {
-			t.Fatal("schema missing $defs")
-		}
-		aiTurnEnd, ok := defs["aiTurnEnd"].(map[string]any)
-		if !ok {
-			t.Fatal("schema missing $defs.aiTurnEnd")
-		}
-		props, ok := aiTurnEnd["properties"].(map[string]any)
-		if !ok {
-			t.Fatal("aiTurnEnd missing properties")
-		}
-		if _, ok := props["outcome"]; !ok {
-			t.Fatal("aiTurnEnd schema missing outcome")
-		}
-		if _, ok := props["log_id"]; !ok {
-			t.Fatal("aiTurnEnd schema missing log_id")
-		}
+	// B15 fields belong on the live V2 contract. V1 is the frozen V1.0 snapshot.
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	aiTurnEnd, ok := defs["aiTurnEnd"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.aiTurnEnd")
+	}
+	props, ok := aiTurnEnd["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("aiTurnEnd missing properties")
+	}
+	if _, ok := props["outcome"]; !ok {
+		t.Fatal("v2 aiTurnEnd schema missing outcome")
+	}
+	if _, ok := props["log_id"]; !ok {
+		t.Fatal("v2 aiTurnEnd schema missing log_id")
+	}
+}
+
+func TestSchemaV1AITurnEndStaysFrozenWithoutOutcome(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	aiTurnEnd, ok := defs["aiTurnEnd"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.aiTurnEnd")
+	}
+	props, ok := aiTurnEnd["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("aiTurnEnd missing properties")
+	}
+	if _, ok := props["outcome"]; ok {
+		t.Fatal("v1 aiTurnEnd must stay frozen without outcome")
+	}
+	if _, ok := props["log_id"]; ok {
+		t.Fatal("v1 aiTurnEnd must stay frozen without log_id")
 	}
 }
 

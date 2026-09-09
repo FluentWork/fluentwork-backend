@@ -99,7 +99,7 @@
 
 ### 2.1 Turn 超时显式 `outcome=timeout` ⚠️ 重点
 
-**后端状态（2026-09-10）：已落地。** `voiceproto.AITurnEnd` 带 `Outcome` / `LogID`；`turnToOutbound` 写入 `ai.turn.end`；WSS schema v1/v2 已声明这两个字段。iOS 解码 `outcome=timeout` 仍开放，见 `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md`。
+**后端状态（2026-09-10）：已落地。** `voiceproto.AITurnEnd` 带 `Outcome` / `LogID`；`turnToOutbound` 写入 `ai.turn.end`；WSS **v2** schema 已声明这两个字段（v1 保持冻结）。iOS 解码 `outcome=timeout` 见跨仓联调。
 
 #### 问题分析（历史）
 

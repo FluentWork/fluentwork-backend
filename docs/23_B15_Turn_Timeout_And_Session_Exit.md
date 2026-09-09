@@ -2,7 +2,7 @@
 
 > Issue 编号：B15  
 > 创建日期：2026-09-03  
-> 状态：后端完成（iOS `outcome=timeout` 解码仍开放）  
+> 状态：后端完成；iOS 已解码 `outcome=timeout` → `.failed("turn_timeout")`  
 > 优先级：P0
 
 ## 问题背景
@@ -42,7 +42,7 @@ type AITurnEnd struct {
 - [x] `voiceproto.AITurnEnd` 已包含 `Outcome` 字段
 - [x] DevEchoProvider 设置 `Outcome: "ok"`
 - [x] VolcDuplexProvider 传递 `turn.Outcome`
-- [ ] iOS 端解码并处理 `outcome=timeout`
+- [x] iOS 端解码并处理 `outcome=timeout`
 
 ---
 
@@ -125,7 +125,7 @@ func (h *Handler) logWarn(rt *sessionRuntime, key, msg string, args ...any) {
 | `internal/voicegateway/provider_dev_echo.go` | `outcome="ok"` 设置 |
 | `internal/voicegateway/provider_volc_duplex.go` | 传递 `turn.Outcome` |
 | `internal/voicegateway/handler_b15_test.go` | B15 回归测试 |
-| `schemas/transport/wss-control-frames-v1.json` / `v2.json` | `aiTurnEnd.outcome` / `log_id` |
+| `schemas/transport/wss-control-frames-v2.json` | `aiTurnEnd.outcome` / `log_id`（v1 保持冻结） |
 | `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md` | 后端收口说明 |
 
 ## 相关文档
