@@ -118,12 +118,12 @@ Examples:
   test(provider_dev_echo): add PCM fixture E2E tests
 ```
 
-### 5. PR 规范
+### 5. Git 工作流
 
-1. **Scope**: 保持 PR scope 小而专注
-2. **Test**: 改动必须有对应测试
-3. **Review**: 必须经过 gstack review gate
-4. **CI**: 所有检查必须通过
+1. **直接在 `main` 上开发并 push**，默认不创建 feature branch / PR / MR
+2. **门禁**：`go test ./...` + `go build ./...`（本地 `./scripts/dev-check.sh`；GitHub required check 为 `go-build-and-test`）
+3. 只有用户明确要求时才开 PR
+4. 不把 gstack review 当作提交或合并门禁
 
 ## 关键 Issue 追踪
 

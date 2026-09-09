@@ -1,0 +1,12 @@
+---
+description: Develop on main; ship when build and test pass. Do not open PRs by default.
+alwaysApply: true
+---
+
+# Git workflow
+
+- Work directly on `main`. Do not create a feature branch, pull request, or merge request unless the user explicitly asks for one.
+- The ship gate is **build and test**: `go test ./...` and `go build ./...` (use `./scripts/dev-check.sh` locally; GitHub required check is `go-build-and-test`).
+- Do not require gstack review attestation (`GSTACK_REVIEWED=1`) or extra review gates before commit or push.
+- Commit on `main` and `git push origin main` after the gate passes.
+- Keep commits conventional: `<type>(<scope>): <description>`.

@@ -91,7 +91,7 @@ gh issue create --title "B19: ..." --label "..." --body-file ...
 ## 6. 关键约束
 
 - ✅ 每个 ticket 工时 ≤ 0.5 dev-day
-- ✅ 每个 ticket 独立可 PR / 单独 merge / 单独回滚
+- ✅ 每个 ticket 可独立提交到 `main` / 单独回滚
 - ✅ acceptance criteria 量化(Go test name + 性能数字)
 - ✅ ticket body 必须显式写 `Blocked by #X` 或 `depends on T-XXX-Y`
 - ❌ 不允许把 ticket 写成「做 B17 的某部分」(过粗)
@@ -105,7 +105,7 @@ gh issue create --title "B19: ..." --label "..." --body-file ...
 🟢 已建仓 + #XXX (GitHub)
    ↓ 开始实施
 🔵 进行中 (assignee + milestone)
-   ↓ PR merged
+   ↓ 提交并 push 到 main
 ✅ Closed
 ```
 

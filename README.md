@@ -121,7 +121,7 @@ test/
 - migration checks
 - Docker image build
 - agent entry file validation
-- pre-commit gstack review attestation (`GSTACK_REVIEWED=1`); CI does not run code review
+- required GitHub check on `main`: `go-build-and-test` (build + test; no PR review gate)
 
 ## Upstream Source of Truth
 
@@ -129,8 +129,9 @@ Product rules, service boundaries, and milestone priorities should be aligned wi
 
 ## Agent Tooling
 
-- before commit, run the interactive gstack review skill in your AI session: usually **`/review`**, or **`/gstack-review`** if skill prefixes are enabled; then `GSTACK_REVIEWED=1 git commit ...`
-- emergency bypass: `SKIP_GSTACK_REVIEW=1` (justify in commit/PR)
+- develop and push on `main`; do not open a PR unless asked
+- before push, `./scripts/dev-check.sh` (or `go test ./...` and `go build ./...`)
+- emergency bypass for the local hook: `SKIP_DEV_CHECK=1`
 - `gstack` can be used locally for deeper review and later `/setup-deploy` or `/ship`
 - OCR scripts optional/manual only; not part of default pre-commit
 - Matt Pocock style skills may be used as helpers under FluentWork shared governance

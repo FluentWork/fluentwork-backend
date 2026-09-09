@@ -184,8 +184,8 @@ lsof -i :8081
 
 ## 贡献指南
 
-1. **Fork** 并创建 feature branch
+1. **直接在 `main` 上开发**（默认不创建 feature branch / PR）
 2. **编写测试** 覆盖新功能
-3. **运行** `./scripts/dev-check.sh` 确保质量
-4. **提交** 前运行 gstack review (`/review`)
-5. **创建 PR** 并等待 Code Review
+3. **运行** `./scripts/dev-check.sh`（gofumpt / goimports / lint / `go test` / `go build`）
+4. 门禁通过后 **commit 并 push 到 `main`**
+5. 只有被明确要求时才创建 PR
