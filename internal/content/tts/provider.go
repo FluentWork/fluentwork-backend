@@ -25,7 +25,7 @@ var (
 
 // VoiceConfig selects a synthesis voice and speaking rate.
 //
-// VoiceID is a provider resource id (D-2 constants land in T-TTS-4).
+// VoiceID is the Volc speaker id (D-2 catalog in voices.go).
 // Speed is a multiplier; 1.0 is the frozen default.
 type VoiceConfig struct {
 	VoiceID string

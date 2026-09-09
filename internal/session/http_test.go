@@ -38,7 +38,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, accountStore.Ping)
 	return server, accountSvc
 }
 
@@ -62,7 +62,7 @@ func setupServerWithReviewGen(t *testing.T, gen session.ReviewGenerator) (*https
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionSvc.SetReviewGenerator(gen)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	return httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, accountStore.Ping), sessionSvc
+	return httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, accountStore.Ping), sessionSvc
 }
 
 func TestCreateSessionHTTPRequiresAuth(t *testing.T) {

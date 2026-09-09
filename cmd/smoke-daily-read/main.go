@@ -68,7 +68,7 @@ func run() error {
 	corpusHandler := corpus.NewHandler(corpusSvc, accountHandler)
 	contentSvc := content.NewService(contentStore, content.CorpusBlockSource{Store: corpusStore}, logger)
 	contentHandler := content.NewHandler(contentSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, nil, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, nil, nil, nil, accountStore.Ping)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
