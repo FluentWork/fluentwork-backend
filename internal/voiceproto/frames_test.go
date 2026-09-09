@@ -274,6 +274,25 @@ func TestAITurnEndJSONCarriesOutcomeAndLogID(t *testing.T) {
 	}
 }
 
+func TestAITurnEndJSONMatchesIOSTraceWireFixture(t *testing.T) {
+	t.Parallel()
+
+	// Exact payload iOS aiTurnEndMatchesBackendTraceWireFixture decodes and re-encodes.
+	raw, err := json.Marshal(voiceproto.AITurnEnd{
+		Type:    voiceproto.TypeAITurnEnd,
+		TurnID:  "turn-1",
+		Outcome: "ok",
+		LogID:   "volc-abc123",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := `{"type":"ai.turn.end","turn_id":"turn-1","outcome":"ok","log_id":"volc-abc123"}`
+	if string(raw) != want {
+		t.Fatalf("wire JSON =\n%s\nwant\n%s", raw, want)
+	}
+}
+
 func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
 	t.Parallel()
 

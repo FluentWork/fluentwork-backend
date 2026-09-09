@@ -1,7 +1,7 @@
 # I20 Item 3：全链路 trace 对齐
 
 **票**：I20 Item 3（`docs/i20-fix-plan.md` §四）。  
-**状态**：后端本提交收口。iOS `log_id` 注入 tracker 已在 B15-I3（`SpeechSessionTimingsRecorder.setLogID`），本票不改 iOS。  
+**状态**：后端本提交收口。iOS 联调见 `fluentwork-ios/docs/35_I20_trace_alignment_joint_debug.md`。  
 **关联**：不是 B15 70s 杀会话；不是 Item 2 fixture 路径。
 
 ## 1. 要守住的原理
@@ -49,10 +49,12 @@
 - 音频：无
 - 发布：日志字段可多 `ts` / 真实 `outcome=partial|timeout`
 
+iOS 联调：`fluentwork-ios/docs/35_I20_trace_alignment_joint_debug.md` 钉死同一 JSON。
+
 ## 6. 测试
 
 ```bash
-go test ./pkg/logx/ ./internal/voicegateway/ ./internal/voicepoc/ -count=1
+go test ./pkg/logx/ ./internal/voicegateway/ ./internal/voicepoc/ ./internal/voiceproto/ -run 'CanonicalTurnID|TurnToOutboundFallback|AITurnEndJSONMatchesIOSTraceWireFixture|SegmentEndEmitsTraceShape' -count=1
 go test ./...
 go build ./...
 ```
