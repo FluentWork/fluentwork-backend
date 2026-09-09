@@ -1,8 +1,9 @@
 # FluentWork I20 P0/P1 收口计划与全链路架构文档
 
-> 文档版本：v1.0  
+> 文档版本：v1.1  
 > 创建日期：2026-09-03  
-> 范围：fluentwork-backend (Go) + fluentwork-ios (Swift/SwiftUI)
+> 范围：fluentwork-backend (Go) + fluentwork-ios (Swift/SwiftUI)  
+> **状态（2026-09-10）**：P0 协议收口完成。B15 `outcome`、写失败退 session、`logWarn`、`client.turn.abort` 已在网关落地；iOS T-I20-1..4 已联调；infra v2 真源 `d60d0fe`。Item 4 手动 VAD 仍是 iOS P1，不阻塞本收口。
 
 ---
 

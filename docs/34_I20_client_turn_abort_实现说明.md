@@ -1,7 +1,7 @@
 # I20 `client.turn.abort` 网关接收
 
 **对应**：iOS T-I20-1（录音 60s abort）。**不是** B15 的 `ai.turn.end outcome=timeout` / 70s 会话失败。  
-**代码**：`voiceproto.ClientTurnAbort`、`handler.go` 接受该帧、Volc 清 `turnStarted` 且不 `CommitAudio`  
+**代码**：`voiceproto.ClientTurnAbort`、`handler.go` 接受该帧、Volc 清 `turnStarted` 且不 `CommitAudio`（`5c2e39f`）  
 **门禁**：`go test ./internal/voicegateway/... ./internal/voiceproto/...` 与全仓 `./scripts/dev-check.sh`
 
 ## 原理与背景
@@ -23,7 +23,7 @@ iOS 已上线 abort。网关 `default` 分支对未知 `type` 回 `error.code=un
 5. 连接上还没有 `session.start`（hold 未开口）→ 静默 no-op
 6. `outcome=ok` 或缺失 → `invalid_frame`，且不转给 provider
 
-WSS **v2** schema 增加 `$defs.clientTurnAbort`（与 iOS 镜像一致）。**v1 冻结**，不加这帧。`fluentwork-infra` 真源同步仍是另票。
+WSS **v2** schema 增加 `$defs.clientTurnAbort`（与 iOS 镜像一致）。**v1 冻结**，不加这帧。真源已写入 `fluentwork-infra` `d60d0fe`（见 `docs/35_I20_契约真源同步_实现说明.md`）。
 
 Provider 转发失败只打 WARN，不发 error 帧，避免 abort 自己把会话打死。
 
@@ -42,4 +42,4 @@ Provider 转发失败只打 WARN，不发 error 帧，避免 abort 自己把会�
 - 不在本仓改 iOS（T-I20-1..4 已落地）
 - 不把 abort 后的等待态改成 I21（iOS 已做）
 - 不调用火山「清空缓冲区」API（没有稳定接口）；只保证本进程不再 collectTurn
-- 不同步 `fluentwork-infra` schema 真源
+- ~~不同步 `fluentwork-infra` schema 真源~~ — 已由 `d60d0fe` 完成
