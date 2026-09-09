@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.1
-  description: Contracts for guest auth, merge, sessions, second-wave review, and B17 TTS synthesize.
+  version: 0.3.2
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, and B19 B7 hit injection.
 servers:
   - url: /api/v1
 paths:
@@ -401,6 +401,77 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /internal/v1/voicegateway/hits:
+    post:
+      servers:
+        - url: /
+      summary: Record B7 phrase-block hits from the voice gateway
+      description: |
+        Internal endpoint (X-Internal-Token). UPSERTs phrase_block_uses for
+        (session_id, turn_id, block_id) and increments phrase_blocks.total_uses
+        only on first insert. Duplicate reports of the same hit do not double-count.
+      operationId: recordVoiceGatewayHits
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoiceGatewayHitsRequest"
+      responses:
+        "200":
+          description: Number of hits written to the ledger (including UPSERT updates)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceGatewayHitsResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /internal/v1/sessions/{session_id}/recent-hits:
+    get:
+      servers:
+        - url: /
+      summary: Fetch recent B7 hits for LLM prompt injection
+      description: |
+        Internal endpoint (X-Internal-Token). Returns hits from the most recent
+        lookback_turns in the session, joined to phrase block intent_zh / chunk_en.
+        Soft-deleted blocks are omitted. ttl_at_ms is the newest used_at_ms + 60000.
+        min_score is accepted for 48_ §2.7 compatibility; recorded hits already
+        passed B7 detection and phrase_blocks has no score column.
+      operationId: getSessionRecentHits
+      security:
+        - internalToken: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: lookback_turns
+          in: query
+          required: false
+          schema: { type: integer, default: 8, minimum: 0 }
+        - name: min_score
+          in: query
+          required: false
+          schema: { type: number, format: float, default: 0.7 }
+      responses:
+        "200":
+          description: Recent hits and injection TTL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecentHitsResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -787,6 +858,54 @@ components:
         used_fallback:
           type: boolean
           description: true after Manager switched from volc_streaming to volc_duplex
+    VoiceGatewayHitsRequest:
+      type: object
+      required: [user_id, session_id, turn_id, hits]
+      properties:
+        user_id: { type: string }
+        session_id: { type: string }
+        turn_id: { type: string }
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoiceGatewayHit"
+    VoiceGatewayHit:
+      type: object
+      required: [block_id, detected_at_ms]
+      properties:
+        block_id: { type: string }
+        detected_at_ms: { type: integer, format: int64 }
+        turn_id:
+          type: string
+          description: Optional per-hit turn; defaults to the request turn_id
+    VoiceGatewayHitsResponse:
+      type: object
+      required: [recorded_count]
+      properties:
+        recorded_count: { type: integer }
+    RecentHitsResponse:
+      type: object
+      required: [hits, ttl_at_ms]
+      properties:
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecentHit"
+        ttl_at_ms:
+          type: integer
+          format: int64
+          description: Newest hit used_at_ms plus 60000, or 0 when hits is empty
+    RecentHit:
+      type: object
+      required: [block_id, turn_id, used_at_ms, intent_zh, chunk_en]
+      properties:
+        block_id: { type: string }
+        turn_id: { type: string }
+        used_at_ms: { type: integer, format: int64 }
+        intent_zh: { type: string }
+        chunk_en:
+          type: string
+          description: Phrase block expression_en (48_ chunk_en)
     Error:
       type: object
       required: [code, message, request_id]
