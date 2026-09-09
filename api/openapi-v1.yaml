@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.2
+  version: 0.3.3
   description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, and B19 B7 hit injection.
 servers:
   - url: /api/v1
@@ -163,6 +163,10 @@ paths:
   /corpus/blocks:
     get:
       summary: List corpus phrase blocks
+      description: |
+        Browse order is pinned first, then favorite, then updated_at descending.
+        Use favorite_only=true or pinned_only=true to filter. Incremental sync
+        (updated_after) cannot be combined with those filters.
       operationId: listCorpusBlocks
       security:
         - bearerAuth: []
@@ -187,6 +191,9 @@ paths:
           schema: { type: integer }
         - in: query
           name: favorite_only
+          schema: { type: boolean }
+        - in: query
+          name: pinned_only
           schema: { type: boolean }
       responses:
         "200":
@@ -282,9 +289,72 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /corpus/blocks/{id}/pin:
+    patch:
+      summary: Pin or unpin one phrase block
+      operationId: pinCorpusBlock
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchPinRequest"
+      responses:
+        "200":
+          description: Updated phrase block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseBlock"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /corpus/blocks/{id}/favorite:
+    patch:
+      summary: Favorite or unfavorite one phrase block
+      operationId: patchCorpusBlockFavorite
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchFavoriteRequest"
+      responses:
+        "200":
+          description: Updated phrase block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhraseBlock"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     post:
+      deprecated: true
       summary: Toggle favorite and pin state
+      description: |
+        Deprecated. Use PATCH /corpus/blocks/{id}/pin and
+        PATCH /corpus/blocks/{id}/favorite. Removed in V1.5.
       operationId: favoriteCorpusBlock
       security:
         - bearerAuth: []
@@ -760,6 +830,16 @@ components:
       properties:
         is_favorite: { type: boolean }
         pinned: { type: boolean }
+    PatchPinRequest:
+      type: object
+      required: [pinned]
+      properties:
+        pinned: { type: boolean }
+    PatchFavoriteRequest:
+      type: object
+      required: [favorite]
+      properties:
+        favorite: { type: boolean }
     BatchAcceptBlocksRequest:
       type: object
       required: [source_session_id, blocks]
