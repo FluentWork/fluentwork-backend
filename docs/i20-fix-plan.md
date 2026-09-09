@@ -3,7 +3,7 @@
 > 文档版本：v1.1  
 > 创建日期：2026-09-03  
 > 范围：fluentwork-backend (Go) + fluentwork-ios (Swift/SwiftUI)  
-> **状态（2026-09-10）**：P0 协议收口完成。B15 `outcome`、写失败退 session、`logWarn`、`client.turn.abort` 已在网关落地；iOS T-I20-1..4 与 Item 4 手动开口已联调；infra v2 真源 `d60d0fe`。Item 2 进程级 PCM fixture 见 `docs/36_I20_dev_echo_fixture_实现说明.md`。
+> **状态（2026-09-10）**：P0 协议收口完成。B15 `outcome`、写失败退 session、`logWarn`、`client.turn.abort` 已在网关落地；iOS T-I20-1..4 与 Item 4 手动开口已联调；infra v2 真源 `d60d0fe`。Item 2 进程级 PCM fixture 见 `docs/36`。Item 3 全链路 trace 见 `docs/37_I20_trace_alignment_实现说明.md`。
 
 ---
 
@@ -333,6 +333,8 @@ func testLocalVADTrigger() async {
 ---
 
 ## 四、Item 3: 全链路 Trace 对齐
+
+**后端状态（2026-09-10）：已落地。** `canonicalTurnID` 取消 `volc-turn-*` / `dev-echo-turn`；`logx.Segment` 带 `ts` 与真实 TurnOutcome；Volc `collectTurn` 带客户端 `turn_id`。iOS tracker `log_id` 已在 B15-I3。说明：`docs/37_I20_trace_alignment_实现说明.md`。
 
 ### 4.1 问题分析
 

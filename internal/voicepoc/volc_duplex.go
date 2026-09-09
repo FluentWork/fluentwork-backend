@@ -44,6 +44,10 @@ type DuplexSession struct {
 	sessionID string
 	logID     string
 	cfg       DuplexConfig
+	// clientTurnID is the iOS-supplied "turn-N" for this collectTurn, if any.
+	// Set by the gateway provider before WaitTurnResult so segment logs join
+	// the same id that lands on ai.turn.end.
+	clientTurnID string
 }
 
 // SessionID returns the server session id from session.created.
@@ -51,6 +55,14 @@ func (s *DuplexSession) SessionID() string { return s.sessionID }
 
 // LogID returns X-Tt-Logid from the handshake (for vendor support).
 func (s *DuplexSession) LogID() string { return s.logID }
+
+// SetClientTurnID records the client turn id for subsequent collectTurn logs.
+func (s *DuplexSession) SetClientTurnID(id string) {
+	if s == nil {
+		return
+	}
+	s.clientTurnID = strings.TrimSpace(id)
+}
 
 // OpenDuplex dials the duplex endpoint, sends session.create, waits for session.created.
 func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
@@ -381,13 +393,17 @@ func (s *DuplexSession) sendUserPCMInject(ctx context.Context, pcm []byte, injec
 
 func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, preload []DuplexEvent, wait time.Duration) (TurnResult, error) {
 	var out TurnResult
-	seg := logx.Begin(s.cfg.Logger, "voice.duplex.collect_turn",
+	beginAttrs := []any{
 		"module", "voicepoc.duplex",
 		"provider", "volc-duplex",
 		"session_id", s.sessionID,
 		"log_id", s.logID,
 		"stage", "tts",
-	)
+	}
+	if s.clientTurnID != "" {
+		beginAttrs = append(beginAttrs, "turn_id", s.clientTurnID)
+	}
+	seg := logx.Begin(s.cfg.Logger, "voice.duplex.collect_turn", beginAttrs...)
 	var collectErr error
 	var endAttrs []any
 	defer func() {
@@ -398,6 +414,9 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			"asr_started_ms", out.ASRStartedAtMS,
 			"asr_done_ms", out.ASRDoneAtMS,
 		)
+		if out.Outcome != "" {
+			endAttrs = append(endAttrs, "outcome", string(out.Outcome))
+		}
 		seg.End(collectErr, endAttrs...)
 	}()
 	if wait <= 0 {

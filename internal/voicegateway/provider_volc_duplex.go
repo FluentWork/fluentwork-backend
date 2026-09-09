@@ -142,7 +142,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// B12-followup (#42): parse the client-supplied turn_id so badges,
 		// ai.turn.end and client.asr.transcription all carry the same id that
 		// iOS uses for its local dedupe mirror (runbook Case 3). Without this,
-		// the first turn falls back to "volc-turn-<seq>" which is offset by 1
+		// the first turn used to fall back to "volc-turn-<seq>" which is offset by 1
 		// from iOS's turn-1… naming and breaks cross-layer correlation.
 		var end voiceproto.UserSpeechEnd
 		if len(data) > 0 {
@@ -151,6 +151,9 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 					s.activeTurnID = t
 				}
 			}
+		}
+		if s.session != nil {
+			s.session.SetClientTurnID(s.activeTurnID)
 		}
 		if s.turnStarted.IsZero() {
 			s.turnStarted = time.Now()
@@ -398,10 +401,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// empty (e.g., timeout with partial ASR transcript but no TTS). Outcome is always
 	// set on every exit path in collectTurn, so we can stamp it faithfully here.
 	{
-		turnID := s.activeTurnID
-		if turnID == "" {
-			turnID = fmt.Sprintf("volc-turn-%d", s.nextSeq)
-		}
+		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
 		// B15-I3: include the Volcengine vendor log_id so iOS can correlate
 		// tracker events with backend and vendor-side diagnostic logs.
 		var logID string
@@ -418,10 +418,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		})
 	}
 	if reply != "" {
-		turnID := s.activeTurnID
-		if turnID == "" {
-			turnID = fmt.Sprintf("volc-turn-%d", s.nextSeq)
-		}
+		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
 		outbound = append(outbound, ProviderOutbound{
 			Control: map[string]any{
 				"type":    voiceproto.TypeAITextDelta,

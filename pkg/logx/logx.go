@@ -55,7 +55,11 @@ func Begin(logger *slog.Logger, event string, attrs ...any) *Segment {
 	return seg
 }
 
-// End writes the segment completion log with duration and outcome.
+// End writes the segment completion log.
+//
+// Fields always include duration_ms and ts (unix millis). outcome defaults to
+// ok/error from err, but an explicit "outcome" attr (ok|partial|timeout|error)
+// wins so collectTurn can log the real TurnOutcome instead of a nil-error "ok".
 func (s *Segment) End(err error, attrs ...any) {
 	if s == nil || s.logger == nil {
 		return
@@ -68,12 +72,25 @@ func (s *Segment) End(err error, attrs ...any) {
 	fields = append(fields, attrs...)
 	fields = append(fields,
 		"duration_ms", time.Since(s.start).Milliseconds(),
-		"outcome", outcome,
+		"ts", time.Now().UnixMilli(),
 	)
+	if !attrHasKey(fields, "outcome") {
+		fields = append(fields, "outcome", outcome)
+	}
 	if err != nil {
 		fields = append(fields, "err", err)
 		s.logger.Warn(s.event+".done", fields...)
 		return
 	}
 	s.logger.Info(s.event+".done", fields...)
+}
+
+func attrHasKey(attrs []any, key string) bool {
+	for i := 0; i+1 < len(attrs); i += 2 {
+		k, ok := attrs[i].(string)
+		if ok && k == key {
+			return true
+		}
+	}
+	return false
 }

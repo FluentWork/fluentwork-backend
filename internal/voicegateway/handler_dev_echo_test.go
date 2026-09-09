@@ -365,6 +365,9 @@ func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
 	if endFrame["type"] != voiceproto.TypeAITurnEnd {
 		t.Fatalf("expected ai.turn.end after fixture exhausted, got %#v", endFrame)
 	}
+	if got, _ := endFrame["turn_id"].(string); got != "turn-fixture-1" {
+		t.Fatalf("exhausted fixture must keep client turn_id, got %#v", endFrame["turn_id"])
+	}
 }
 
 // TestDevEchoFixture_LargeFixture_SendsMultipleChunks verifies that multi-chunk

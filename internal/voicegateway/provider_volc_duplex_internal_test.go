@@ -81,16 +81,17 @@ func TestVolcDuplexSessionAlignsTurnIDFromClient(t *testing.T) {
 		t.Fatalf("activeTurnID not aligned with iOS: got %q want %q", sess.activeTurnID, "turn-7")
 	}
 
-	// Sanity: the outbound builder (turnToOutbound) reads activeTurnID directly,
-	// so any subsequent ai.turn.end / client.asr.transcription for this turn
-	// will carry "turn-7" instead of falling back to "volc-turn-<seq>".
+	out := sess.turnToOutbound(voicepoc.TurnResult{
+		Transcript:    "hello world",
+		AssistantText: "hi",
+		Outcome:       voicepoc.TurnOutcomeOK,
+	})
+	if got := aiTurnEndID(out); got != "turn-7" {
+		t.Fatalf("ai.turn.end turn_id = %q, want turn-7", got)
+	}
 }
 
-// TestVolcDuplexSessionFallbackTurnIDKeepsLegacyNaming verifies that when iOS
-// omits turn_id (older clients or test fixtures), we still emit a non-empty
-// fallback id rather than dropping the turn_id field entirely — preserving
-// cross-layer correlation even on the legacy code path.
-func TestVolcDuplexSessionFallbackTurnIDKeepsLegacyNaming(t *testing.T) {
+func TestTurnToOutboundFallbackUsesTurnNNotVolcPrefix(t *testing.T) {
 	t.Parallel()
 
 	sess := &volcDuplexProviderSession{
@@ -98,29 +99,20 @@ func TestVolcDuplexSessionFallbackTurnIDKeepsLegacyNaming(t *testing.T) {
 		audioFormat: "pcm-s16le",
 		nextSeq:     3,
 	}
+	out := sess.turnToOutbound(voicepoc.TurnResult{Outcome: voicepoc.TurnOutcomeOK})
+	if got := aiTurnEndID(out); got != "turn-3" {
+		t.Fatalf("fallback turn_id = %q, want turn-3 (not volc-turn-3)", got)
+	}
+}
 
-	// No turn_id from iOS — simulate the legacy path.
-	raw, err := json.Marshal(voiceproto.UserSpeechEnd{
-		Type: voiceproto.TypeUserSpeechEnd,
-		Text: "hi",
-	})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(raw, &end); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if strings.TrimSpace(end.TurnID) == "" {
-		// activeTurnID stays empty → turnToOutbound falls back to volc-turn-<seq>
-		if sess.activeTurnID != "" {
-			t.Fatalf("expected empty activeTurnID pre-fix, got %q", sess.activeTurnID)
-		}
-		fallback := "volc-turn-3"
-		if !strings.HasPrefix(fallback, "volc-turn-") {
-			t.Fatalf("legacy fallback naming broken: %q", fallback)
+func aiTurnEndID(out []ProviderOutbound) string {
+	for _, item := range out {
+		end, ok := item.Control.(voiceproto.AITurnEnd)
+		if ok {
+			return end.TurnID
 		}
 	}
+	return ""
 }
 
 // --- #43 keepalive tests -----------------------------------------------------

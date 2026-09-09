@@ -114,11 +114,12 @@ const (
 )
 
 type devEchoSession struct {
-	echoText string
-	fixture  io.ReadCloser
-	ttsMock  bool
-	logger   *slog.Logger
-	nextSeq  uint32
+	echoText   string
+	fixture    io.ReadCloser
+	ttsMock    bool
+	logger     *slog.Logger
+	nextSeq    uint32
+	lastTurnID string
 }
 
 // Start emits a placeholder AI greeting so iOS sees a normal session
@@ -157,11 +158,12 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 	if frameType != voiceproto.TypeUserSpeechEnd {
 		return nil, nil
 	}
-	turnID := "dev-echo-turn"
+	turnID := canonicalTurnID("", int(s.nextSeq))
 	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(data, &end); err == nil && strings.TrimSpace(end.TurnID) != "" {
-		turnID = strings.TrimSpace(end.TurnID)
+	if err := json.Unmarshal(data, &end); err == nil {
+		turnID = canonicalTurnID(end.TurnID, int(s.nextSeq))
 	}
+	s.lastTurnID = turnID
 	if s.ttsMock {
 		return s.emitMockTTSTurn(turnID), nil
 	}
@@ -335,7 +337,7 @@ func (s *devEchoSession) HandleClientAudio(_ context.Context, data []byte) ([]Pr
 		if err := s.fixture.Close(); err == nil {
 			s.fixture = nil
 		}
-		turnID := "dev-echo-turn"
+		turnID := canonicalTurnID(s.lastTurnID, int(s.nextSeq))
 		return []ProviderOutbound{
 			{
 				Control: voiceproto.AITurnEnd{
