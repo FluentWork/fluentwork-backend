@@ -23,6 +23,9 @@ func (m *mockProvider) Stream(ctx context.Context, text string, voice VoiceConfi
 	go func() {
 		defer close(out)
 		for _, chunk := range m.chunks {
+			if ctx.Err() != nil {
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
