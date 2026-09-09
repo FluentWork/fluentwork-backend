@@ -417,6 +417,24 @@ func (s *MemoryStore) RestoreDeletedForUser(_ context.Context, userID string) (i
 	return n, nil
 }
 
+// SaveUtteranceEval writes utterances.llm_eval_json for B18.
+func (s *MemoryStore) SaveUtteranceEval(_ context.Context, utteranceID string, evalJSON []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sessionID, rows := range s.utterances {
+		for i, u := range rows {
+			if u.ID != utteranceID {
+				continue
+			}
+			u.LLMEvalJSON = append([]byte(nil), evalJSON...)
+			rows[i] = u
+			s.utterances[sessionID] = rows
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func cloneSession(session Session) Session {
 	cloned := session
 	if session.MaterialID != nil {
@@ -468,6 +486,9 @@ func cloneUtterance(u Utterance) Utterance {
 	if u.AudioURL != nil {
 		v := *u.AudioURL
 		cloned.AudioURL = &v
+	}
+	if u.LLMEvalJSON != nil {
+		cloned.LLMEvalJSON = append([]byte(nil), u.LLMEvalJSON...)
 	}
 	return cloned
 }

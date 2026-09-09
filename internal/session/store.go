@@ -51,6 +51,7 @@ type Store interface {
 	// inserted into the same transaction as the review update.
 	MarkSessionReviewedWithCost(ctx context.Context, sessionID string, reviewJSON []byte, at time.Time, costLog aicost.Log) (Session, error)
 	ReassignUser(ctx context.Context, fromUserID, toUserID string) error
+	SaveUtteranceEval(ctx context.Context, utteranceID string, evalJSON []byte) error
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

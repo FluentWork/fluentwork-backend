@@ -32,8 +32,16 @@ type Service struct {
 	cfg       config.Config
 	logger    *slog.Logger
 	reviewGen ReviewGenerator
+	eval      EvalProcessor
 	now       func() time.Time
 	newID     func() string
+}
+
+// EvalProcessor is the B18 review-eval hook. Optional until review.Service is wired.
+type EvalProcessor interface {
+	EnqueueEval(ctx context.Context, sessionID string) error
+	Summary(ctx context.Context, sessionID string) (*EvalSummary, error)
+	RunEvalJob(ctx context.Context, sessionID string) error
 }
 
 // ReviewGenerator upgrades stub review generation to a real provider-backed call.
@@ -59,6 +67,11 @@ func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
 // SetReviewGenerator attaches the real review/refine generator used by the worker.
 func (s *Service) SetReviewGenerator(gen ReviewGenerator) {
 	s.reviewGen = gen
+}
+
+// SetEvalProcessor attaches B18 per-utterance eval.
+func (s *Service) SetEvalProcessor(eval EvalProcessor) {
+	s.eval = eval
 }
 
 // Reassigner adapts Store to account.Reassigner for guest merge.
@@ -218,6 +231,11 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		if err := s.ensureSessionFinishedEnqueued(ctx, sessionID, now); err != nil {
 			return EndResponse{}, err
 		}
+		if s.eval != nil {
+			if err := s.eval.EnqueueEval(ctx, sessionID); err != nil {
+				s.logger.Warn("enqueue eval failed", "session_id", sessionID, "err", err)
+			}
+		}
 		return EndResponse{
 			SessionID:      existing.ID,
 			Status:         existing.Status,
@@ -252,6 +270,11 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 	)
 	if err := s.ensureSessionFinishedEnqueued(ctx, session.ID, now); err != nil {
 		return EndResponse{}, err
+	}
+	if s.eval != nil {
+		if err := s.eval.EnqueueEval(ctx, session.ID); err != nil {
+			s.logger.Warn("enqueue eval failed", "session_id", session.ID, "err", err)
+		}
 	}
 	return EndResponse{
 		SessionID:      session.ID,
@@ -298,11 +321,19 @@ func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (Revi
 		if len(review) == 0 {
 			review = json.RawMessage(`{}`)
 		}
-		return ReviewPollResponse{
+		resp := ReviewPollResponse{
 			SessionID: session.ID,
 			Status:    ReviewPollReady,
 			Review:    review,
-		}, nil
+		}
+		if s.eval != nil {
+			if summary, err := s.eval.Summary(ctx, sessionID); err != nil {
+				s.logger.Warn("review eval summary", "session_id", sessionID, "err", err)
+			} else if summary != nil && summary.Complete {
+				resp.Eval = summary
+			}
+		}
+		return resp, nil
 	}
 
 	failed, err := s.store.HasSessionJob(ctx, sessionID, JobTypeSessionFinished, JobStatusFailed)

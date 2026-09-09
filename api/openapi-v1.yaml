@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.4
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, and A4 privacy.
+  version: 0.3.5
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, and B18 review eval.
 servers:
   - url: /api/v1
 paths:
@@ -172,11 +172,29 @@ paths:
             type: string
       responses:
         "200":
-          description: Review poll payload (pending, ready, or failed)
+          description: Review is ready (includes optional B18 eval)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReviewPollResponse"
+        "202":
+          description: Review still pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewPollResponse"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Session not found or not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: Error
           content:
@@ -819,6 +837,28 @@ components:
         review:
           $ref: "#/components/schemas/ReviewReadyPayload"
           description: Present when status is ready
+        eval:
+          $ref: "#/components/schemas/ReviewEvalSummary"
+          description: B18 three-dimension eval when per-utterance scoring is complete
+    ReviewEvalSummary:
+      type: object
+      required: [score, dims, suggestions, utterance_count, complete]
+      properties:
+        score: { type: number, format: float }
+        dims:
+          $ref: "#/components/schemas/ReviewEvalDims"
+        suggestions:
+          type: array
+          items: { type: string }
+        utterance_count: { type: integer }
+        complete: { type: boolean }
+    ReviewEvalDims:
+      type: object
+      required: [grammar, fluency, vocabulary]
+      properties:
+        grammar: { type: number, format: float }
+        fluency: { type: number, format: float }
+        vocabulary: { type: number, format: float }
     ReviewReadyPayload:
       type: object
       required: [generator, status, transcript, overview, evaluation, dual_column, refine_cards, review, refine]

@@ -316,3 +316,27 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RejectsUnwiredCostTx(t *testing.
 		t.Fatalf("no SQL should have been issued, got unmet expectations: %v", err)
 	}
 }
+
+func TestMySQLStore_SaveUtteranceEval(t *testing.T) {
+	store, mock, cleanup := newMySQLStoreMock(t)
+	defer cleanup()
+
+	raw := []byte(`{"score":0.5}`)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE utterances SET llm_eval_json = ? WHERE id = ?")).
+		WithArgs(raw, "utt-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.SaveUtteranceEval(context.Background(), "utt-1", raw); err != nil {
+		t.Fatalf("SaveUtteranceEval: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE utterances SET llm_eval_json = ? WHERE id = ?")).
+		WithArgs(raw, "missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.SaveUtteranceEval(context.Background(), "missing", raw); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing utterance err = %v", err)
+	}
+}

@@ -979,3 +979,118 @@ func bytesContains(haystack, needle []byte) bool {
 	}
 	return false
 }
+
+type fakeEvalProcessor struct {
+	enqueued []string
+	summary  *EvalSummary
+}
+
+func (f *fakeEvalProcessor) EnqueueEval(_ context.Context, sessionID string) error {
+	f.enqueued = append(f.enqueued, sessionID)
+	return nil
+}
+
+func (f *fakeEvalProcessor) Summary(context.Context, string) (*EvalSummary, error) {
+	return f.summary, nil
+}
+
+func (f *fakeEvalProcessor) RunEvalJob(context.Context, string) error { return nil }
+
+func TestEnd_EnqueuesEval(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hook := &fakeEvalProcessor{}
+	svc.SetEvalProcessor(hook)
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID, DurationSec: 3,
+		Utterances: []EndUtteranceItem{{Seq: 1, Speaker: SpeakerUser, Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(hook.enqueued) != 1 || hook.enqueued[0] != created.SessionID {
+		t.Fatalf("enqueued = %#v", hook.enqueued)
+	}
+}
+
+func TestGetReview_IncludesCompleteEval(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created := createEndedSession(t, svc)
+	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, []byte(`{"generator":"stub-v1"}`), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	hook := &fakeEvalProcessor{summary: &EvalSummary{Score: 0.8, Complete: true, UtteranceN: 1, Suggestions: []string{"ok"}}}
+	svc.SetEvalProcessor(hook)
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.Eval == nil || poll.Eval.Score != 0.8 {
+		t.Fatalf("eval = %+v", poll.Eval)
+	}
+}
+
+func TestGetReview_OmitsIncompleteEval(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created := createEndedSession(t, svc)
+	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, []byte(`{"generator":"stub-v1"}`), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetEvalProcessor(&fakeEvalProcessor{summary: &EvalSummary{Complete: false, UtteranceN: 1}})
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.Eval != nil {
+		t.Fatalf("expected omitted eval, got %+v", poll.Eval)
+	}
+}
+
+type boomEval struct{}
+
+func (boomEval) EnqueueEval(context.Context, string) error { return errors.New("enqueue boom") }
+func (boomEval) Summary(context.Context, string) (*EvalSummary, error) {
+	return nil, errors.New("unused")
+}
+func (boomEval) RunEvalJob(context.Context, string) error { return nil }
+
+func TestEnd_EvalEnqueueFailureDoesNotFailEnd(t *testing.T) {
+	store := NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
+	}
+	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.SetEvalProcessor(boomEval{})
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended, err := svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID, DurationSec: 3,
+		Utterances: []EndUtteranceItem{{Seq: 1, Speaker: SpeakerUser, Text: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("End should succeed: %v", err)
+	}
+	if ended.Status != StatusEnded {
+		t.Fatalf("ended = %+v", ended)
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	reviewpkg "github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
@@ -123,6 +124,8 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
+	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, drill.NewArkCompleter(cfg), logger)
+	sessionSvc.SetEvalProcessor(reviewEval)
 	ttsHandler := tts.NewHandler(newTTSProvider(logger))
 
 	drillRecords, drillCloser, err := drill.OpenRecordStore(cfg, logger)

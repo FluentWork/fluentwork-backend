@@ -488,7 +488,7 @@ type queryRower interface {
 
 func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Utterance, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT id, session_id, seq, speaker, text, asr_confidence, audio_url, created_at
+		SELECT id, session_id, seq, speaker, text, asr_confidence, audio_url, llm_eval_json, created_at
 		FROM utterances
 		WHERE session_id = ?
 		ORDER BY seq ASC
@@ -503,7 +503,8 @@ func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Ut
 		var u Utterance
 		var confidence sql.NullFloat64
 		var audioURL sql.NullString
-		if err := rows.Scan(&u.ID, &u.SessionID, &u.Seq, &u.Speaker, &u.Text, &confidence, &audioURL, &u.CreatedAt); err != nil {
+		var evalJSON []byte
+		if err := rows.Scan(&u.ID, &u.SessionID, &u.Seq, &u.Speaker, &u.Text, &confidence, &audioURL, &evalJSON, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		if confidence.Valid {
@@ -513,6 +514,9 @@ func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Ut
 		if audioURL.Valid {
 			v := audioURL.String
 			u.AudioURL = &v
+		}
+		if len(evalJSON) > 0 {
+			u.LLMEvalJSON = evalJSON
 		}
 		out = append(out, u)
 	}
@@ -567,6 +571,24 @@ func (s *MySQLStore) RestoreDeletedForUser(ctx context.Context, userID string) (
 	}
 	n, err := result.RowsAffected()
 	return int(n), err
+}
+
+// SaveUtteranceEval writes utterances.llm_eval_json for B18.
+func (s *MySQLStore) SaveUtteranceEval(ctx context.Context, utteranceID string, evalJSON []byte) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE utterances SET llm_eval_json = ? WHERE id = ?
+	`, evalJSON, utteranceID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func scanSession(row *sql.Row) (Session, error) {
