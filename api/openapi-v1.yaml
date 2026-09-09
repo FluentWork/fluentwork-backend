@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.5
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, and B18 review eval.
+  version: 0.3.6
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, and B24 session history.
 servers:
   - url: /api/v1
 paths:
@@ -125,6 +125,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
   /sessions:
+    get:
+      summary: List the caller's practice sessions
+      operationId: listSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Cursor page of sessions (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionListPage"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     post:
       summary: Create a practice session and issue a one-time WSS ticket
       operationId: createSession
@@ -152,6 +183,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CreateSessionResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /sessions/{id}:
+    get:
+      summary: Get one practice session with utterances and review eval
+      operationId: getSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+        "403":
+          description: Session owned by another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Session not found or A4-deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: Error
           content:
@@ -826,6 +894,72 @@ components:
         ticket_expires_at: { type: string, format: date-time }
         scene_type: { type: string }
         status: { type: string }
+    SessionListPage:
+      type: object
+      required: [items, size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionListItem"
+        next_cursor:
+          type: string
+        size: { type: integer }
+    SessionListItem:
+      type: object
+      required: [session_id, scene_type, status, started_at, duration_sec]
+      properties:
+        session_id: { type: string }
+        scene_type: { type: string }
+        status: { type: string }
+        started_at: { type: string, format: date-time }
+        duration_sec: { type: integer }
+        material_id: { type: string, nullable: true }
+    SessionDetail:
+      type: object
+      required: [session_id, scene_type, status, started_at, duration_sec, materials, utterances]
+      properties:
+        session_id: { type: string }
+        scene_type: { type: string }
+        status: { type: string }
+        started_at: { type: string, format: date-time }
+        duration_sec: { type: integer }
+        material_id: { type: string, nullable: true }
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionMaterialRef"
+        utterances:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionUtterance"
+        review:
+          $ref: "#/components/schemas/SessionDetailReview"
+    SessionMaterialRef:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+    SessionUtterance:
+      type: object
+      required: [seq, speaker, text]
+      properties:
+        seq: { type: integer }
+        speaker: { type: string }
+        text: { type: string }
+    SessionDetailReview:
+      type: object
+      required: [score]
+      properties:
+        status:
+          type: string
+          enum: [pending, ready, failed]
+        score: { type: number, format: float }
+        dims:
+          $ref: "#/components/schemas/ReviewEvalDims"
+        suggestions:
+          type: array
+          items: { type: string }
     ReviewPollResponse:
       type: object
       required: [session_id, status]

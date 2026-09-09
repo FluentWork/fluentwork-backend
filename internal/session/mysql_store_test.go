@@ -21,7 +21,7 @@ import (
 // the in-process path; this file covers the production SQL path.
 
 // sessionColumnCount must match scanSession's row.Scan arity in mysql_store.go.
-const sessionColumnCount = 9
+const sessionColumnCount = 10
 
 func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
 	t.Helper()
@@ -43,7 +43,7 @@ func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
 
 // sessionColumns is exported for matching (the production constant lives in
 // mysql_store.go as an unexported string).
-var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at")
+var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at, deleted_at")
 
 // aicostUserIDArg mirrors aicost.nullableString for the user_id column: nil
 // pointer → nil driver arg, otherwise the trimmed string. The production path
@@ -63,30 +63,30 @@ func aicostUserIDArg(value *string) any {
 func endedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "material_id", "scene_type",
-		"status", "duration_sec", "review_json", "created_at", "updated_at",
+		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		id, userID, nil, "standup",
-		StatusEnded, 30, []byte{}, at, at,
+		StatusEnded, 30, []byte{}, at, at, nil,
 	)
 }
 
 func reviewedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "material_id", "scene_type",
-		"status", "duration_sec", "review_json", "created_at", "updated_at",
+		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		id, userID, nil, "standup",
-		StatusReviewed, 30, []byte(`{"status":"ready"}`), at, at,
+		StatusReviewed, 30, []byte(`{"status":"ready"}`), at, at, nil,
 	)
 }
 
 func conflictSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "material_id", "scene_type",
-		"status", "duration_sec", "review_json", "created_at", "updated_at",
+		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
 		id, userID, nil, "standup",
-		StatusCreated, 0, []byte{}, at, at,
+		StatusCreated, 0, []byte{}, at, at, nil,
 	)
 }
 
@@ -282,8 +282,8 @@ func TestMySQLStore_MarkSessionReviewedWithCost_NotFound(t *testing.T) {
 // Sanity check: keep sessionColumnCount aligned with the scanSession arity in
 // mysql_store.go. If you add a column to scanSession, this test fails loud.
 func TestSessionColumnCountMatchesScanSession(t *testing.T) {
-	if sessionColumnCount != 9 {
-		t.Fatalf("sessionColumnCount = %d, mysql_store.scanSession expects 9; update both", sessionColumnCount)
+	if sessionColumnCount != 10 {
+		t.Fatalf("sessionColumnCount = %d, mysql_store.scanSession expects 10; update both", sessionColumnCount)
 	}
 }
 

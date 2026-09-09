@@ -60,6 +60,41 @@ func (s *MemoryStore) GetSession(_ context.Context, id string) (Session, error) 
 	return cloneSession(session), nil
 }
 
+// ListSessions returns a user's non-deleted sessions newest-first (created_at DESC, id DESC).
+func (s *MemoryStore) ListSessions(_ context.Context, userID string, lastStartedAt *time.Time, lastID string, limit int) ([]Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit < 1 {
+		return nil, nil
+	}
+	items := make([]Session, 0, len(s.sessions))
+	for _, session := range s.sessions {
+		if session.UserID != userID || session.DeletedAt != nil {
+			continue
+		}
+		if lastStartedAt != nil {
+			created := session.CreatedAt.UTC()
+			cursorAt := lastStartedAt.UTC()
+			if created.After(cursorAt) || (created.Equal(cursorAt) && session.ID >= lastID) {
+				continue
+			}
+		}
+		items = append(items, cloneSession(session))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		ti := items[i].CreatedAt.UTC()
+		tj := items[j].CreatedAt.UTC()
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return items[i].ID > items[j].ID
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
 // CreateTicket inserts a one-time WSS ticket.
 func (s *MemoryStore) CreateTicket(_ context.Context, ticket Ticket) error {
 	s.mu.Lock()

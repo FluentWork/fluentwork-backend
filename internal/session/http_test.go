@@ -39,7 +39,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 	accountHandler := account.NewHandler(accountSvc)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, nil, accountStore.Ping)
 	return server, accountSvc
 }
 
@@ -63,7 +63,7 @@ func setupServerWithReviewGen(t *testing.T, gen session.ReviewGenerator) (*https
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	sessionSvc.SetReviewGenerator(gen)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	return httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, accountStore.Ping), sessionSvc
+	return httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, nil, accountStore.Ping), sessionSvc
 }
 
 func TestCreateSessionHTTPRequiresAuth(t *testing.T) {
@@ -406,6 +406,9 @@ func TestOpenAPIDiscoveryEndpoints(t *testing.T) {
 	if !bytes.Contains(spec.Body.Bytes(), []byte("ReviewEvalSummary")) {
 		t.Fatal("openapi missing ReviewEvalSummary")
 	}
+	if !bytes.Contains(spec.Body.Bytes(), []byte("operationId: listSessions")) {
+		t.Fatal("openapi missing listSessions")
+	}
 	if !bytes.Contains(spec.Body.Bytes(), []byte(`"202"`)) {
 		t.Fatal("openapi missing 202 pending review")
 	}
@@ -450,7 +453,7 @@ func TestGetReviewHTTP_IncludesEvalAndA4Undelete(t *testing.T) {
 	evalSvc.SetInterval(0)
 	sessionSvc.SetEvalProcessor(evalSvc)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, nil, accountStore.Ping)
 
 	guestRec := httptest.NewRecorder()
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"device-eval-a4"}`)))

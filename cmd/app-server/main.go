@@ -26,6 +26,7 @@ import (
 	reviewpkg "github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
+	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -148,7 +149,8 @@ func run() error {
 	}, logger)
 	accountHandler.SetPrivacy(privacy)
 
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, accountStore.Ping)
+	historyHandler := sessionhistory.NewHandler(sessionhistory.NewService(sessionStore, reviewEval, logger), accountHandler)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, accountStore.Ping)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

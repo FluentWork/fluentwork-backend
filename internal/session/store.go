@@ -32,6 +32,7 @@ type Store interface {
 	Ping(ctx context.Context) error
 	CreateSession(ctx context.Context, session Session) error
 	GetSession(ctx context.Context, id string) (Session, error)
+	ListSessions(ctx context.Context, userID string, lastStartedAt *time.Time, lastID string, limit int) ([]Session, error)
 	CreateTicket(ctx context.Context, ticket Ticket) error
 	CreateSessionWithTicket(ctx context.Context, session Session, ticket Ticket) error
 	GetTicketByHash(ctx context.Context, hash string) (Ticket, error)

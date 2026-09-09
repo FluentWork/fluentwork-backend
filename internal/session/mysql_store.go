@@ -40,7 +40,7 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const sessionColumns = `id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at`
+const sessionColumns = `id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at, deleted_at`
 
 // CreateSession inserts a practice session row.
 func (s *MySQLStore) CreateSession(ctx context.Context, session Session) error {
@@ -56,6 +56,36 @@ func (s *MySQLStore) CreateSession(ctx context.Context, session Session) error {
 // GetSession returns a session by id.
 func (s *MySQLStore) GetSession(ctx context.Context, id string) (Session, error) {
 	return scanSession(s.db.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM practice_sessions WHERE id = ?`, id))
+}
+
+// ListSessions returns a user's non-deleted sessions newest-first (created_at DESC, id DESC).
+func (s *MySQLStore) ListSessions(ctx context.Context, userID string, lastStartedAt *time.Time, lastID string, limit int) ([]Session, error) {
+	if limit < 1 {
+		return nil, nil
+	}
+	query := `SELECT ` + sessionColumns + ` FROM practice_sessions WHERE user_id = ? AND deleted_at IS NULL`
+	args := []any{userID}
+	if lastStartedAt != nil {
+		query += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
+		at := lastStartedAt.UTC()
+		args = append(args, at, at, lastID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]Session, 0, limit)
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
 }
 
 // CreateTicket inserts a one-time WSS ticket row.
@@ -591,10 +621,15 @@ func (s *MySQLStore) SaveUtteranceEval(ctx context.Context, utteranceID string, 
 	return nil
 }
 
-func scanSession(row *sql.Row) (Session, error) {
+type sessionRow interface {
+	Scan(dest ...any) error
+}
+
+func scanSession(row sessionRow) (Session, error) {
 	var session Session
 	var materialID sql.NullString
 	var reviewJSON []byte
+	var deletedAt sql.NullTime
 	err := row.Scan(
 		&session.ID,
 		&session.UserID,
@@ -605,6 +640,7 @@ func scanSession(row *sql.Row) (Session, error) {
 		&reviewJSON,
 		&session.CreatedAt,
 		&session.UpdatedAt,
+		&deletedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
@@ -618,6 +654,10 @@ func scanSession(row *sql.Row) (Session, error) {
 	}
 	if len(reviewJSON) > 0 {
 		session.ReviewJSON = append([]byte(nil), reviewJSON...)
+	}
+	if deletedAt.Valid {
+		t := deletedAt.Time.UTC()
+		session.DeletedAt = &t
 	}
 	return session, nil
 }
