@@ -56,6 +56,8 @@ func TestMetricsExposesTTSFallbackCounter(t *testing.T) {
 		"tts_fallback_triggered_total",
 		"refine_parse_error_total",
 		"privacy_delete_total",
+		"review_eval_timeout_total",
+		"review_eval_parse_error_total",
 	} {
 		if !strings.Contains(body, name) {
 			t.Fatalf("metrics missing %s: %s", name, body)

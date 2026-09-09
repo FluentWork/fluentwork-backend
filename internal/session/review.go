@@ -41,7 +41,7 @@ const (
 // criterion: "失败重试 1 次" — first try plus one retry = 2 total attempts.
 const reviewRetryAttempts = 2
 
-// ProcessNextJob claims and processes one pending session.finished job.
+// ProcessNextJob claims and processes one pending session.finished or session.eval job.
 // ok=false means the queue was empty.
 func (s *Service) ProcessNextJob(ctx context.Context, workerID string) (ok bool, err error) {
 	workerID = strings.TrimSpace(workerID)
@@ -57,9 +57,11 @@ func (s *Service) ProcessNextJob(ctx context.Context, workerID string) (ok bool,
 		return false, err
 	}
 
-	// Detach from worker shutdown cancel so Fail/Complete can still settle state,
-	// while still bounding the actual job work with a deadline.
-	jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultJobTimeout)
+	timeout := DefaultJobTimeout
+	if job.JobType == JobTypeSessionEval {
+		timeout = 90 * time.Second
+	}
+	jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	seg := logx.Begin(s.logger, "session.job.process",
 		"job_id", job.ID,
@@ -118,6 +120,11 @@ func (s *Service) runJob(ctx context.Context, job Job) error {
 	switch job.JobType {
 	case JobTypeSessionFinished:
 		return s.processSessionFinished(ctx, job.SessionID)
+	case JobTypeSessionEval:
+		if s.eval == nil {
+			return nil
+		}
+		return s.eval.RunEvalJob(ctx, job.SessionID)
 	default:
 		return fmt.Errorf("unsupported job type %q", job.JobType)
 	}

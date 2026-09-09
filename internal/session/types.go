@@ -24,6 +24,7 @@ const DefaultSceneType = "demo"
 // Job types and statuses for the async review outbox (B5).
 const (
 	JobTypeSessionFinished = "session.finished"
+	JobTypeSessionEval     = "session.eval"
 
 	JobStatusPending    = "pending"
 	JobStatusProcessing = "processing"
@@ -97,6 +98,7 @@ type Utterance struct {
 	Text          string
 	ASRConfidence *float64
 	AudioURL      *string
+	LLMEvalJSON   []byte
 	CreatedAt     time.Time
 }
 
@@ -167,6 +169,24 @@ type ReviewPollResponse struct {
 	// Since B9-R1/R2 it includes transcript + presentation slices + raw review/refine:
 	// {generator,status,duration_sec,transcript,overview,evaluation,dual_column,refine_cards,review,refine}.
 	Review json.RawMessage `json:"review,omitempty"`
+	// Eval is the B18 three-dimension summary when per-utterance scoring is complete.
+	Eval *EvalSummary `json:"eval,omitempty"`
+}
+
+// EvalDims is grammar / fluency / vocabulary on 0–1.
+type EvalDims struct {
+	Grammar    float64 `json:"grammar"`
+	Fluency    float64 `json:"fluency"`
+	Vocabulary float64 `json:"vocabulary"`
+}
+
+// EvalSummary is the session-level B18 review eval payload.
+type EvalSummary struct {
+	Score       float64  `json:"score"`
+	Dims        EvalDims `json:"dims"`
+	Suggestions []string `json:"suggestions"`
+	UtteranceN  int      `json:"utterance_count"`
+	Complete    bool     `json:"complete"`
 }
 
 // MessageChannelText is the only channel accepted by POST /sessions/:id/messages (B7).

@@ -15,6 +15,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
@@ -125,7 +126,7 @@ func TestCreateSessionHTTPContract(t *testing.T) {
 	reviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+body.SessionID+"/review", nil)
 	reviewReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
 	server.Handler().ServeHTTP(reviewRec, reviewReq)
-	if reviewRec.Code != http.StatusOK {
+	if reviewRec.Code != http.StatusAccepted {
 		t.Fatalf("review status = %d body = %s", reviewRec.Code, reviewRec.Body.String())
 	}
 	var reviewBody session.ReviewPollResponse
@@ -401,5 +402,147 @@ func TestOpenAPIDiscoveryEndpoints(t *testing.T) {
 	}
 	if !bytes.Contains(spec.Body.Bytes(), []byte("/sessions/{id}/messages")) {
 		t.Fatal("openapi missing /sessions/{id}/messages path")
+	}
+	if !bytes.Contains(spec.Body.Bytes(), []byte("ReviewEvalSummary")) {
+		t.Fatal("openapi missing ReviewEvalSummary")
+	}
+	if !bytes.Contains(spec.Body.Bytes(), []byte(`"202"`)) {
+		t.Fatal("openapi missing 202 pending review")
+	}
+}
+
+func drainSessionJobs(t *testing.T, svc *session.Service) {
+	t.Helper()
+	for i := 0; i < 8; i++ {
+		ok, err := svc.ProcessNextJob(context.Background(), "http-test-worker")
+		if err != nil {
+			t.Fatalf("ProcessNextJob: %v", err)
+		}
+		if !ok {
+			return
+		}
+	}
+	t.Fatal("too many session jobs")
+}
+
+func TestGetReviewHTTP_IncludesEvalAndA4Undelete(t *testing.T) {
+	accountStore := account.NewMemoryStore()
+	sessionStore := session.NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr:           ":0",
+		AppEnv:             "development",
+		AuthJWTSecret:      config.DevJWTSecret,
+		AccessTokenTTL:     2 * time.Hour,
+		RefreshTokenTTL:    24 * time.Hour,
+		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
+		SessionTicketTTL:   60 * time.Second,
+		InternalAPIToken:   config.DevInternalAPIToken,
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
+	accountHandler := account.NewHandler(accountSvc)
+	privacy := account.NewPrivacyService(accountStore, []account.DataWiper{
+		session.PrivacyWiper{Store: sessionStore},
+	}, nil, logger)
+	accountHandler.SetPrivacy(privacy)
+	sessionSvc := session.NewService(sessionStore, cfg, logger)
+	evalSvc := review.NewService(sessionStore, nil, review.StaticCompleter{Body: `{"score":0.75,"dims":{"grammar":0.7,"fluency":0.8,"vocabulary":0.75},"suggestions":["Nice"]}`}, logger)
+	evalSvc.SetInterval(0)
+	sessionSvc.SetEvalProcessor(evalSvc)
+	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, sessionHandler, nil, nil, nil, accountStore.Ping)
+
+	guestRec := httptest.NewRecorder()
+	guestReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/guest", bytes.NewReader([]byte(`{"device_id":"device-eval-a4"}`)))
+	guestReq.Header.Set("Content-Type", "application/json")
+	server.Handler().ServeHTTP(guestRec, guestReq)
+	var guestBody account.TokenResponse
+	if err := json.Unmarshal(guestRec.Body.Bytes(), &guestBody); err != nil {
+		t.Fatalf("decode guest: %v", err)
+	}
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewReader([]byte(`{"scene_type":"standup"}`)))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(createRec, createReq)
+	var created session.CreateResponse
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	activateRec := httptest.NewRecorder()
+	activateReq := httptest.NewRequest(http.MethodPost, "/internal/v1/sessions/activate", bytes.NewReader([]byte(`{"session_id":"`+created.SessionID+`"}`)))
+	activateReq.Header.Set("Content-Type", "application/json")
+	activateReq.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	server.Handler().ServeHTTP(activateRec, activateReq)
+	if activateRec.Code != http.StatusOK {
+		t.Fatalf("activate status = %d body = %s", activateRec.Code, activateRec.Body.String())
+	}
+
+	endRec := httptest.NewRecorder()
+	endReq := httptest.NewRequest(http.MethodPost, "/internal/v1/sessions/end", bytes.NewReader([]byte(`{"session_id":"`+created.SessionID+`","duration_sec":18,"utterances":[{"seq":1,"speaker":"user","text":"I will follow up tomorrow."}]}`)))
+	endReq.Header.Set("Content-Type", "application/json")
+	endReq.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	server.Handler().ServeHTTP(endRec, endReq)
+	if endRec.Code != http.StatusOK {
+		t.Fatalf("end status = %d body = %s", endRec.Code, endRec.Body.String())
+	}
+	drainSessionJobs(t, sessionSvc)
+
+	reviewRec := httptest.NewRecorder()
+	reviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+created.SessionID+"/review", nil)
+	reviewReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(reviewRec, reviewReq)
+	if reviewRec.Code != http.StatusOK {
+		t.Fatalf("review status = %d body = %s", reviewRec.Code, reviewRec.Body.String())
+	}
+	var reviewBody session.ReviewPollResponse
+	if err := json.Unmarshal(reviewRec.Body.Bytes(), &reviewBody); err != nil {
+		t.Fatalf("decode review: %v", err)
+	}
+	if reviewBody.Status != session.ReviewPollReady || reviewBody.Eval == nil || reviewBody.Eval.Score != 0.75 {
+		t.Fatalf("review = %+v", reviewBody)
+	}
+
+	del := httptest.NewRecorder()
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/account/data", bytes.NewReader([]byte(`{"confirmation_code":"DELETE-MY-DATA"}`)))
+	delReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	delReq.Header.Set("Content-Type", "application/json")
+	server.Handler().ServeHTTP(del, delReq)
+	if del.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", del.Code, del.Body.String())
+	}
+
+	blocked := httptest.NewRecorder()
+	blockedReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+created.SessionID+"/review", nil)
+	blockedReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(blocked, blockedReq)
+	if blocked.Code != http.StatusUnauthorized {
+		t.Fatalf("deleted user review status=%d body=%s", blocked.Code, blocked.Body.String())
+	}
+
+	und := httptest.NewRecorder()
+	undReq := httptest.NewRequest(http.MethodPost, "/internal/v1/support/undelete-user", bytes.NewReader([]byte(`{"user_id":"`+guestBody.UserID+`","reason":"qa restore","actor":"qa"}`)))
+	undReq.Header.Set("Content-Type", "application/json")
+	undReq.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	server.Handler().ServeHTTP(und, undReq)
+	if und.Code != http.StatusOK {
+		t.Fatalf("undelete status=%d body=%s", und.Code, und.Body.String())
+	}
+
+	again := httptest.NewRecorder()
+	againReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+created.SessionID+"/review", nil)
+	againReq.Header.Set("Authorization", "Bearer "+guestBody.AccessToken)
+	server.Handler().ServeHTTP(again, againReq)
+	if again.Code != http.StatusOK {
+		t.Fatalf("post-undelete review status=%d body=%s", again.Code, again.Body.String())
+	}
+	var restored session.ReviewPollResponse
+	if err := json.Unmarshal(again.Body.Bytes(), &restored); err != nil {
+		t.Fatalf("decode restored: %v", err)
+	}
+	if restored.Eval == nil || restored.Eval.Score != 0.75 {
+		t.Fatalf("eval after undelete = %+v", restored.Eval)
 	}
 }

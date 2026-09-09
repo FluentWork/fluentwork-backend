@@ -20,6 +20,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
+	reviewpkg "github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
 
@@ -131,7 +132,7 @@ func discovery(c *gin.Context) {
 func serveMetrics(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(
-		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics(),
+		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics()+reviewpkg.PrometheusMetrics(),
 	))
 }
 

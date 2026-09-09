@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+	"github.com/FluentWork/fluentwork-backend/internal/drill"
+	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
@@ -44,6 +47,16 @@ func run() error {
 		}
 	}()
 
+	corpusStore, corpusCloser, err := corpus.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := corpusCloser(); closeErr != nil {
+			logger.Error("closing corpus store", "err", closeErr)
+		}
+	}()
+
 	svc := session.NewService(store, cfg, logger)
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
@@ -55,6 +68,7 @@ func run() error {
 	if arkReviewEnabled {
 		svc.SetReviewGenerator(reviewGenerator)
 	}
+	svc.SetEvalProcessor(review.NewService(store, corpusStore, drill.NewArkCompleter(cfg), logger))
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
 

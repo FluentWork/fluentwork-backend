@@ -55,7 +55,7 @@ func (h *Handler) PostCreate(c *gin.Context) {
 	httpjson.OK(c, result)
 }
 
-// GetReview handles GET /sessions/:id/review.
+// GetReview handles GET /sessions/:id/review. Per 48 §1.3.3 / §1.3.7.
 func (h *Handler) GetReview(c *gin.Context) {
 	userID, ok := c.Get(account.ContextUserIDKey)
 	if !ok {
@@ -71,6 +71,10 @@ func (h *Handler) GetReview(c *gin.Context) {
 	result, err := h.svc.GetReview(c.Request.Context(), actorID, c.Param("id"))
 	if err != nil {
 		httpjson.Error(c, err)
+		return
+	}
+	if result.Status == ReviewPollPending {
+		c.JSON(202, result)
 		return
 	}
 	httpjson.OK(c, result)
