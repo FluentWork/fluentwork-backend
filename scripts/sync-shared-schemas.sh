@@ -10,13 +10,12 @@ src_events="$infra_root/schemas/events/speech-observability-events-v1.json"
 dst_root="$repo_root/schemas"
 
 test -f "$src_transport_v1"
+test -f "$src_transport_v2"
 test -f "$src_events"
 
 mkdir -p "$dst_root/transport" "$dst_root/events"
 cp "$src_transport_v1" "$dst_root/transport/wss-control-frames-v1.json"
+cp "$src_transport_v2" "$dst_root/transport/wss-control-frames-v2.json"
 cp "$src_events" "$dst_root/events/speech-observability-events-v1.json"
-if [[ -f "$src_transport_v2" ]]; then
-  cp "$src_transport_v2" "$dst_root/transport/wss-control-frames-v2.json"
-fi
 
 echo "Synced shared schema mirrors into $dst_root"
