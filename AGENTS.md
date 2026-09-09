@@ -121,7 +121,7 @@ Examples:
 ### 5. Git 工作流
 
 1. **直接在 `main` 上开发并 push**，默认不创建 feature branch / PR / MR
-2. **门禁**：`go test ./...` + `go build ./...`（本地 `./scripts/dev-check.sh`；GitHub required check 为 `go-build-and-test`）
+2. **门禁**：`go test ./...` + `go build ./...`（本地 `./scripts/dev-check.sh`）。GitHub 在 push 到 `main` 后跑 `go-build-and-test`，不要求 PR
 3. 只有用户明确要求时才开 PR
 4. 不把 gstack review 当作提交或合并门禁
 

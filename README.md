@@ -121,7 +121,7 @@ test/
 - migration checks
 - Docker image build
 - agent entry file validation
-- required GitHub check on `main`: `go-build-and-test` (build + test; no PR review gate)
+- required GitHub check on `main`: none (direct push). CI still runs `go-build-and-test` after push
 
 ## Upstream Source of Truth
 
