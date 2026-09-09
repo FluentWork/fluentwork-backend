@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -278,5 +279,53 @@ func TestVolcDuplexSession_KeepaliveProbeRespectsTimeout(t *testing.T) {
 	}
 	if !gotTimeout {
 		t.Fatalf("runProbe must apply a context deadline; got unbounded ctx")
+	}
+}
+
+func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		outcome  voicepoc.TurnOutcome
+		wantWire string
+	}{
+		{name: "timeout", outcome: voicepoc.TurnOutcomeTimeout, wantWire: "timeout"},
+		{name: "partial", outcome: voicepoc.TurnOutcomePartial, wantWire: "partial"},
+		{name: "error", outcome: voicepoc.TurnOutcomeError, wantWire: "error"},
+		{name: "ok", outcome: voicepoc.TurnOutcomeOK, wantWire: "ok"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sess := &volcDuplexProviderSession{
+				logger:       slog.Default(),
+				activeTurnID: "turn-" + tc.name,
+				nextSeq:      1,
+			}
+			out := sess.turnToOutbound(voicepoc.TurnResult{Outcome: tc.outcome})
+			var end voiceproto.AITurnEnd
+			found := false
+			for _, frame := range out {
+				got, ok := frame.Control.(voiceproto.AITurnEnd)
+				if !ok {
+					continue
+				}
+				found = true
+				end = got
+			}
+			if !found {
+				t.Fatalf("expected AITurnEnd in outbound, got %#v", out)
+			}
+			if end.Type != voiceproto.TypeAITurnEnd {
+				t.Fatalf("type = %q", end.Type)
+			}
+			if end.TurnID != "turn-"+tc.name {
+				t.Fatalf("turn_id = %q", end.TurnID)
+			}
+			if end.Outcome != tc.wantWire {
+				t.Fatalf("outcome = %q want %q", end.Outcome, tc.wantWire)
+			}
+		})
 	}
 }

@@ -135,7 +135,8 @@ Examples:
 | `docs/28_B23_话题卡_实现说明.md` | B23 每日话题卡与打卡 | `ffd585f` |
 | `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 与 fallback | `8d28c9b` |
 | `docs/30_B8_评价炼化Worker_实现说明.md` | B8 review worker 评价与炼化 | `fb779e3` |
-| `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 Prompt 回归（#28） | (本提交) |
+| `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 Prompt 回归（#28） | `f38677d` |
+| `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md` | 网关 B15 Turn Timeout / Session Exit | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -144,7 +145,7 @@ Examples:
 | B12 | Badge Emit 修复 | ✅ 完成 |
 | B13 | Client ASR Relay | ✅ 完成 |
 | B14 | T3/T4 注入生效 | ✅ 完成 |
-| B15 | Turn Timeout & Session Exit | 🔄 实施中 |
+| B15 | Turn Timeout & Session Exit（网关，非 #28） | ✅ 后端完成；iOS outcome 解码仍开放 |
 | I20 | 全链路收口 | 🔄 实施中 |
 
 ## 高风险路径
@@ -175,5 +176,6 @@ Examples:
 | `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 实现说明 |
 | `docs/30_B8_评价炼化Worker_实现说明.md` | B8 评价炼化 Worker 实现说明 |
 | `docs/31_B15_离线评估集_实现说明.md` | 第二波 B15 离线评估集（#28） |
+| `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md` | 网关 B15 Turn Timeout 后端收口 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

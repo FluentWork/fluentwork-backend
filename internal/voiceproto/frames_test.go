@@ -2,6 +2,7 @@ package voiceproto_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
@@ -108,6 +109,79 @@ func TestSchemaV2AddsTTSFrames(t *testing.T) {
 	}
 	if refs["#/$defs/aiTTSAudio"] {
 		t.Fatal("aiTTSAudio must not be in JSON control oneOf; it is a binary message")
+	}
+}
+
+func TestAITurnEndJSONCarriesOutcomeAndLogID(t *testing.T) {
+	t.Parallel()
+
+	frame := voiceproto.AITurnEnd{
+		Type:    voiceproto.TypeAITurnEnd,
+		TurnID:  "turn-timeout-1",
+		Outcome: "timeout",
+		LogID:   "volc-log-abc",
+	}
+	raw, err := json.Marshal(frame)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(raw, &asMap); err != nil {
+		t.Fatalf("unmarshal map: %v", err)
+	}
+	if asMap["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("type = %#v", asMap["type"])
+	}
+	if asMap["outcome"] != "timeout" {
+		t.Fatalf("outcome missing on wire: %s", raw)
+	}
+	if asMap["log_id"] != "volc-log-abc" {
+		t.Fatalf("log_id missing on wire: %s", raw)
+	}
+
+	var decoded voiceproto.AITurnEnd
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded != frame {
+		t.Fatalf("round trip: %+v", decoded)
+	}
+
+	omitted, err := json.Marshal(voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "t1"})
+	if err != nil {
+		t.Fatalf("marshal omitted: %v", err)
+	}
+	if strings.Contains(string(omitted), `"outcome"`) || strings.Contains(string(omitted), `"log_id"`) {
+		t.Fatalf("empty outcome/log_id must omit: %s", omitted)
+	}
+}
+
+func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range [][]byte{sharedschemas.WSSControlFramesV1, sharedschemas.WSSControlFramesV2} {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("schema json: %v", err)
+		}
+		defs, ok := doc["$defs"].(map[string]any)
+		if !ok {
+			t.Fatal("schema missing $defs")
+		}
+		aiTurnEnd, ok := defs["aiTurnEnd"].(map[string]any)
+		if !ok {
+			t.Fatal("schema missing $defs.aiTurnEnd")
+		}
+		props, ok := aiTurnEnd["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("aiTurnEnd missing properties")
+		}
+		if _, ok := props["outcome"]; !ok {
+			t.Fatal("aiTurnEnd schema missing outcome")
+		}
+		if _, ok := props["log_id"]; !ok {
+			t.Fatal("aiTurnEnd schema missing log_id")
+		}
 	}
 }
 

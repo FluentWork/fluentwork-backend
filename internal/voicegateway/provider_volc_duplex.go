@@ -165,8 +165,10 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
 
 		// B15-fix: always send ai.turn.end if the outcome was set, so iOS can leave
-		// .processing even when we got no real content. Only return an error to abort
-		// the session if the outcome was unset (real transport error, not a timeout).
+		// .processing even when we got no real content. collectTurn stamps Outcome
+		// on every exit path, so timeout/partial/error take this branch and skip
+		// the 20s retry below. That retry is only for DeadlineExceeded with an
+		// unset Outcome (transport timeout before collectTurn could classify).
 		if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
 			s.logger.Warn("turn result non-ok outcome, sending ai.turn.end to unblock iOS",
 				"session_id", s.session.SessionID(),

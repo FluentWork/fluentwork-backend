@@ -246,11 +246,11 @@ type sessionRuntime struct {
 	started   bool
 	startedAt time.Time
 	provider  VoiceProviderSession
-	// broken is set to true the first time the audio forward path fails in a
-	// way the session cannot recover from (provider write error, recv-side
-	// failure surfaced through the provider, etc.). Once set, subsequent
-	// binary frames are dropped silently so a stuck iOS pipeline doesn't
-	// produce 80+ identical WARN lines per session. See docs/20 §1.2.c/1.3.
+	// broken is set the first time the audio forward path fails in a way
+	// the session cannot recover from. handleAudio then sends
+	// provider_audio_failed and returns a non-nil error so the WSS loop
+	// exits immediately (B15 Item 1.2). The flag also drops any binary
+	// frame already in flight so we do not re-log the cascade.
 	broken bool
 	// reopenAttempted records one transparent provider reopen after an
 	// upstream audio write failure (backend #43).
@@ -305,9 +305,9 @@ func (h *Handler) handleAudio(
 	if !rt.started || rt.provider == nil {
 		return nil
 	}
-	// B15: once the audio forward path has failed, drop further binary
-	// frames without re-invoking the provider or re-logging. The loop will
-	// exit naturally when iOS closes the WS or the next read errors out.
+	// B15: after the first audio-forward failure we return a non-nil error
+	// so the WSS loop exits. This guard is belt-and-suspenders if another
+	// binary frame is already in flight: drop it without re-logging.
 	if rt.broken {
 		return nil
 	}

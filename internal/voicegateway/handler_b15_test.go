@@ -190,6 +190,106 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 	}
 }
 
+// timeoutTurnSession returns a single ai.turn.end with outcome=timeout on
+// user.speech.end so we can assert the handler serializes the B15 field onto
+// the iOS WebSocket — collectTurn setting TurnResult.Outcome is not enough.
+type timeoutTurnSession struct{}
+
+func (s *timeoutTurnSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+	return []voicegateway.ProviderOutbound{
+		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
+		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "bootstrap", Outcome: "ok"}},
+	}, nil
+}
+
+func (s *timeoutTurnSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
+	if frameType != voiceproto.TypeUserSpeechEnd {
+		return nil, nil
+	}
+	return []voicegateway.ProviderOutbound{
+		{
+			Control: voiceproto.AITurnEnd{
+				Type:    voiceproto.TypeAITurnEnd,
+				TurnID:  "turn-timeout-1",
+				Outcome: "timeout",
+				LogID:   "volc-log-timeout",
+			},
+		},
+	}, nil
+}
+
+func (s *timeoutTurnSession) HandleClientAudio(_ context.Context, _ []byte) ([]voicegateway.ProviderOutbound, error) {
+	return nil, nil
+}
+func (s *timeoutTurnSession) SnapshotUtterances() []voicegateway.EndUtterance { return nil }
+func (s *timeoutTurnSession) Close(_ context.Context) error                   { return nil }
+
+type timeoutTurnProvider struct{ session *timeoutTurnSession }
+
+func (p *timeoutTurnProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+	return p.session, nil
+}
+
+func TestHandler_AITurnEndCarriesTimeoutOutcomeOnWire(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out:    voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
+	}
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, &timeoutTurnProvider{session: &timeoutTurnSession{}}, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.Auth{
+		Type: voiceproto.TypeAuth, Ticket: "good-ticket",
+	})); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	_ = readFrame(ctx, t, conn)
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	})); err != nil {
+		t.Fatalf("write session.start: %v", err)
+	}
+	_ = readFrame(ctx, t, conn) // ai.text.delta
+	_ = readFrame(ctx, t, conn) // bootstrap ai.turn.end
+
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		TurnID: "turn-timeout-1",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	turnEnd := readFrame(ctx, t, conn)
+	if turnEnd["type"] != voiceproto.TypeAITurnEnd {
+		t.Fatalf("expected ai.turn.end, got %#v", turnEnd)
+	}
+	if turnEnd["outcome"] != "timeout" {
+		t.Fatalf("expected outcome=timeout on wire, got %#v", turnEnd)
+	}
+	if turnEnd["turn_id"] != "turn-timeout-1" {
+		t.Fatalf("turn_id = %#v", turnEnd["turn_id"])
+	}
+	if turnEnd["log_id"] != "volc-log-timeout" {
+		t.Fatalf("log_id = %#v", turnEnd["log_id"])
+	}
+}
+
 // isTimeout is a small helper because coder/websocket wraps the underlying
 // net.Error with status info; we just want to know if the read timed out.
 func isTimeout(err error) bool {

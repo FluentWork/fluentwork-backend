@@ -128,7 +128,9 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "ai.turn.end" },
-        "turn_id": { "type": "string" }
+        "turn_id": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["ok", "partial", "timeout", "error"] },
+        "log_id": { "type": "string" }
       }
     },
     "interrupt": {

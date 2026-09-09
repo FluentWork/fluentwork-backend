@@ -99,9 +99,11 @@
 
 ### 2.1 Turn 超时显式 `outcome=timeout` ⚠️ 重点
 
-#### 问题分析
+**后端状态（2026-09-10）：已落地。** `voiceproto.AITurnEnd` 带 `Outcome` / `LogID`；`turnToOutbound` 写入 `ai.turn.end`；WSS schema v1/v2 已声明这两个字段。iOS 解码 `outcome=timeout` 仍开放，见 `docs/32_B15_Turn_Timeout_And_Session_Exit_实现说明.md`。
 
-当前后端在 `volc_duplex.go` 的 `collectTurn` 中已正确设置 `TurnOutcome`，但 **`ai.turn.end` 帧本身没有携带 outcome 字段**，iOS 收不到明确的超时原因。
+#### 问题分析（历史）
+
+收口前 `collectTurn` 已设置 `TurnOutcome`，但 **`ai.turn.end` 帧 / schema 一度没有携带 outcome**，iOS 收不到明确的超时原因。
 
 **当前 `voiceproto.AITurnEnd`：**
 ```go
@@ -176,11 +178,13 @@ case let .aiTurnEnd(turnID, outcome): // 解码带 outcome 的帧
 
 ---
 
-### 2.3 后端写失败立即退 session ⚠️ 重点
+### 2.3 后端写失败立即退 session ✅ 后端已落地
 
-#### 问题分析
+**后端状态（2026-09-10）：已落地。** `handleAudio` 在 reopen-once 失败后发送 `provider_audio_failed` 并返回非 nil error，WSS loop 立即退出。回归：`TestHandler_AudioMarksSessionBrokenAfterFirstFailure`。
 
-当前 `handler.go` 中音频帧写入失败时：
+#### 问题分析（历史）
+
+收口前 `handleAudio` 在写入失败时：
 
 ```go
 // handleAudio 中的逻辑
@@ -240,19 +244,9 @@ if rt.sessionFatal {
 
 ### 2.4 Warn 去重 ✅ 已实现
 
-**当前状态：** `handler.go` 中的 `logWarn` 函数已实现 5s 窗口 + 每 10 次输出一行的去重逻辑。
+**当前状态：** `handler.go` 中的 `logWarn` 函数已实现 5s 窗口 + 每 10 次输出一行的去重逻辑。单测 `TestLogWarn_SameKeyElevenTimesEmitsTwoLines`：同一 key 11 次 → 2 条 WARN。
 
-**代码位置：** `handler.go:38-58`
-
-```go
-const warnDedupInterval = 10
-func (h *Handler) logWarn(rt *sessionRuntime, key, msg string, args ...any) {
-    // 5s 窗口内相同 key 只在第 1 次和第 10N 次输出完整行
-    // 其余情况只计数
-}
-```
-
-**TODO：** 在 `cmd/voice-gateway/main.go` 中确认所有 provider 相关 WARN 均通过 `logWarn` 输出（非直接 `logger.Warn`）。
+音频转发 cascade 走 `logWarn`。Turn 级一次性 `logger.Warn`（timeout 分类、格式 mismatch、keepalive probe）不改走 `logWarn`——它们不是 80 行风暴，且不在 Handler 作用域。
 
 ---
 

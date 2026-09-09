@@ -248,6 +248,9 @@ func TestDevEcho_NoBadgeWhenEchoTextEmpty(t *testing.T) {
 	if got, _ := endFrame["turn_id"].(string); got != "turn-empty-echo" {
 		t.Fatalf("expected ai.turn.end turn_id %q, got %q", "turn-empty-echo", got)
 	}
+	if got, _ := endFrame["outcome"].(string); got != "ok" {
+		t.Fatalf("expected ai.turn.end outcome=ok, got %#v", endFrame)
+	}
 	quietCtx, cancelQuiet := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancelQuiet()
 	if _, _, err := conn.Read(quietCtx); err == nil {
