@@ -133,7 +133,8 @@ Examples:
 | `docs/26_B24_历史回顾API_实现说明.md` | B24 会话列表/详情 | `d90d4e4` |
 | `docs/27_B21_素材模块_实现说明.md` | B21 素材创建与提炼 | `37d3614` |
 | `docs/28_B23_话题卡_实现说明.md` | B23 每日话题卡与打卡 | `ffd585f` |
-| `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 与 fallback | (本提交) |
+| `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 与 fallback | `8d28c9b` |
+| `docs/30_B8_评价炼化Worker_实现说明.md` | B8 review worker 评价与炼化 | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -171,5 +172,6 @@ Examples:
 | `docs/27_B21_素材模块_实现说明.md` | B21 素材模块实现说明 |
 | `docs/28_B23_话题卡_实现说明.md` | B23 话题卡实现说明 |
 | `docs/29_B17_TTS_Provider_实现说明.md` | B17 TTS Provider 实现说明 |
+| `docs/30_B8_评价炼化Worker_实现说明.md` | B8 评价炼化 Worker 实现说明 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |
