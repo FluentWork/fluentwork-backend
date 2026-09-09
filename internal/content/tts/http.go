@@ -57,9 +57,10 @@ type SynthesizeRequest struct {
 
 // SynthesizeResponse is returned after audio chunks are collected.
 type SynthesizeResponse struct {
-	VoiceID     string `json:"voice_id"`
-	Chunks      int    `json:"chunks"`
-	AudioBase64 string `json:"audio_base64"`
+	VoiceID      string `json:"voice_id"`
+	Chunks       int    `json:"chunks"`
+	AudioBase64  string `json:"audio_base64"`
+	UsedFallback bool   `json:"used_fallback"`
 }
 
 // PostSynthesize handles POST /internal/v1/tts/synthesize.
@@ -86,10 +87,15 @@ func (h *Handler) PostSynthesize(c *gin.Context) {
 	for _, chunk := range chunks {
 		payload = append(payload, chunk.Data...)
 	}
+	usedFallback := false
+	if reporter, ok := h.provider.(interface{ UsingFallback() bool }); ok {
+		usedFallback = reporter.UsingFallback()
+	}
 	httpjson.OK(c, SynthesizeResponse{
-		VoiceID:     voice.VoiceID,
-		Chunks:      len(chunks),
-		AudioBase64: base64.StdEncoding.EncodeToString(payload),
+		VoiceID:      voice.VoiceID,
+		Chunks:       len(chunks),
+		AudioBase64:  base64.StdEncoding.EncodeToString(payload),
+		UsedFallback: usedFallback,
 	})
 }
 
@@ -99,6 +105,8 @@ func mapTTSError(err error) error {
 		return apierr.InvalidArgument("text is required")
 	case errors.Is(err, ErrMissingAPIKey), errors.Is(err, ErrClosed):
 		return apierr.Unavailable("tts provider is not configured")
+	case IsHTTP5xx(err):
+		return apierr.Unavailable("tts upstream unavailable")
 	default:
 		return apierr.Internal("tts synthesis failed")
 	}

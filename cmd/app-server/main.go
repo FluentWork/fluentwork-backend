@@ -24,6 +24,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
+	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -238,11 +239,19 @@ func newTTSProvider(logger *slog.Logger) tts.Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &tts.VolcStreamingProvider{
+	primary := &tts.VolcStreamingProvider{
 		APIKey:     apiKey,
 		ResourceID: envOr("VOLC_SPEECH_RESOURCE_TTS", "seed-tts-2.0"),
 		Logger:     logger.With("component", "tts.volc_streaming"),
 	}
+	fallback := &tts.VolcDuplexFallbackProvider{
+		Config: voicepoc.DuplexConfig{
+			APIKey: apiKey,
+			Logger: logger.With("component", "tts.volc_duplex"),
+		},
+		Logger: logger.With("component", "tts.volc_duplex_fallback"),
+	}
+	return tts.NewManager(primary, fallback)
 }
 
 func durationOr(key string, fallback time.Duration) time.Duration {
