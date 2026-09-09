@@ -593,6 +593,31 @@ func (s *DuplexSession) send(ctx context.Context, v any) error {
 	return s.conn.Write(ctx, websocket.MessageText, b)
 }
 
+// Recv reads the next server-sent duplex event.
+func (s *DuplexSession) Recv(ctx context.Context) (DuplexEvent, error) {
+	return s.recv(ctx)
+}
+
+// RequestTextTTS asks the live duplex session to speak text as assistant audio.
+// Voice is the session voice from DuplexConfig (default zh_female_vv_jupiter_bigtts).
+func (s *DuplexSession) RequestTextTTS(ctx context.Context, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fmt.Errorf("duplex TTS text is empty")
+	}
+	if s == nil || s.conn == nil {
+		return fmt.Errorf("duplex session is nil")
+	}
+	return s.send(ctx, map[string]any{
+		"type":     "response.create",
+		"event_id": uuid.NewString(),
+		"response": map[string]any{
+			"modalities":   []string{"audio", "text"},
+			"instructions": text,
+		},
+	})
+}
+
 // DuplexEvent is one server-sent event from a Volcano duplex session.
 type DuplexEvent struct {
 	Type       string
