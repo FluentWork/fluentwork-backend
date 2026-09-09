@@ -22,7 +22,7 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const blockColumns = `id, user_id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, is_favorite, pinned_at, source_session_id, deleted_at, created_at, updated_at`
+const blockColumns = `id, user_id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, total_uses, last_used_at, is_favorite, pinned_at, source_session_id, deleted_at, created_at, updated_at`
 
 // ListBlocks implements Store.
 func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error) {
@@ -246,6 +246,75 @@ func (s *MySQLStore) ReassignUser(ctx context.Context, fromUserID, toUserID stri
 	return err
 }
 
+// RecordHits implements Store. One transaction UPSERTs the ledger and
+// increments total_uses only when MySQL reports a fresh insert (RowsAffected==1).
+func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {
+	if len(hits) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	recorded := 0
+	for _, hit := range hits {
+		res, err := tx.ExecContext(ctx, `
+                        INSERT INTO phrase_block_uses (user_id, session_id, turn_id, block_id, used_at_ms)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE used_at_ms = VALUES(used_at_ms)
+                `, userID, sessionID, turnID, hit.BlockID, hit.DetectedAtMs)
+		if err != nil {
+			return 0, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		recorded++
+		if n != 1 {
+			continue
+		}
+		usedAt := time.UnixMilli(hit.DetectedAtMs).UTC()
+		if _, err := tx.ExecContext(ctx, `
+                        UPDATE phrase_blocks
+                        SET total_uses = total_uses + 1, last_used_at = ?
+                        WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+                `, usedAt, hit.BlockID, userID); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return recorded, nil
+}
+
+// ListSessionHits implements Store. Soft-deleted blocks are omitted.
+func (s *MySQLStore) ListSessionHits(ctx context.Context, sessionID string) ([]RecentHit, error) {
+	rows, err := s.db.QueryContext(ctx, `
+                SELECT pbu.block_id, pbu.turn_id, pbu.used_at_ms, pb.intent_zh, pb.expression_en
+                FROM phrase_block_uses pbu
+                INNER JOIN phrase_blocks pb ON pb.id = pbu.block_id
+                WHERE pbu.session_id = ?
+                  AND pb.deleted_at IS NULL
+                ORDER BY pbu.used_at_ms DESC, pbu.block_id ASC
+        `, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]RecentHit, 0)
+	for rows.Next() {
+		var hit RecentHit
+		if err := rows.Scan(&hit.BlockID, &hit.TurnID, &hit.UsedAtMs, &hit.IntentZH, &hit.ChunkEN); err != nil {
+			return nil, err
+		}
+		out = append(out, hit)
+	}
+	return out, rows.Err()
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -253,6 +322,7 @@ type scanner interface {
 func scanBlock(row scanner) (PhraseBlock, error) {
 	var (
 		block         PhraseBlock
+		lastUsedAt    sql.NullTime
 		pinnedAt      sql.NullTime
 		sourceSession sql.NullString
 		deletedAt     sql.NullTime
@@ -270,6 +340,8 @@ func scanBlock(row scanner) (PhraseBlock, error) {
 		&block.NextDueAt,
 		&block.EaseFactor,
 		&block.RealUseCount,
+		&block.TotalUses,
+		&lastUsedAt,
 		&block.IsFavorite,
 		&pinnedAt,
 		&sourceSession,
@@ -283,6 +355,7 @@ func scanBlock(row scanner) (PhraseBlock, error) {
 		}
 		return PhraseBlock{}, err
 	}
+	block.LastUsedAt = nullableTimePtr(lastUsedAt)
 	block.PinnedAt = nullableTimePtr(pinnedAt)
 	block.SourceSessionID = nullableStringPtr(sourceSession)
 	block.DeletedAt = nullableTimePtr(deletedAt)

@@ -12,12 +12,14 @@ import (
 type MemoryStore struct {
 	mu     sync.Mutex
 	blocks map[string]PhraseBlock
+	uses   map[string]phraseBlockUse
 }
 
 // NewMemoryStore constructs an in-memory corpus store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		blocks: make(map[string]PhraseBlock),
+		uses:   make(map[string]phraseBlockUse),
 	}
 }
 
@@ -143,6 +145,8 @@ func (s *MemoryStore) UpdateBlock(_ context.Context, block PhraseBlock) (PhraseB
 	block.NextDueAt = existing.NextDueAt
 	block.EaseFactor = existing.EaseFactor
 	block.RealUseCount = existing.RealUseCount
+	block.TotalUses = existing.TotalUses
+	block.LastUsedAt = cloneTimePtr(existing.LastUsedAt)
 	block.IsFavorite = existing.IsFavorite
 	block.PinnedAt = cloneTimePtr(existing.PinnedAt)
 	block.SourceSessionID = cloneStringPtr(existing.SourceSessionID)
@@ -281,6 +285,7 @@ func cloneBlock(block PhraseBlock) PhraseBlock {
 	out.PinnedAt = cloneTimePtr(block.PinnedAt)
 	out.SourceSessionID = cloneStringPtr(block.SourceSessionID)
 	out.DeletedAt = cloneTimePtr(block.DeletedAt)
+	out.LastUsedAt = cloneTimePtr(block.LastUsedAt)
 	return out
 }
 
@@ -305,4 +310,78 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+type phraseBlockUse struct {
+	UserID    string
+	SessionID string
+	TurnID    string
+	BlockID   string
+	UsedAtMs  int64
+}
+
+func useKey(sessionID, turnID, blockID string) string {
+	return sessionID + "\x00" + turnID + "\x00" + blockID
+}
+
+// RecordHits implements Store. Duplicate (session, turn, block) rows update
+// used_at_ms only; total_uses increments on first insert.
+func (s *MemoryStore) RecordHits(_ context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recorded := 0
+	for _, hit := range hits {
+		key := useKey(sessionID, turnID, hit.BlockID)
+		_, exists := s.uses[key]
+		s.uses[key] = phraseBlockUse{
+			UserID:    userID,
+			SessionID: sessionID,
+			TurnID:    turnID,
+			BlockID:   hit.BlockID,
+			UsedAtMs:  hit.DetectedAtMs,
+		}
+		recorded++
+		if exists {
+			continue
+		}
+		block, ok := s.blocks[hit.BlockID]
+		if !ok || block.UserID != userID || block.DeletedAt != nil {
+			continue
+		}
+		block.TotalUses++
+		usedAt := time.UnixMilli(hit.DetectedAtMs).UTC()
+		block.LastUsedAt = &usedAt
+		s.blocks[hit.BlockID] = block
+	}
+	return recorded, nil
+}
+
+// ListSessionHits implements Store. Soft-deleted blocks are omitted.
+func (s *MemoryStore) ListSessionHits(_ context.Context, sessionID string) ([]RecentHit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]RecentHit, 0)
+	for _, use := range s.uses {
+		if use.SessionID != sessionID {
+			continue
+		}
+		block, ok := s.blocks[use.BlockID]
+		if !ok || block.DeletedAt != nil {
+			continue
+		}
+		out = append(out, RecentHit{
+			BlockID:  use.BlockID,
+			TurnID:   use.TurnID,
+			UsedAtMs: use.UsedAtMs,
+			IntentZH: block.IntentZH,
+			ChunkEN:  block.ExpressionEN,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UsedAtMs == out[j].UsedAtMs {
+			return out[i].BlockID < out[j].BlockID
+		}
+		return out[i].UsedAtMs > out[j].UsedAtMs
+	})
+	return out, nil
 }
