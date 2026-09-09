@@ -19,7 +19,11 @@ import (
 //
 //	VOICE_GATEWAY_PROVIDER=dev-echo
 //	VOICE_DEV_ECHO_TEXT="let's ship it"
+//	VOICE_DEV_ECHO_FIXTURE=/path/to/16khz-mono.pcm  # optional T2 playback
 //	VOICE_DEV_ECHO_TTS_MOCK=true   # optional 9/13 empty-run TTS frames
+//
+// `--dev-echo-fixture` on cmd/voice-gateway overrides VOICE_DEV_ECHO_FIXTURE.
+// TTS mock skips the PCM fixture so leftover file bytes cannot mix with ai.tts.*.
 //
 // and the dev-echo provider returns that text as ServerASRText on every
 // user.speech.end — cmd/voice-gateway wires a self-contained B12 emitter for
@@ -35,6 +39,22 @@ func NewVoiceProvider(cfg Config, logger *slog.Logger) VoiceProvider {
 	case "dev-echo":
 		provider := NewDevEchoVoiceProvider(cfg.DevEchoText, logger)
 		provider.TTSMock = cfg.DevEchoTTSMock
+		path := strings.TrimSpace(cfg.DevEchoFixturePath)
+		if path != "" && !cfg.DevEchoTTSMock {
+			data, err := FixturePCMLoader(path)
+			if err != nil {
+				if logger == nil {
+					logger = slog.Default()
+				}
+				logger.Warn("dev-echo fixture not loaded; continuing without audio fixture",
+					"path", path,
+					"err", err,
+				)
+			} else {
+				provider.Fixture = data
+				provider.FixturePath = path
+			}
+		}
 		return provider
 	case "", "mock":
 		fallthrough

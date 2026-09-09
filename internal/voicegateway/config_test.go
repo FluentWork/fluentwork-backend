@@ -25,6 +25,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed")
 	t.Setenv("VOICE_DEV_ECHO_TTS_MOCK", "")
 	t.Setenv("DEV_ECHO_TTS_MOCK", "")
+	t.Setenv("VOICE_DEV_ECHO_FIXTURE", "")
 	t.Setenv("VOICE_GATEWAY_VOLC_SPEECH_API_KEY", "")
 	t.Setenv("VOLC_POC_API_KEY", "")
 	t.Setenv("VOLC_SPEECH_API_KEY", "")
@@ -51,6 +52,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.DevEchoTTSMock {
 		t.Fatal("DevEchoTTSMock should default to false")
+	}
+	if cfg.DevEchoFixturePath != "" {
+		t.Fatalf("DevEchoFixturePath = %q, want empty", cfg.DevEchoFixturePath)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
@@ -257,6 +261,29 @@ func TestLoadConfigDevEchoTTSMock(t *testing.T) {
 	cfg := voicegateway.LoadConfig()
 	if !cfg.DevEchoTTSMock {
 		t.Fatal("expected DevEchoTTSMock=true from VOICE_DEV_ECHO_TTS_MOCK")
+	}
+}
+
+func TestLoadConfigDevEchoFixturePath(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("VOICE_GATEWAY_PROVIDER", "dev-echo")
+	t.Setenv("VOICE_DEV_ECHO_FIXTURE", "/tmp/sine.pcm")
+
+	cfg := voicegateway.LoadConfig()
+	if cfg.DevEchoFixturePath != "/tmp/sine.pcm" {
+		t.Fatalf("DevEchoFixturePath = %q", cfg.DevEchoFixturePath)
+	}
+}
+
+func TestApplyDevEchoFixtureFlagOverridesEnv(t *testing.T) {
+	cfg := voicegateway.Config{DevEchoFixturePath: "/from-env.pcm"}
+	cfg.ApplyDevEchoFixtureFlag("  /from-flag.pcm  ")
+	if cfg.DevEchoFixturePath != "/from-flag.pcm" {
+		t.Fatalf("DevEchoFixturePath = %q", cfg.DevEchoFixturePath)
+	}
+	cfg.ApplyDevEchoFixtureFlag("")
+	if cfg.DevEchoFixturePath != "/from-flag.pcm" {
+		t.Fatalf("empty flag must leave path, got %q", cfg.DevEchoFixturePath)
 	}
 }
 

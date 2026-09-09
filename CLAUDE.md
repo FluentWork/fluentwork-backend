@@ -145,7 +145,7 @@ test(provider): add B15 regression tests
 |------|------|--------|
 | `VOICE_GATEWAY_PROVIDER` | Provider 类型 (`mock`/`dev-echo`/`volc-duplex`) | `mock` |
 | `VOICE_DEV_ECHO_TEXT` | DevEcho Provider 的回显文本 | `""` |
-| `VOICE_DEV_ECHO_FIXTURE` | DevEcho PCM fixture 文件路径 | `""` |
+| `VOICE_DEV_ECHO_FIXTURE` | DevEcho 回放用 16kHz mono PCM/WAV 路径。`--dev-echo-fixture` 可覆盖。TTS mock 开启时忽略 | `""` |
 | `VOICE_DEV_ECHO_TTS_MOCK` | DevEcho 发送冻结协议 `ai.tts.*` mock 帧（9/13 空跑）。也认 `DEV_ECHO_TTS_MOCK`。需 `VOICE_GATEWAY_PROVIDER=dev-echo` | `false` |
 | `VOLC_SPEECH_API_KEY` | 火山引擎 API Key | `""` |
 | `VOLC_SPEECH_APP_ID` | 火山引擎 App ID | `""` |

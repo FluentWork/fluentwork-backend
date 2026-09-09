@@ -1,6 +1,8 @@
 package voicegateway_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
@@ -70,5 +72,70 @@ func TestNewVoiceProviderSelectsDevEcho(t *testing.T) {
 	}
 	if !echo.TTSMock {
 		t.Fatal("expected TTSMock to be copied from config")
+	}
+}
+
+func TestNewVoiceProviderLoadsDevEchoFixtureFromPath(t *testing.T) {
+	t.Parallel()
+
+	pcm := voicegateway.DevEchoFixtureGenerator(20)
+	path := filepath.Join(t.TempDir(), "sine.pcm")
+	if err := os.WriteFile(path, pcm, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	provider := voicegateway.NewVoiceProvider(voicegateway.Config{
+		Provider:           "dev-echo",
+		DevEchoText:        "let's ship it",
+		DevEchoFixturePath: path,
+	}, nil)
+	echo, ok := provider.(voicegateway.DevEchoVoiceProvider)
+	if !ok {
+		t.Fatalf("expected DevEchoVoiceProvider, got %T", provider)
+	}
+	if echo.FixturePath != path {
+		t.Fatalf("FixturePath = %q", echo.FixturePath)
+	}
+	if len(echo.Fixture) != len(pcm) {
+		t.Fatalf("Fixture len = %d, want %d", len(echo.Fixture), len(pcm))
+	}
+}
+
+func TestNewVoiceProviderMissingFixtureDoesNotFail(t *testing.T) {
+	t.Parallel()
+
+	provider := voicegateway.NewVoiceProvider(voicegateway.Config{
+		Provider:           "dev-echo",
+		DevEchoFixturePath: filepath.Join(t.TempDir(), "missing.pcm"),
+	}, nil)
+	echo, ok := provider.(voicegateway.DevEchoVoiceProvider)
+	if !ok {
+		t.Fatalf("expected DevEchoVoiceProvider, got %T", provider)
+	}
+	if len(echo.Fixture) != 0 {
+		t.Fatalf("missing fixture must not populate Fixture, got %d bytes", len(echo.Fixture))
+	}
+}
+
+func TestNewVoiceProviderSkipsFixtureWhenTTSMock(t *testing.T) {
+	t.Parallel()
+
+	pcm := voicegateway.DevEchoFixtureGenerator(20)
+	path := filepath.Join(t.TempDir(), "sine.pcm")
+	if err := os.WriteFile(path, pcm, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	provider := voicegateway.NewVoiceProvider(voicegateway.Config{
+		Provider:           "dev-echo",
+		DevEchoTTSMock:     true,
+		DevEchoFixturePath: path,
+	}, nil)
+	echo, ok := provider.(voicegateway.DevEchoVoiceProvider)
+	if !ok {
+		t.Fatalf("expected DevEchoVoiceProvider, got %T", provider)
+	}
+	if len(echo.Fixture) != 0 {
+		t.Fatalf("TTS mock must skip PCM fixture, got %d bytes", len(echo.Fixture))
 	}
 }

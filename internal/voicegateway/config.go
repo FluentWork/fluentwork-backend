@@ -37,7 +37,11 @@ type Config struct {
 	// WSS V2 ai.tts.start + 10 binary audio frames + ai.tts.end on each
 	// user.speech.end. Used for the 9/13 cross-repo empty-run. Off by default.
 	DevEchoTTSMock bool
-	IdleTimeout    time.Duration
+	// DevEchoFixturePath is an optional 16 kHz mono s16le PCM (or WAV) file
+	// streamed back after user.speech.end. Only honored when Provider is
+	// dev-echo and DevEchoTTSMock is false. Empty means no audio fixture.
+	DevEchoFixturePath string
+	IdleTimeout        time.Duration
 }
 
 // LoadConfig reads voice-gateway configuration from the environment.
@@ -72,6 +76,7 @@ func LoadConfig() Config {
 		DevEchoText:          envOr("VOICE_DEV_ECHO_TEXT", ""),
 		DevEchoTTSMock: envTruthy("VOICE_DEV_ECHO_TTS_MOCK") ||
 			envTruthy("DEV_ECHO_TTS_MOCK"),
+		DevEchoFixturePath: envOr("VOICE_DEV_ECHO_FIXTURE", ""),
 		VolcSpeechAPIKey: envFirst(
 			"VOICE_GATEWAY_VOLC_SPEECH_API_KEY",
 			"VOLC_POC_API_KEY",
@@ -135,6 +140,14 @@ func (c Config) Validate() error {
 		return fmt.Errorf("VOICE_GATEWAY_IDLE_TIMEOUT must be positive")
 	}
 	return nil
+}
+
+// ApplyDevEchoFixtureFlag overlays a CLI `--dev-echo-fixture` path. Empty
+// leaves the env-derived DevEchoFixturePath unchanged.
+func (c *Config) ApplyDevEchoFixtureFlag(path string) {
+	if p := strings.TrimSpace(path); p != "" {
+		c.DevEchoFixturePath = p
+	}
 }
 
 func envTruthy(key string) bool {

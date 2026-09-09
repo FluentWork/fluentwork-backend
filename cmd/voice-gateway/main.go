@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,7 +28,12 @@ func main() {
 }
 
 func run() error {
+	fixtureFlag := flag.String("dev-echo-fixture", "",
+		"Path to 16kHz mono s16le PCM or WAV for dev-echo playback after user.speech.end")
+	flag.Parse()
+
 	cfg := voicegateway.LoadConfig()
+	cfg.ApplyDevEchoFixtureFlag(*fixtureFlag)
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
@@ -75,6 +81,14 @@ func run() error {
 				"echo_text", echoText,
 				"phrase_block_id", "block-dev-echo",
 			)
+		}
+		if len(echoProvider.Fixture) > 0 {
+			logger.Info("dev-echo PCM fixture loaded",
+				"path", echoProvider.FixturePath,
+				"bytes", len(echoProvider.Fixture),
+			)
+		} else if path := strings.TrimSpace(cfg.DevEchoFixturePath); path != "" && cfg.DevEchoTTSMock {
+			logger.Info("dev-echo PCM fixture skipped because TTS mock is on", "path", path)
 		}
 	} else {
 		source := voicegateway.NewHTTPCorpusSource(cfg.AppServerInternalURL, cfg.InternalAPIToken, logger)

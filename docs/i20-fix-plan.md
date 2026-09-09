@@ -3,7 +3,7 @@
 > 文档版本：v1.1  
 > 创建日期：2026-09-03  
 > 范围：fluentwork-backend (Go) + fluentwork-ios (Swift/SwiftUI)  
-> **状态（2026-09-10）**：P0 协议收口完成。B15 `outcome`、写失败退 session、`logWarn`、`client.turn.abort` 已在网关落地；iOS T-I20-1..4 已联调；infra v2 真源 `d60d0fe`。Item 4 手动 VAD 仍是 iOS P1，不阻塞本收口。
+> **状态（2026-09-10）**：P0 协议收口完成。B15 `outcome`、写失败退 session、`logWarn`、`client.turn.abort` 已在网关落地；iOS T-I20-1..4 与 Item 4 手动开口已联调；infra v2 真源 `d60d0fe`。Item 2 进程级 PCM fixture 见 `docs/36_I20_dev_echo_fixture_实现说明.md`。
 
 ---
 
@@ -252,6 +252,8 @@ if rt.sessionFatal {
 ---
 
 ## 三、Item 2: 本地可复现（dev-echo + PCM fixture）
+
+**后端状态（2026-09-10）：已落地。** 进程读 `VOICE_DEV_ECHO_FIXTURE` / `--dev-echo-fixture`；`NewVoiceProvider` 用 `FixturePCMLoader` 装入字节。Handler E2E 仍用内存 `provider.Fixture`。说明：`docs/36_I20_dev_echo_fixture_实现说明.md`。
 
 ### 3.1 现状分析
 
