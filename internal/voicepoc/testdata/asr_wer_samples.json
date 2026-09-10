@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "note": "ASR WER 评测样本的 ground truth。文本是按诊断性挑的: 每条标注它考的音素陷阱, 跑完可以按 traps 切片, 直接回答'是哪一类在失败'。音频需要真人录制 —— 见 README 的这一节。",
+  "trap_vocabulary": {
+    "th": "θ/ð 被替换成 s/z/t/d 或脱落 (think/sink, this/dis)",
+    "r-l": "r 与 l 不分 (rice/lice, play/pray)",
+    "v-w": "v 与 w 不分 (vest/west)",
+    "final-consonant": "词尾辅音脱落或清化 (and→an, need→nee)",
+    "cluster": "辅音连缀加元音或省略 (street→sutreet, texts→texts)",
+    "vowel-length": "ɪ/iː 或 æ/e 不分 (ship/sheep, bad/bed)",
+    "ed-suffix": "过去式 -ed 不发音或加音",
+    "number": "-teen/-ty 重音混淆 (thirteen/thirty)"
+  },
+  "samples": [
+    {"id": "wer-01", "scene": "standup", "difficulty": "easy",   "traps": ["th", "final-consonant"], "text": "I think we should ship it this week."},
+    {"id": "wer-02", "scene": "standup", "difficulty": "medium", "traps": ["ed-suffix", "cluster"], "text": "Yesterday I finished the login page and started on the API."},
+    {"id": "wer-03", "scene": "standup", "difficulty": "medium", "traps": ["r-l", "th"], "text": "I'm blocked on the review, so I'll pair with Sarah this afternoon."},
+    {"id": "wer-04", "scene": "standup", "difficulty": "easy",   "traps": ["th", "cluster"], "text": "Nothing much today, just some cleanup and a few small fixes."},
+    {"id": "wer-05", "scene": "standup", "difficulty": "easy",   "traps": ["th", "r-l"], "text": "I'll pick up the third ticket after lunch."},
+    {"id": "wer-06", "scene": "standup", "difficulty": "medium", "traps": ["final-consonant", "cluster"], "text": "We need to test the release branch before Friday."},
+    {"id": "wer-07", "scene": "standup", "difficulty": "medium", "traps": ["th", "final-consonant"], "text": "I spent the morning on the database migration."},
+    {"id": "wer-08", "scene": "standup", "difficulty": "easy",   "traps": ["r-l", "final-consonant"], "text": "The build is green, so I'll merge it now."},
+
+    {"id": "wer-09", "scene": "meeting", "difficulty": "easy",   "traps": ["th", "r-l"], "text": "Could you clarify what you mean by that?"},
+    {"id": "wer-10", "scene": "meeting", "difficulty": "medium", "traps": ["cluster", "final-consonant"], "text": "Let's wrap up and take the rest offline."},
+    {"id": "wer-11", "scene": "meeting", "difficulty": "hard",   "traps": ["th", "r-l"], "text": "I'd rather not push the deadline this time."},
+    {"id": "wer-12", "scene": "meeting", "difficulty": "medium", "traps": ["th", "cluster"], "text": "That works for me, let's go with the second option."},
+    {"id": "wer-13", "scene": "meeting", "difficulty": "medium", "traps": ["final-consonant", "r-l"], "text": "Sorry, I didn't catch the last part."},
+    {"id": "wer-14", "scene": "meeting", "difficulty": "medium", "traps": ["r-l", "final-consonant"], "text": "Can we circle back to the budget later?"},
+    {"id": "wer-15", "scene": "meeting", "difficulty": "hard",   "traps": ["th", "number"], "text": "I have a hard stop at three thirty."},
+    {"id": "wer-16", "scene": "meeting", "difficulty": "medium", "traps": ["cluster", "final-consonant"], "text": "Let's agree on the next steps before we finish."},
+
+    {"id": "wer-17", "scene": "review", "difficulty": "easy",   "traps": ["th", "cluster"], "text": "This function is too long, we should split it."},
+    {"id": "wer-18", "scene": "review", "difficulty": "medium", "traps": ["r-l", "ed-suffix"], "text": "I left a comment about the error handling."},
+    {"id": "wer-19", "scene": "review", "difficulty": "hard",   "traps": ["th", "r-l", "cluster"], "text": "The third test is failing on the CI server."},
+    {"id": "wer-20", "scene": "review", "difficulty": "medium", "traps": ["r-l", "final-consonant"], "text": "Could you rebase this branch before you merge?"},
+    {"id": "wer-21", "scene": "review", "difficulty": "hard",   "traps": ["th", "r-l"], "text": "I think there's a race condition in the cache."},
+    {"id": "wer-22", "scene": "review", "difficulty": "hard",   "traps": ["r-l", "cluster"], "text": "We should add a retry with exponential backoff."},
+
+    {"id": "wer-23", "scene": "smalltalk", "difficulty": "easy",   "traps": ["v-w", "final-consonant"], "text": "How was your weekend? Did you do anything fun?"},
+    {"id": "wer-24", "scene": "smalltalk", "difficulty": "medium", "traps": ["v-w", "cluster"], "text": "I've been trying to learn Spanish on the side."},
+    {"id": "wer-25", "scene": "smalltalk", "difficulty": "medium", "traps": ["th", "v-w"], "text": "The weather is really nice today, isn't it?"},
+    {"id": "wer-26", "scene": "smalltalk", "difficulty": "medium", "traps": ["th", "cluster"], "text": "Thanks for your time today, I really appreciate it."},
+
+    {"id": "wer-27", "scene": "interview", "difficulty": "hard",   "traps": ["th", "r-l", "ed-suffix"], "text": "I've been working as a backend engineer for three years."},
+    {"id": "wer-28", "scene": "interview", "difficulty": "medium", "traps": ["th", "cluster"], "text": "My strength is that I learn quickly from feedback."},
+    {"id": "wer-29", "scene": "interview", "difficulty": "hard",   "traps": ["r-l", "final-consonant"], "text": "I'd like to grow into a tech lead role eventually."},
+    {"id": "wer-30", "scene": "interview", "difficulty": "medium", "traps": ["th", "r-l", "cluster"], "text": "Could you tell me more about the team structure?"}
+  ]
+}
