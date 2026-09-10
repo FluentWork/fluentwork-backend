@@ -144,7 +144,8 @@ Examples:
 | `docs/37_I20_trace_alignment_实现说明.md` | I20 Item 3 全链路 turn_id / log_id / segment | `98dc63b` |
 | `docs/38_未知帧忽略与v1冻结CI_实现说明.md` | 未知帧忽略 + v1 schema 字节冻结 | `2076fec` |
 | `docs/39_Abort重建VolcDuplex_实现说明.md` | abort 后重建 Volc duplex | (本提交) |
-| `docs/40_server_ts_ms校准_实现说明.md` | ai.text.delta 时间戳与校准设计 | (本提交) |
+| `docs/40_server_ts_ms校准_实现说明.md` | ai.text.delta 时间戳与校准设计 | `abb01ab` |
+| `docs/41_真机联调_I20_B15.md` | 回家 192.168 真机联调指导（DevEcho Phase 1） | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -193,5 +194,6 @@ Examples:
 | `docs/38_未知帧忽略与v1冻结CI_实现说明.md` | 未知帧忽略 + v1 schema 字节冻结 |
 | `docs/39_Abort重建VolcDuplex_实现说明.md` | abort 后重建 Volc duplex |
 | `docs/40_server_ts_ms校准_实现说明.md` | ai.text.delta 时间戳与校准设计 |
+| `docs/41_真机联调_I20_B15.md` | 真机联调 Phase 1 DevEcho / §7.3 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

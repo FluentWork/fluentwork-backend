@@ -131,6 +131,7 @@ test(provider): add B15 regression tests
 - `docs/02_第二波开发范围与任务清单.md` — 开发任务
 - `docs/23_B15_Turn_Timeout_And_Session_Exit.md` — B15 Issue
 - `docs/i20-fix-plan.md` — I20 收口计划
+- `docs/41_真机联调_I20_B15.md` — 真机联调 Phase 1（回家 192.168 / DevEcho）
 
 ### 外部依赖
 

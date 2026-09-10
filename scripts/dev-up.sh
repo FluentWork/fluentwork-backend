@@ -87,6 +87,11 @@ load_env_file() {
     key="${key%"${key##*[![:space:]]}"}"
     key="${key#"${key%%[![:space:]]*}"}"
     [[ -z "$key" ]] && continue
+    # Shell / --host / CI exports win. .env.volc.local otherwise forces
+    # VOICE_GATEWAY_PROVIDER=volc-duplex and a stale LAN IP.
+    if eval "[ -n \"\${$key+x}\" ]"; then
+      continue
+    fi
     export "$key=$value"
   done < "$file"
 }
