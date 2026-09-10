@@ -260,10 +260,18 @@ curl -sS -H 'Content-Type: application/json' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
 echo
 if [[ "$AUTO_CORPUS_SEED" == "1" ]]; then
-  echo "Seeding dev corpus (device_id=${SEED_DEVICE_ID:-corpus-seed-dev-device})..."
+  SEED_ID="${SEED_DEVICE_ID:-corpus-seed-dev-device}"
+  echo "Seeding dev corpus (device_id=${SEED_ID})..."
   go run ./cmd/corpus-seed \
     -base-url "http://127.0.0.1:${PORT}" \
-    -device-id "${SEED_DEVICE_ID:-corpus-seed-dev-device}" | tail -2
+    -device-id "${SEED_ID}" | tail -2
+  # The corpus is scoped by user, and a physical device authenticates as its own
+  # guest — never this id. So badge hits on a real phone silently never fire,
+  # with nothing anywhere to say why. Say it here instead.
+  echo "   ⚠️  corpus belongs to device_id=${SEED_ID} only."
+  echo "      Badge hits on a physical device need its own id:"
+  echo "        go run ./cmd/corpus-seed -device-id <your device id>"
+  echo "      (or set SEED_DEVICE_ID=<your device id> before this script)"
 fi
 echo "📡 WSS URL for iOS: ws://${HOST}:${GATEWAY_PORT}/v1/voice"
 echo "   Set LOCAL_HOST=${HOST} in Xcode scheme for physical device testing."
