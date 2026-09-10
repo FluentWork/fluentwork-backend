@@ -173,6 +173,7 @@ Examples:
 | `docs/46_dev_up_skip_migrations_实现说明.md` | `dev-up.sh --skip-migrations`（迁移非幂等导致重启起不来） | (本提交) |
 | `docs/47_Volc消息读上限_实现说明.md` | Volc 音频帧超过 32 KiB 默认读上限 → 每轮断连（「每轮失忆」根因） | (本提交) |
 | `docs/48_duplex与后端消费边界.md` | duplex 角色 / 后端只消费文本 / 四个 60s / 两侧读上限 | (本提交) |
+| `docs/49_转发助手音频_实现说明.md` | 网关转发 `response.output_audio.delta`，AI 首次出声 | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -229,5 +230,6 @@ Examples:
 | `docs/46_dev_up_skip_migrations_实现说明.md` | 重启时复用已有 schema |
 | `docs/47_Volc消息读上限_实现说明.md` | `duplexReadLimit` / 每轮断连根因 |
 | `docs/48_duplex与后端消费边界.md` | duplex 是什么 / 只消费文本 / 两侧帧上限 |
+| `docs/49_转发助手音频_实现说明.md` | 转发助手音频 / 24k→16k / 不发 `ai.tts.start` |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

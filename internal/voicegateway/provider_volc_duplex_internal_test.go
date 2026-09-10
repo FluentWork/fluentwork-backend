@@ -1,7 +1,10 @@
 package voicegateway
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +20,130 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
+
+// startAudioDuplexStub answers the handshake, then replies to a commit with one
+// full turn including a single response.output_audio.delta carrying `audio`.
+func startAudioDuplexStub(t *testing.T, audio []byte) string {
+	t.Helper()
+	delta := base64.StdEncoding.EncodeToString(audio)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		for {
+			readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_, data, err := conn.Read(readCtx)
+			cancel()
+			if err != nil {
+				return
+			}
+			switch {
+			case strings.Contains(string(data), `"type":"session.create"`):
+				_ = conn.Write(context.Background(), websocket.MessageText,
+					[]byte(`{"type":"session.created","session":{"id":"stub-audio"}}`))
+			case strings.Contains(string(data), `"type":"input_audio_buffer.commit"`):
+				for _, frame := range []string{
+					`{"type":"conversation.item.input_audio_transcription.started"}`,
+					`{"type":"conversation.item.input_audio_transcription.completed","transcript":"hi"}`,
+					`{"type":"response.output_text.delta","delta":"hello"}`,
+					`{"type":"response.output_audio.delta","delta":"` + delta + `"}`,
+					`{"type":"response.done"}`,
+				} {
+					_ = conn.Write(context.Background(), websocket.MessageText, []byte(frame))
+				}
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// The assistant's audio was read and discarded, which is why the speaking room
+// had no sound at all on the volc path. It is forwarded now, as plain binary
+// frames and deliberately without an ai.tts.start: TTSFrameDispatcher only
+// claims binary frames after it has seen one, and the decoder bound into it
+// (MockTTSDecoder) records without driving AVAudioEngine. No ai.tts.start means
+// the client falls back to audioEngine.play(frame:), which is what makes sound.
+func TestVolcDuplexForwardsAssistantAudioAsBinaryFrames(t *testing.T) {
+	t.Parallel()
+
+	// 4800 bytes at 24 kHz mono PCM16 is 2400 samples, i.e. 100 ms.
+	const vendorAudioBytes = 4800
+	vendorAudio := make([]byte, vendorAudioBytes)
+	for i := range vendorAudio {
+		vendorAudio[i] = byte(i % 251)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	duplex, err := voicepoc.OpenDuplex(ctx, voicepoc.DuplexConfig{
+		APIKey:   "test-key",
+		Endpoint: startAudioDuplexStub(t, vendorAudio),
+		Model:    "test-model",
+		Voice:    "test-voice",
+	})
+	if err != nil {
+		t.Fatalf("OpenDuplex: %v", err)
+	}
+
+	sess := &volcDuplexProviderSession{
+		cfg:         voicepoc.DuplexConfig{Model: "test-model", Voice: "test-voice"},
+		audioFormat: "pcm-s16le",
+		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		session:     duplex,
+	}
+
+	out, err := sess.HandleClientControl(ctx, voiceproto.TypeUserSpeechEnd,
+		voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+			Type:   voiceproto.TypeUserSpeechEnd,
+			TurnID: "turn-1",
+		}))
+	if err != nil {
+		t.Fatalf("HandleClientControl: %v", err)
+	}
+
+	var frames [][]byte
+	for _, o := range out {
+		if len(o.Binary) > 0 {
+			frames = append(frames, o.Binary)
+		}
+	}
+	if len(frames) != 1 {
+		t.Fatalf("binary audio frames = %d, want 1 (100ms at a 100ms frame size)", len(frames))
+	}
+	if got := binary.BigEndian.Uint32(frames[0][:4]); got != 1 {
+		t.Fatalf("first frame sequence = %d, want 1", got)
+	}
+	// 2400 samples at 24 kHz keep 2 of every 3 on the way to 16 kHz.
+	if got, want := len(frames[0])-4, 3200; got != want {
+		t.Fatalf("resampled payload = %d bytes, want %d", got, want)
+	}
+	if bytes.Equal(frames[0][4:], vendorAudio) {
+		t.Fatal("payload went out at the vendor's 24 kHz; it must be resampled to 16 kHz")
+	}
+}
+
+// The 3:2 ratio is the whole conversion, so it is worth pinning directly rather
+// than only through the provider.
+func TestResampleToPlaybackRateConvertsThreeToTwo(t *testing.T) {
+	t.Parallel()
+
+	out := resampleToPlaybackRate(make([]byte, 24000*2)) // one second at 24 kHz
+	if got, want := len(out), 16000*2; got != want {
+		t.Fatalf("resampled length = %d bytes, want %d", got, want)
+	}
+	if resampleToPlaybackRate(nil) != nil {
+		t.Fatal("empty input must resample to nothing, not to an empty slice")
+	}
+	// An odd byte count is truncated rather than panicking.
+	_ = resampleToPlaybackRate(make([]byte, 5))
+}
 
 // dyingDuplexStub answers the handshake, acknowledges the commit with one
 // transcription event, then drops the connection mid-turn — the shape seen in

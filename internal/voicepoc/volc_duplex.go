@@ -322,6 +322,12 @@ type TurnResult struct {
 	ASRStartedAtMS int64       `json:"asr_started_at_ms,omitempty"`
 	ASRDoneAtMS    int64       `json:"asr_done_at_ms,omitempty"`
 	Outcome        TurnOutcome `json:"outcome,omitempty"`
+	// AudioPCM is the assistant's own speech, accumulated from
+	// response.output_audio.delta, as raw PCM s16le at the vendor's output rate
+	// (24 kHz — the duplex protocol accepts nothing else for output).
+	// Excluded from JSON on purpose: it is large and has no business in a log
+	// line or an evidence dump.
+	AudioPCM []byte `json:"-"`
 }
 
 // SendUserPCMAndWait uploads PCM, commits, and collects ASR + assistant text events.
@@ -484,6 +490,15 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			}
 		case "response.output_audio.started":
 			seenResponse = true
+		case "response.output_audio.delta":
+			// The assistant's voice. Previously dropped here, which is why the
+			// speaking room had no sound at all on the volc path.
+			seenResponse = true
+			if evt.Delta != "" {
+				if chunk, decodeErr := base64.StdEncoding.DecodeString(evt.Delta); decodeErr == nil {
+					out.AudioPCM = append(out.AudioPCM, chunk...)
+				}
+			}
 		case "response.output_audio.done", "response.done":
 			// Ignore stale done from a previous turn until this turn has user+response progress.
 			if !seenUserProgress || !seenResponse {

@@ -2,6 +2,7 @@ package voicegateway
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,12 +83,16 @@ const keepaliveIdleThreshold = 60 * time.Second
 const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
-	cfg          voicepoc.DuplexConfig
-	audioFormat  string
-	logger       *slog.Logger
-	session      *voicepoc.DuplexSession
-	turnStarted  time.Time
-	nextSeq      int
+	cfg         voicepoc.DuplexConfig
+	audioFormat string
+	logger      *slog.Logger
+	session     *voicepoc.DuplexSession
+	turnStarted time.Time
+	nextSeq     int
+	// nextAudioSeq numbers the gateway→client binary audio frames. Monotonic
+	// across the session because the client drops frames at or below its
+	// barge-in watermark.
+	nextAudioSeq uint32
 	utterances   []EndUtterance
 	activeTurnID string
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
@@ -520,8 +525,91 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		// No reply but we sent ai.turn.end above; advance seq so next turn gets a fresh ID.
 		s.nextSeq++
 	}
+	// The assistant's voice, last so it follows ai.turn.end.
+	//
+	// Sent as plain binary frames with **no** ai.tts.start on purpose.
+	// TTSFrameDispatcher only claims binary frames once it has seen an
+	// ai.tts.start, and the decoder bound into it (MockTTSDecoder) records
+	// without driving AVAudioEngine — its own doc says so. With no ai.tts.start
+	// the middleware falls back to `audioEngine.play(frame:)`, which is the path
+	// that actually makes sound today. Move this onto the ai.tts.* stream once a
+	// decoder that really decodes lands.
+	if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
+		for offset := 0; offset < len(pcm); offset += audioFrameBytes {
+			end := offset + audioFrameBytes
+			if end > len(pcm) {
+				end = len(pcm)
+			}
+			// Pre-increment: the counter belongs to the emission path, so it is
+			// correct whether or not Start() ran. A first frame numbered 0 would
+			// also sit at the client's barge-in watermark.
+			s.nextAudioSeq++
+			outbound = append(outbound, ProviderOutbound{
+				Binary: encodeAudioFrame(s.nextAudioSeq, pcm[offset:end]),
+			})
+		}
+	}
 	s.turnStarted = time.Time{}
 	return outbound
+}
+
+// duplexOutputRate is the vendor's fixed output rate: the duplex protocol
+// accepts only 24 kHz for output audio, so this is not a choice we get to make.
+const duplexOutputRate = 24000
+
+// clientPlaybackRate is what the client plays. `LiveAudioEngine` builds every
+// playback buffer with its own `targetFormat` (16 kHz mono int16) and memcpys
+// the payload straight in, so bytes at any other rate come out at the wrong
+// speed and pitch.
+const clientPlaybackRate = 16000
+
+// audioFrameBytes is ~100 ms of 16 kHz mono PCM16. The chunking is load-bearing:
+// the client's `AudioPlaybackGate` drops whole frames at and below the barge-in
+// watermark, so one frame per turn (a 10s reply is 320 KB) would leave nothing
+// to drop.
+const audioFrameBytes = 3200
+
+// encodeAudioFrame is the gateway→client binary layout: UInt32 big-endian
+// sequence followed by the payload, matching the client's WSAudioFrameCodec.
+func encodeAudioFrame(seq uint32, payload []byte) []byte {
+	frame := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(frame, seq)
+	copy(frame[4:], payload)
+	return frame
+}
+
+// resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
+// client plays: a straight 3:2 linear interpolation.
+//
+// Deliberately plain, and there is no anti-alias filter ahead of the
+// decimation — the vendor's speech carries content up to 12 kHz and this folds
+// the 8–12 kHz band back down. Speech stays intelligible, and this is a first
+// cut to get sound working end to end. If quality becomes a complaint, replace
+// this with a polyphase filter rather than tuning the interpolation.
+func resampleToPlaybackRate(pcm []byte) []byte {
+	const inSamples, outSamples = duplexOutputRate / 8000, clientPlaybackRate / 8000 // 3:2
+
+	if len(pcm)%2 != 0 {
+		pcm = pcm[:len(pcm)-1]
+	}
+	inCount := len(pcm) / 2
+	outCount := inCount * outSamples / inSamples
+	if outCount == 0 {
+		return nil
+	}
+	out := make([]byte, outCount*2)
+	for i := 0; i < outCount; i++ {
+		pos := float64(i) * float64(inSamples) / float64(outSamples)
+		lo := int(pos)
+		hi := lo + 1
+		if hi >= inCount {
+			hi = inCount - 1
+		}
+		a := float64(int16(binary.LittleEndian.Uint16(pcm[lo*2:])))
+		b := float64(int16(binary.LittleEndian.Uint16(pcm[hi*2:])))
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(a+(b-a)*(pos-float64(lo)))))
+	}
+	return out
 }
 
 func instructionsForSessionStart(start voiceproto.SessionStart) string {
