@@ -189,6 +189,16 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// is already set, use the partial content even if an error is also returned.
 		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
 
+		// The turn's read failed: the upstream socket is gone. Replace it here,
+		// where the death is detected, instead of leaving the corpse for the
+		// next audio write to discover — that path spends the handler's
+		// transparent reopen budget on a connection already known to be dead.
+		// A provider error *event* is different: the session is still usable
+		// and resetting would discard the server-side conversation context.
+		if errors.Is(err, voicepoc.ErrDuplexClosed) {
+			s.resetAfterTurnReadFailure(ctx)
+		}
+
 		// B15-fix: always send ai.turn.end if the outcome was set, so iOS can leave
 		// .processing even when we got no real content. collectTurn stamps Outcome
 		// on every exit path, so timeout/partial/error take this branch and skip
@@ -382,6 +392,20 @@ func (s *volcDuplexProviderSession) defaultProbe(ctx context.Context) error {
 }
 
 const duplexResetTimeout = 8 * time.Second
+
+// resetAfterTurnReadFailure replaces a duplex that a turn found dead. Failure
+// to reset is not fatal: the next audio write still triggers the handler's
+// reopen-once path, so the session degrades to today's behaviour rather than
+// breaking.
+func (s *volcDuplexProviderSession) resetAfterTurnReadFailure(ctx context.Context) {
+	if err := s.resetDuplex(ctx); err != nil {
+		s.logger.Warn("duplex reset after turn read failure failed; next audio write will reopen",
+			"err", err,
+		)
+		return
+	}
+	s.logger.Info("duplex reset after turn read failure")
+}
 
 func (s *volcDuplexProviderSession) resetDuplex(ctx context.Context) error {
 	if s.resetDuplexFn != nil {

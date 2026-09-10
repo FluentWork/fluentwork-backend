@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,89 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
+
+// dyingDuplexStub answers the handshake, acknowledges the commit with one
+// transcription event, then drops the connection mid-turn — the shape seen in
+// the 2026-09-10 physical-device logs, where collectTurn returned after 1096ms
+// with no response.done and a dead upstream.
+func dyingDuplexStub(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		for {
+			readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_, data, err := conn.Read(readCtx)
+			cancel()
+			if err != nil {
+				return
+			}
+			switch {
+			case strings.Contains(string(data), `"type":"session.create"`):
+				_ = conn.Write(context.Background(), websocket.MessageText,
+					[]byte(`{"type":"session.created","session":{"id":"stub-dying"}}`))
+			case strings.Contains(string(data), `"type":"input_audio_buffer.commit"`):
+				// Acknowledge the commit with one event, then drop the socket
+				// mid-turn: the gateway's next read is what fails.
+				_ = conn.Write(context.Background(), websocket.MessageText,
+					[]byte(`{"type":"conversation.item.input_audio_transcription.started"}`))
+				_ = conn.Close(websocket.StatusInternalError, "upstream gone")
+				return
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// A turn whose read fails leaves the duplex dead. Today nothing repairs it:
+// collectTurn returns outcome=error and the corpse stays in place, so the next
+// audio write discovers it and spends the session's single transparent reopen
+// on a connection we already knew was gone. The reset has to happen where the
+// death is detected.
+func TestVolcDuplexResetsSessionWhenTurnReadFails(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	duplex, err := voicepoc.OpenDuplex(ctx, voicepoc.DuplexConfig{
+		APIKey:   "test-key",
+		Endpoint: dyingDuplexStub(t),
+		Model:    "test-model",
+		Voice:    "test-voice",
+	})
+	if err != nil {
+		t.Fatalf("OpenDuplex: %v", err)
+	}
+
+	resets := 0
+	sess := &volcDuplexProviderSession{
+		cfg:         voicepoc.DuplexConfig{Model: "test-model", Voice: "test-voice"},
+		audioFormat: "pcm-s16le",
+		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		session:     duplex,
+		resetDuplexFn: func(context.Context) error {
+			resets++
+			return nil
+		},
+	}
+
+	_, _ = sess.HandleClientControl(ctx, voiceproto.TypeUserSpeechEnd,
+		voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+			Type:   voiceproto.TypeUserSpeechEnd,
+			TurnID: "turn-1",
+		}))
+
+	if resets != 1 {
+		t.Fatalf("duplex resets after a failed turn read = %d, want 1", resets)
+	}
+}
 
 // startVolcDuplexStub answers the OpenDuplex handshake so Start can be driven
 // end to end without dialing Volc. It mirrors the mock server used by the

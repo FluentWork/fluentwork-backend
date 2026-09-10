@@ -291,6 +291,12 @@ const (
 	TurnOutcomeError TurnOutcome = "error"
 )
 
+// ErrDuplexClosed marks a turn that ended because the upstream duplex
+// connection failed, as distinct from the wait window elapsing or the provider
+// reporting a semantic error. Callers use it to decide whether the session can
+// still be reused: a closed connection cannot, an expired window can.
+var ErrDuplexClosed = errors.New("duplex connection closed")
+
 // TurnResult captures one user-audio turn observation for B14 V1/V3 probes.
 //
 // Outcome is the explicit terminal status (see TurnOutcome). It is set on
@@ -525,8 +531,10 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 				out.Outcome = TurnOutcomeTimeout
 				collectErr = fmt.Errorf("duplex turn timeout: %w", err)
 			} else {
+				// Wrap so callers can tell a dead socket from a provider
+				// error event without string matching.
 				out.Outcome = TurnOutcomeError
-				collectErr = err
+				collectErr = fmt.Errorf("%w: %w", ErrDuplexClosed, err)
 			}
 			return out, collectErr
 		}

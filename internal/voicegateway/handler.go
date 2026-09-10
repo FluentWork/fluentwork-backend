@@ -470,6 +470,17 @@ func (h *Handler) handleControl(
 			"type", frameType,
 			"stage", "asr",
 		)
+		// The transparent reopen budget belongs to a turn, not to the session.
+		// A session-lifetime budget was exhausted by the first upstream hiccup,
+		// and since volc-duplex loses its duplex roughly once per turn, the
+		// next failure killed the session outright.
+		if frameType == voiceproto.TypeUserSpeechStart && rt.reopenAttempted {
+			rt.reopenAttempted = false
+			h.logger.Info("reopen budget refilled for the new turn",
+				"session_id", session.SessionID,
+				"stage", "orchestration",
+			)
+		}
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
 		if err != nil {
 			h.logger.Warn("provider control forward failed",
