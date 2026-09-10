@@ -6,6 +6,7 @@ cd "$ROOT"
 
 WITH_MYSQL=0
 LOCAL_MYSQL=0
+SKIP_MIGRATIONS=0
 WITH_GATEWAY=1
 AUTO_CORPUS_SEED="${AUTO_CORPUS_SEED:-1}"
 PORT="${PORT:-8080}"
@@ -20,12 +21,17 @@ usage() {
 Start FluentWork app-server (and voice-gateway by default) for local development.
 
 Usage:
-  ./scripts/dev-up.sh [--mysql] [--local-mysql] [--no-gateway] [--port 8080] [--host IP]
+  ./scripts/dev-up.sh [--mysql] [--local-mysql] [--skip-migrations]
+                      [--no-gateway] [--port 8080] [--host IP]
 
 Default mode uses the in-memory account/session store (no Docker required).
 Pass --mysql to start MySQL 8 via Docker Compose and apply migrations.
 Pass --local-mysql to use an already-running local MySQL (brew/etc.) with
   fw/fw credentials; migrations and corpus seed run automatically.
+Pass --skip-migrations to reuse the schema already in MySQL. Needed on any
+  run after the first: the ALTER migrations (0008 onward) are not idempotent,
+  so replaying them aborts with "Duplicate column name ..." even though the
+  schema is current. Only meaningful together with --mysql / --local-mysql.
 Pass --no-gateway to run only app-server.
 Pass --host IP to set the WSS URL host (default: 127.0.0.1 for simulator;
   use LAN IP like 192.168.1.100 for physical device testing).
@@ -41,6 +47,10 @@ while [[ $# -gt 0 ]]; do
     --local-mysql)
       WITH_MYSQL=1
       LOCAL_MYSQL=1
+      shift
+      ;;
+    --skip-migrations)
+      SKIP_MIGRATIONS=1
       shift
       ;;
     --no-gateway)
@@ -66,6 +76,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Say so rather than let it look like it did something: the in-memory mode has
+# no schema to migrate, so the flag is a no-op there.
+if [[ "$SKIP_MIGRATIONS" -eq 1 && "$WITH_MYSQL" -eq 0 ]]; then
+  echo "note: --skip-migrations has no effect without --mysql / --local-mysql;" >&2
+  echo "      the default in-memory mode runs no migrations." >&2
+fi
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Go is required. Install Go 1.26+ and retry." >&2
@@ -151,6 +168,18 @@ apply_migrations_local() {
   done
 }
 
+# Migrations are apply-once: 0008 onward ALTER existing tables, so replaying
+# them against a current schema aborts on "Duplicate column name ..." and takes
+# the whole bring-up with it. --skip-migrations is how a restart reuses the
+# schema it already has.
+run_migrations() {
+  if [[ "$SKIP_MIGRATIONS" -eq 1 ]]; then
+    echo "Skipping migrations (--skip-migrations); using the schema already in MySQL."
+    return 0
+  fi
+  "$@"
+}
+
 if [[ "$WITH_MYSQL" -eq 1 ]]; then
   if [[ "$LOCAL_MYSQL" -eq 1 ]]; then
     if ! command -v mysql >/dev/null 2>&1; then
@@ -164,7 +193,7 @@ if [[ "$WITH_MYSQL" -eq 1 ]]; then
     mysql -uroot -e "CREATE DATABASE IF NOT EXISTS fluentwork CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
     mysql -uroot -e "CREATE USER IF NOT EXISTS 'fw'@'localhost' IDENTIFIED BY 'fw'; GRANT ALL PRIVILEGES ON fluentwork.* TO 'fw'@'localhost'; FLUSH PRIVILEGES;"
     mysql -uroot -e "CREATE USER IF NOT EXISTS 'fw'@'127.0.0.1' IDENTIFIED BY 'fw'; GRANT ALL PRIVILEGES ON fluentwork.* TO 'fw'@'127.0.0.1'; FLUSH PRIVILEGES;"
-    apply_migrations_local
+    run_migrations apply_migrations_local
     export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
   else
     if ! command -v docker >/dev/null 2>&1; then
@@ -172,7 +201,7 @@ if [[ "$WITH_MYSQL" -eq 1 ]]; then
       exit 1
     fi
     docker compose -f "$COMPOSE_FILE" up -d --wait mysql
-    apply_migrations
+    run_migrations apply_migrations
     export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
   fi
 else
