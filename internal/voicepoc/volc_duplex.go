@@ -70,6 +70,12 @@ type TurnSink interface {
 	// whole turn, this is a fragment: the caller is expected to append.
 	// Empty fragments are never delivered.
 	AssistantTextDelta(delta string)
+
+	// AssistantAudio is one chunk of the assistant's speech, verbatim from the
+	// vendor: raw PCM s16le at the vendor's output rate (24 kHz). It is NOT
+	// resampled here — the rate is the vendor's, and converting to whatever the
+	// client plays is the gateway's job. Empty chunks are never delivered.
+	AssistantAudio(pcm []byte)
 }
 
 // SessionID returns the server session id from session.created.
@@ -590,7 +596,14 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			seenResponse = true
 			if evt.Delta != "" {
 				if chunk, decodeErr := base64.StdEncoding.DecodeString(evt.Delta); decodeErr == nil {
+					// Accumulate *and* forward, like the text above. The buffer
+					// still has to hold the whole turn: it is what the usage
+					// accounting is measured from, and what the non-streaming
+					// path emits.
 					out.AudioPCM = append(out.AudioPCM, chunk...)
+					if s.turnSink != nil {
+						s.turnSink.AssistantAudio(chunk)
+					}
 				}
 			}
 		case "response.output_audio.done", "response.done":

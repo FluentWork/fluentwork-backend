@@ -1,6 +1,7 @@
 package voicegateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -26,6 +27,18 @@ func (r *recordingEmitter) emit(item ProviderOutbound) error {
 	}
 	r.outbound = append(r.outbound, item)
 	return nil
+}
+
+func (r *recordingEmitter) binaryFrames() [][]byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out [][]byte
+	for _, item := range r.outbound {
+		if len(item.Binary) > 0 {
+			out = append(out, item.Binary)
+		}
+	}
+	return out
 }
 
 func (r *recordingEmitter) textDeltas() []string {
@@ -136,6 +149,132 @@ func TestTurnToOutbound_StillSendsTheWholeReplyWithoutStreaming(t *testing.T) {
 	}
 	if len(texts) != 1 || texts[0] != "Sounds good." {
 		t.Fatalf("text frames = %q, want the whole reply once", texts)
+	}
+}
+
+// The property that matters for audio, stated directly: what the client
+// receives frame by frame across the turn must be exactly what the batch path
+// would have sent in one go. A dropped tail is clipped speech; a repeated frame
+// is a stutter; a re-resampled chunk boundary is a click.
+//
+// This is the audio counterpart of the text test above, and it is stronger: it
+// compares the actual bytes on the wire, including the frame sequence numbers.
+func TestStreamedAudioEqualsTheBatchFrames(t *testing.T) {
+	t.Parallel()
+
+	// Deliberately ragged: none of these are frame-aligned, and one is a single
+	// sample, so the carry across chunk boundaries is exercised.
+	chunks := [][]byte{
+		randomPCM(t, 700, 11),
+		randomPCM(t, 1333, 12),
+		randomPCM(t, 1, 13),
+		randomPCM(t, 4096, 14),
+	}
+	var whole []byte
+	for _, c := range chunks {
+		whole = append(whole, c...)
+	}
+
+	// Path A: never streamed — turnToOutbound emits the whole turn itself.
+	batchSession, _ := streamableSession(t)
+	batchOut := batchSession.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: whole,
+	})
+
+	// Path B: chunks pushed as they arrive; the turn then closes. AudioPCM is
+	// still populated, exactly as collectTurn leaves it.
+	streamSession, emitter := streamableSession(t)
+	for _, c := range chunks {
+		streamSession.AssistantAudio(c)
+	}
+	streamOut := streamSession.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: whole,
+	})
+
+	var batchFrames [][]byte
+	for _, item := range batchOut {
+		if len(item.Binary) > 0 {
+			batchFrames = append(batchFrames, item.Binary)
+		}
+	}
+	streamedFrames := emitter.binaryFrames()
+	for _, item := range streamOut {
+		if len(item.Binary) > 0 {
+			streamedFrames = append(streamedFrames, item.Binary)
+		}
+	}
+
+	if len(streamedFrames) != len(batchFrames) {
+		t.Fatalf("streamed %d frames, batch would send %d — audio was dropped or duplicated",
+			len(streamedFrames), len(batchFrames))
+	}
+	for i := range batchFrames {
+		if !bytes.Equal(streamedFrames[i], batchFrames[i]) {
+			t.Fatalf("frame %d differs:\n streamed %x\n batch    %x", i, streamedFrames[i], batchFrames[i])
+		}
+	}
+}
+
+// The trailing partial frame is the easiest thing to lose: the resampler holds
+// it back because it cannot know more samples are not coming. If the turn does
+// not flush it, the last few milliseconds of the assistant's speech are clipped
+// — and worse, sit in the buffer to be prepended to the *next* turn's audio.
+func TestTurnToOutboundFlushesTheTrailingAudio(t *testing.T) {
+	t.Parallel()
+
+	// 1000 vendor samples is 500 client samples at 3:2, which is not a whole
+	// number of 320-sample frames.
+	pcm := randomPCM(t, 1000, 5)
+	sess, emitter := streamableSession(t)
+	sess.AssistantAudio(pcm)
+
+	streamedBytes := 0
+	for _, frame := range emitter.binaryFrames() {
+		streamedBytes += len(frame) - audioFrameHeaderBytes
+	}
+
+	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: pcm,
+	})
+	flushedBytes := 0
+	for _, item := range outbound {
+		if len(item.Binary) > 0 {
+			flushedBytes += len(item.Binary) - audioFrameHeaderBytes
+		}
+	}
+
+	want := len(resampleToPlaybackRate(pcm))
+	if got := streamedBytes + flushedBytes; got != want {
+		t.Fatalf("client received %d audio bytes (%d streamed + %d flushed), want %d — the tail was lost",
+			got, streamedBytes, flushedBytes, want)
+	}
+}
+
+// Same invariant as the text one: with no emitter there is nowhere to push, so
+// the turn must not be marked streamed — otherwise turnToOutbound would skip
+// the audio and the assistant would be silent for the whole turn.
+func TestAssistantAudioWithoutAnEmitterDoesNotSuppressTheAudio(t *testing.T) {
+	t.Parallel()
+
+	sess, _ := openMuteTestSession(t) // no SetOutboundEmitter call
+	pcm := randomPCM(t, 1000, 6)
+
+	sess.AssistantAudio(pcm)
+	if sess.streamedAudio {
+		t.Fatal("no emitter, but the turn was marked as streamed audio — the voice would never be sent")
+	}
+
+	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: pcm,
+	})
+	var sent int
+	for _, item := range outbound {
+		if len(item.Binary) > 0 {
+			sent += len(item.Binary) - audioFrameHeaderBytes
+		}
+	}
+	if want := len(resampleToPlaybackRate(pcm)); sent != want {
+		t.Fatalf("sent %d audio bytes, want %d", sent, want)
 	}
 }
 

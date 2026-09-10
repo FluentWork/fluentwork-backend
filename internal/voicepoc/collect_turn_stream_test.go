@@ -1,7 +1,9 @@
 package voicepoc
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +17,17 @@ import (
 // goroutine running the test.
 type recordingSink struct {
 	fragments []string
+	audio     [][]byte
 }
 
 func (r *recordingSink) AssistantTextDelta(delta string) {
 	r.fragments = append(r.fragments, delta)
+}
+
+func (r *recordingSink) AssistantAudio(pcm []byte) {
+	// Copy: the caller reuses nothing today, but a sink that kept a reference
+	// into a reused buffer would be a heisenbug to chase later.
+	r.audio = append(r.audio, append([]byte(nil), pcm...))
 }
 
 // collectTurn is a blocking accumulator: text streams into it from the vendor
@@ -70,6 +79,87 @@ func TestCollectTurn_ForwardsTextFragmentsToTheSink(t *testing.T) {
 	// streaming must not turn it into a fragment.
 	if turn.AssistantText != "Sounds good." {
 		t.Fatalf("AssistantText = %q, want the whole reply", turn.AssistantText)
+	}
+}
+
+// Audio is the half of the turn a user actually hears. Streaming it is what
+// makes the assistant *speak* sooner instead of after the whole turn has been
+// generated.
+func TestCollectTurn_ForwardsAudioChunksToTheSink(t *testing.T) {
+	t.Parallel()
+
+	chunks := [][]byte{{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10}}
+	url := startDuplexMockServer(t, func(conn *websocket.Conn) {
+		readUntilType(t, conn, "session.create")
+		writeJSONFrame(t, conn, `{"type":"session.created","session":{"id":"sess-audio"}}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.completed","transcript":"hello"}`)
+		for _, chunk := range chunks {
+			writeJSONFrame(t, conn, `{"type":"response.output_audio.delta","delta":"`+
+				base64.StdEncoding.EncodeToString(chunk)+`"}`)
+		}
+		writeJSONFrame(t, conn, `{"type":"response.done"}`)
+		<-make(chan struct{})
+	})
+
+	session := openTestSession(t, url)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	sink := &recordingSink{}
+	session.SetTurnSink(sink)
+
+	started := time.Now()
+	turn, err := session.collectTurn(context.Background(), started, nil, 5*time.Second)
+	if err != nil {
+		t.Fatalf("collectTurn: %v", err)
+	}
+
+	// Each vendor chunk delivered on its own, decoded, in order.
+	if len(sink.audio) != len(chunks) {
+		t.Fatalf("sink received %d audio chunks, want %d", len(sink.audio), len(chunks))
+	}
+	for i, want := range chunks {
+		if !bytes.Equal(sink.audio[i], want) {
+			t.Fatalf("audio chunk %d = %v, want %v", i, sink.audio[i], want)
+		}
+	}
+
+	// And the turn still carries the whole thing: it is what the usage
+	// accounting is measured from and what the non-streaming path emits.
+	var want []byte
+	for _, chunk := range chunks {
+		want = append(want, chunk...)
+	}
+	if !bytes.Equal(turn.AudioPCM, want) {
+		t.Fatalf("AudioPCM = %v, want the concatenation %v", turn.AudioPCM, want)
+	}
+}
+
+// Empty audio chunks must not reach the sink, for the same reason empty text
+// fragments must not: "the sink was called" has to mean something was sent.
+func TestCollectTurn_EmptyAudioDeltaNeverReachesTheSink(t *testing.T) {
+	t.Parallel()
+
+	url := startDuplexMockServer(t, func(conn *websocket.Conn) {
+		readUntilType(t, conn, "session.create")
+		writeJSONFrame(t, conn, `{"type":"session.created","session":{"id":"sess-empty-audio"}}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.completed","transcript":"hello"}`)
+		writeJSONFrame(t, conn, `{"type":"response.output_audio.delta","delta":""}`)
+		writeJSONFrame(t, conn, `{"type":"response.done"}`)
+		<-make(chan struct{})
+	})
+
+	session := openTestSession(t, url)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	sink := &recordingSink{}
+	session.SetTurnSink(sink)
+
+	started := time.Now()
+	if _, err := session.collectTurn(context.Background(), started, nil, 5*time.Second); err != nil {
+		t.Fatalf("collectTurn: %v", err)
+	}
+	if len(sink.audio) != 0 {
+		t.Fatalf("sink received %d audio chunks, want none for an empty delta", len(sink.audio))
 	}
 }
 
