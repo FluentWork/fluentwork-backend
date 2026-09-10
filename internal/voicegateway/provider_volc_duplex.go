@@ -95,6 +95,8 @@ type volcDuplexProviderSession struct {
 	nextAudioSeq uint32
 	utterances   []EndUtterance
 	activeTurnID string
+	// audio moved this session, for cost accounting. See VoiceUsage.
+	usage voiceUsage
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
 	// the next HandleClientAudio call probes the upstream with an empty commit
 	// before forwarding the real payload. Probing first (instead of reacting to
@@ -317,6 +319,9 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 	if s.turnStarted.IsZero() {
 		s.turnStarted = time.Now()
 	}
+	// Counted here, after the format and empty-payload guards, so a dropped
+	// frame is not billed as audio that reached the vendor.
+	s.usage.addUplink(len(payload))
 	s.logger.Debug("forwarding PCM chunk to volc",
 		"payload_bytes", len(payload),
 		"session_id", s.session.SessionID(),
@@ -534,6 +539,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// the middleware falls back to `audioEngine.play(frame:)`, which is the path
 	// that actually makes sound today. Move this onto the ai.tts.* stream once a
 	// decoder that really decodes lands.
+	// The vendor's own output, before the 24k→16k resample: that is the audio
+	// the vendor produced and will bill for.
+	s.usage.addDownlink(len(turn.AudioPCM))
 	if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
 		for offset := 0; offset < len(pcm); offset += audioFrameBytes {
 			end := offset + audioFrameBytes
@@ -582,6 +590,12 @@ func encodeAudioFrame(seq uint32, payload []byte) []byte {
 // replace it, and nothing else. If these methods go away the reopen silently
 // restarts the sequence and mutes the client — see the interface doc.
 var _ SequencedVoiceProviderSession = (*volcDuplexProviderSession)(nil)
+
+// VoiceUsage implements VoiceUsageReporter. Read at session end, when the
+// gateway hands the session's totals to cost accounting.
+func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage { return s.usage.measure() }
+
+var _ VoiceUsageReporter = (*volcDuplexProviderSession)(nil)
 
 // NextAudioSequence implements SequencedVoiceProviderSession.
 func (s *volcDuplexProviderSession) NextAudioSequence() uint32 { return s.nextAudioSeq }
