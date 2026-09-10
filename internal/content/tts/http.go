@@ -65,6 +65,10 @@ type SynthesizeResponse struct {
 
 // PostSynthesize handles POST /internal/v1/tts/synthesize.
 func (h *Handler) PostSynthesize(c *gin.Context) {
+	// Redundant with Collect's own nil check, and deliberate: reporting the
+	// unconfigured provider before the body is read keeps a switched-off endpoint
+	// from answering "your JSON is bad". The environment problem outranks the
+	// caller's. Pinned by TestPostSynthesize_UnconfiguredOutranksMalformedBody.
 	if h == nil || h.provider == nil {
 		httpjson.Error(c, apierr.Unavailable("tts provider is not configured"))
 		return

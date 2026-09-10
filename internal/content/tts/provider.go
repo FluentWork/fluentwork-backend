@@ -1,5 +1,29 @@
 // Package tts implements B17 TTS: Volc unidirectional streaming plus duplex fallback.
 //
+// # Status: built, not turned on
+//
+// Nothing calls this package in production. The only references are the wiring in
+// cmd/app-server/main.go and the route registration in internal/httpserver;
+// POST /internal/v1/tts/synthesize has no caller. Read this package as "built and
+// tested but unexercised" — not as a capability available to callers.
+//
+// Two things are missing before it can be switched on, and neither is a change to
+// the code here:
+//
+//   - A consumer. The two this was built for — the iOS flash test and daily-read
+//     B20 — do not exist yet. The daily read's AudioURL is stored and served but
+//     nothing generates it.
+//   - Prod authorization. The prod SKU answers 403 / code=55000000 today (meta
+//     77_ P2-4). Wiring a caller now would ship a feature that passes in dev and
+//     fails in prod.
+//
+// Keeping the code dormant is only safe while an unconfigured provider degrades
+// cleanly: app-server passes nil whenever VOLC_SPEECH_API_KEY is empty, and
+// synthesize answers UNAVAILABLE (503) rather than panicking. That is pinned by
+// TestPostSynthesize_UnconfiguredProviderIsUnavailable.
+//
+// See docs/54_B17_TTS_启用决策.md.
+//
 // There is no vendor SDK dependency; the HTTP/2 client uses net/http.
 package tts
 

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 )
 
 const testInternalToken = "test-internal-token"
@@ -72,6 +74,60 @@ func TestPostSynthesize_RejectsMissingToken(t *testing.T) {
 	engine.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+// The package ships dormant (see the package doc): app-server hands over a nil
+// provider whenever VOLC_SPEECH_API_KEY is empty, which is the state every
+// environment is in today. The first caller to arrive before the credential does
+// must get a clean UNAVAILABLE rather than a panic or a 500 that reads as a bug
+// in the caller.
+//
+// This is the caller-visible contract only. Two mechanisms produce it — the
+// handler's early guard and Collect's own nil check, which maps to the same 503 /
+// UNAVAILABLE — so on its own this test cannot tell them apart.
+// TestPostSynthesize_UnconfiguredOutranksMalformedBody is the one that does.
+func TestPostSynthesize_UnconfiguredProviderIsUnavailable(t *testing.T) {
+	engine := newTTSTestEngine(t, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/tts/synthesize", bytes.NewReader([]byte(`{"text":"hi"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Token", testInternalToken)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body = %s, want 503", rec.Code, rec.Body.String())
+	}
+	var body apierr.Body
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body: %v (body = %s)", err, rec.Body.String())
+	}
+	if body.Code != "UNAVAILABLE" {
+		t.Fatalf("code = %q, want UNAVAILABLE — a dormant provider must not look like a caller error", body.Code)
+	}
+}
+
+// The handler's nil-provider guard is redundant with Collect's — both end in the
+// same 503 — so the only thing that proves it is still there is the ordering it
+// imposes: with no provider, a request that is *also* malformed must be answered
+// as unconfigured, not as a bad request.
+//
+// Remove the guard and this goes red: ShouldBindJSON runs first and answers 400,
+// sending whoever is debugging "TTS doesn't work" to check their own JSON instead
+// of the missing credential.
+func TestPostSynthesize_UnconfiguredOutranksMalformedBody(t *testing.T) {
+	engine := newTTSTestEngine(t, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/tts/synthesize", bytes.NewReader([]byte(`{"text":`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Token", testInternalToken)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"status = %d body = %s, want 503 — an unconfigured provider must be reported before the body is judged",
+			rec.Code, rec.Body.String(),
+		)
 	}
 }
 
