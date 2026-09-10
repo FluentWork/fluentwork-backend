@@ -45,6 +45,28 @@ type VoiceProviderSession interface {
 	Close(ctx context.Context) error
 }
 
+// SequencedVoiceProviderSession is a VoiceProviderSession that numbers the
+// binary audio frames it emits.
+//
+// The numbering is a contract with the client, not with the vendor. iOS drops
+// every frame at or below the watermark its last barge-in set, and that
+// watermark lives for the whole WebSocket session — it is cleared by
+// start/stopCapture, never between turns. `nextAudioSeq` is monotonic on
+// exactly that account.
+//
+// A transparent reopen builds a *fresh* provider session, so the counter would
+// restart at 1 behind a watermark already in the hundreds. Every later frame is
+// then discarded: the transcript keeps working (it does not go through the
+// client's gate) and all audio is gone for the rest of the run. The handler
+// carries the value across — see carryAudioSequence.
+type SequencedVoiceProviderSession interface {
+	VoiceProviderSession
+	// NextAudioSequence is the number the next emitted frame will carry.
+	NextAudioSequence() uint32
+	// AdoptAudioSequence continues numbering from a replaced session's value.
+	AdoptAudioSequence(uint32)
+}
+
 // MockVoiceProvider preserves the existing gateway behavior behind the provider seam.
 type MockVoiceProvider struct {
 	// ServerASRText, when non-empty, causes the mock session to echo it back

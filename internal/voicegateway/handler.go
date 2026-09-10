@@ -314,6 +314,27 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 	}
 }
 
+// carryAudioSequence hands the gateway→client frame numbering from a provider
+// session being replaced to the one replacing it.
+//
+// The numbers must not restart across the reopen: the client's barge-in
+// watermark outlives the provider session that set it, and it discards every
+// frame at or below itself. See SequencedVoiceProviderSession.
+//
+// Providers that do not number their frames (mock, dev-echo) simply do not
+// implement the interface and are left alone.
+func carryAudioSequence(previous, next VoiceProviderSession) {
+	from, ok := previous.(SequencedVoiceProviderSession)
+	if !ok {
+		return
+	}
+	to, ok := next.(SequencedVoiceProviderSession)
+	if !ok {
+		return
+	}
+	to.AdoptAudioSequence(from.NextAudioSequence())
+}
+
 func (h *Handler) handleAudio(
 	ctx context.Context,
 	conn *websocket.Conn,
@@ -346,6 +367,7 @@ func (h *Handler) handleAudio(
 			reopened, openErr := h.provider.Open(ctx, session)
 			if openErr == nil {
 				if _, startErr := reopened.Start(ctx, voiceproto.SessionStart{}); startErr == nil {
+					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
 						"session_id", session.SessionID,

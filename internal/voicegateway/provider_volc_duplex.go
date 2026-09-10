@@ -578,6 +578,19 @@ func encodeAudioFrame(seq uint32, payload []byte) []byte {
 	return frame
 }
 
+// The gateway carries this session's frame numbering into any session opened to
+// replace it, and nothing else. If these methods go away the reopen silently
+// restarts the sequence and mutes the client — see the interface doc.
+var _ SequencedVoiceProviderSession = (*volcDuplexProviderSession)(nil)
+
+// NextAudioSequence implements SequencedVoiceProviderSession.
+func (s *volcDuplexProviderSession) NextAudioSequence() uint32 { return s.nextAudioSeq }
+
+// AdoptAudioSequence implements SequencedVoiceProviderSession. A session opened
+// to replace this one has to keep numbering from here — see the interface doc
+// for why restarting is not survivable.
+func (s *volcDuplexProviderSession) AdoptAudioSequence(seq uint32) { s.nextAudioSeq = seq }
+
 // resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
 // client plays: a straight 3:2 linear interpolation.
 //
