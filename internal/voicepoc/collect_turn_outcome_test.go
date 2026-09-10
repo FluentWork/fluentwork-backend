@@ -155,6 +155,43 @@ func TestCollectTurn_OutcomeErrorOnTransportFailureAfterProgress(t *testing.T) {
 	}
 }
 
+// Volc streams the assistant's speech as base64 response.output_audio.delta
+// events. coder/websocket defaults to a 32 KiB read limit, so one chatty reply
+// broke the read and took the duplex with it. That is the failure behind the
+// 2026-09-10 physical-device runs, where six of seven turns died with
+// "message too big: read limited at 32769 bytes" and the session then lost its
+// server-side conversation context on every reconnect.
+func TestCollectTurn_ReadsAudioDeltaFramesPastTheDefaultReadLimit(t *testing.T) {
+	t.Parallel()
+
+	// ~3x the default 32 KiB limit; a real audio delta is bigger still.
+	const bigDeltaBytes = 96 * 1024
+
+	url := startDuplexMockServer(t, func(conn *websocket.Conn) {
+		readUntilType(t, conn, "session.create")
+		writeJSONFrame(t, conn, `{"type":"session.created","session":{"id":"sess-big"}}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.started"}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.completed","transcript":"hi"}`)
+		writeJSONFrame(t, conn, `{"type":"response.output_text.delta","delta":"hello"}`)
+		writeJSONFrame(t, conn,
+			`{"type":"response.output_audio.delta","delta":"`+strings.Repeat("A", bigDeltaBytes)+`"}`)
+		writeJSONFrame(t, conn, `{"type":"response.done"}`)
+		<-make(chan struct{})
+	})
+
+	session := openTestSession(t, url)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	started := time.Now()
+	turn, err := session.collectTurn(context.Background(), started, nil, 5*time.Second)
+	if err != nil {
+		t.Fatalf("a large audio delta must not break the turn read: %v", err)
+	}
+	if turn.Outcome != TurnOutcomeOK {
+		t.Fatalf("expected Outcome=ok, got %q (turn=%+v)", turn.Outcome, turn)
+	}
+}
+
 // TestCollectTurn_OutcomeOKOnResponseDone is the happy path: response.done
 // arrives before the wait window expires. Outcome must be ok and err nil.
 func TestCollectTurn_OutcomeOKOnResponseDone(t *testing.T) {

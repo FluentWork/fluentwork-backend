@@ -151,6 +151,7 @@ Examples:
 | `docs/44_网关开场帧补齐_实现说明.md` | volc-duplex 补齐 bootstrap `ai.turn.end`（I20 Item 4 相位） | (本提交) |
 | `docs/45_上游断开后的会话恢复_实现说明.md` | 断连在发现点重置 + reopen 预算按轮复位（真机三轮必挂） | (本提交) |
 | `docs/46_dev_up_skip_migrations_实现说明.md` | `dev-up.sh --skip-migrations`（迁移非幂等导致重启起不来） | (本提交) |
+| `docs/47_Volc消息读上限_实现说明.md` | Volc 音频帧超过 32 KiB 默认读上限 → 每轮断连（「每轮失忆」根因） | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -205,5 +206,6 @@ Examples:
 | `docs/44_网关开场帧补齐_实现说明.md` | volc-duplex bootstrap `ai.turn.end` |
 | `docs/45_上游断开后的会话恢复_实现说明.md` | `ErrDuplexClosed` / reset on read failure / 按轮 reopen |
 | `docs/46_dev_up_skip_migrations_实现说明.md` | 重启时复用已有 schema |
+| `docs/47_Volc消息读上限_实现说明.md` | `duplexReadLimit` / 每轮断连根因 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

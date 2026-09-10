@@ -64,6 +64,14 @@ func (s *DuplexSession) SetClientTurnID(id string) {
 	s.clientTurnID = strings.TrimSpace(id)
 }
 
+// duplexReadLimit bounds a single inbound duplex frame. coder/websocket reads
+// at most 32 KiB per frame by default, and Volc sends the assistant's speech as
+// base64 response.output_audio.delta events, which blow past that on any long
+// reply. Hitting the limit fails the read and leaves the duplex unusable, so the
+// ceiling is set well above the largest plausible frame while still bounding
+// memory at a few MiB.
+const duplexReadLimit = 4 << 20
+
 // OpenDuplex dials the duplex endpoint, sends session.create, waits for session.created.
 func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
@@ -107,6 +115,8 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 		openErr = fmt.Errorf("duplex dial: %w", err)
 		return nil, openErr
 	}
+
+	conn.SetReadLimit(duplexReadLimit)
 
 	s := &DuplexSession{conn: conn, cfg: cfg}
 	if resp != nil {
