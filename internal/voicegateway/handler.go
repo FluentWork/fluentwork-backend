@@ -22,6 +22,14 @@ import (
 // Every Nth occurrence within the window gets a full log line with the count.
 const warnDedupInterval = 10
 
+// maxClientBinaryFrame bounds one inbound binary frame. coder/websocket reads
+// at most 32 KiB per frame by default, which is far below what this protocol
+// allows: the client's 20ms framing is a client choice, and its own per-turn cap
+// of 60s is ~1.83 MiB of 16 kHz mono PCM16. A larger frame used to fail the read
+// and take the session with it, so the ceiling is raised well past that while
+// still bounding what a single frame can make the process allocate.
+const maxClientBinaryFrame = 4 << 20
+
 // logWarn emits a WARN log with deduplication. Repeated warnings with the same
 // key within `window` are collapsed — only the 1st and every `warnDedupInterval`th
 // occurrence produce a full log line. This prevents the 80+ identical WARN lines
@@ -144,6 +152,7 @@ func (h *Handler) serveVoice(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("websocket accept failed", "err", err)
 		return
 	}
+	conn.SetReadLimit(maxClientBinaryFrame)
 	defer func() { _ = conn.CloseNow() }()
 
 	ctx := r.Context()
