@@ -264,6 +264,10 @@ type sessionRuntime struct {
 		window   time.Duration
 		interval int // log every Nth occurrence (1, 10, 20, ...)
 	}
+	// unknownFrameCount is how many well-formed frames with an unknown
+	// type this session ignored. Forward-compat: a future v3 type must
+	// not kill a v2 gateway the way client.turn.abort once did.
+	unknownFrameCount int
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
@@ -608,6 +612,7 @@ func (h *Handler) handleControl(
 			"session_id", session.SessionID,
 			"duration_sec", durationSec,
 			"utterance_count", len(utterances),
+			"unknown_frame_count", rt.unknownFrameCount,
 			"stage", "orchestration",
 		)
 		_ = writeJSON(ctx, conn, map[string]any{
@@ -625,11 +630,18 @@ func (h *Handler) handleControl(
 		})
 
 	default:
-		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
-			Type:    voiceproto.TypeError,
-			Code:    "unsupported_frame",
-			Message: fmt.Sprintf("unsupported type %s", frameType),
-		})
+		// Ignore unknown types. Emitting unsupported_frame used to map to
+		// iOS .failed and killed live sessions (client.turn.abort before
+		// 5c2e39f). A later protocol version adding a new client frame
+		// must not repeat that on an older gateway.
+		rt.unknownFrameCount++
+		h.logWarn(rt, "unknown_frame",
+			"ignoring unknown control frame",
+			"session_id", session.SessionID,
+			"type", frameType,
+			"unknown_frame_count", rt.unknownFrameCount,
+		)
+		return nil
 	}
 }
 

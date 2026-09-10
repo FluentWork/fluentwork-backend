@@ -141,7 +141,8 @@ Examples:
 | `docs/34_I20_client_turn_abort_实现说明.md` | 网关接受 `client.turn.abort` | `5c2e39f` |
 | `docs/35_I20_契约真源同步_实现说明.md` | I20 v2 真源写入 infra | `bc6c802` |
 | `docs/36_I20_dev_echo_fixture_实现说明.md` | I20 Item 2 进程级 PCM fixture | `8ef7f1e` |
-| `docs/37_I20_trace_alignment_实现说明.md` | I20 Item 3 全链路 turn_id / log_id / segment | (本提交) |
+| `docs/37_I20_trace_alignment_实现说明.md` | I20 Item 3 全链路 turn_id / log_id / segment | `98dc63b` |
+| `docs/38_未知帧忽略与v1冻结CI_实现说明.md` | 未知帧忽略 + v1 schema 字节冻结 | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -187,5 +188,6 @@ Examples:
 | `docs/35_I20_契约真源同步_实现说明.md` | I20 v2 真源写入 infra |
 | `docs/36_I20_dev_echo_fixture_实现说明.md` | I20 Item 2 进程级 PCM fixture |
 | `docs/37_I20_trace_alignment_实现说明.md` | I20 Item 3 全链路 trace |
+| `docs/38_未知帧忽略与v1冻结CI_实现说明.md` | 未知帧忽略 + v1 schema 字节冻结 |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |

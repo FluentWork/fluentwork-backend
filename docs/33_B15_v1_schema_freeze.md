@@ -31,3 +31,7 @@ V1.0 控制帧清单在协议冻结会议上锁死。B15 的 `ai.turn.end.outcom
 - 不改 `turnToOutbound` / collectTurn 的 timeout 出口
 - 不在本仓改 `fluentwork-ios`（iOS 已只对齐 v2）
 - 不在本仓改 `fluentwork-infra` 真源（infra v1/v2 的 `aiTurnEnd` 仍是 `type`+`turn_id`；v2 真源同步另票）
+
+## 后续
+
+`TestSchemaV1BytesAreFrozen`（`docs/38`）用 SHA-256 钉死 v1 文件字节。字段级测试仍保留。新字段只进 v2；不要为了让测试绿去改 digest。

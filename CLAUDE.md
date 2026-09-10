@@ -43,7 +43,7 @@ iOS App ──WSS──► voice-gateway:8081 ──► VolcEngine (生产)
 | `ai.turn.end` | S→C | AI Turn 结束（含 outcome） |
 | `client.asr.transcription` | S→C | ASR 中继 |
 | `feedback.badge` | S→C | Badge 命中 |
-| `error` | S→C | 错误 |
+| `error` | S→C | 错误（非法 JSON / 已知类型的语义错误）。**未知 `type` 不发 error，忽略并计数** |
 
 ## 开发入门
 

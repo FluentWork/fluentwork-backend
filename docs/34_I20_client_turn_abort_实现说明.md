@@ -43,3 +43,7 @@ Provider 转发失败只打 WARN，不发 error 帧，避免 abort 自己把会�
 - 不把 abort 后的等待态改成 I21（iOS 已做）
 - 不调用火山「清空缓冲区」API（没有稳定接口）；只保证本进程不再 collectTurn
 - ~~不同步 `fluentwork-infra` schema 真源~~ — 已由 `d60d0fe` 完成
+
+## 后续
+
+未知 `type` 的默认策略已改为忽略 + 计数（`docs/38`），不再发 `unsupported_frame`。abort 白名单仍然需要：合法 abort 还要清 `turnStarted`、不能 `collectTurn`。

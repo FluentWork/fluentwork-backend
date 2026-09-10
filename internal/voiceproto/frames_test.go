@@ -1,6 +1,8 @@
 package voiceproto_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -8,6 +10,11 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 	sharedschemas "github.com/FluentWork/fluentwork-backend/schemas"
 )
+
+// frozenWSSControlFramesV1SHA256 pins schemas/transport/wss-control-frames-v1.json.
+// v1 is a freeze snapshot. Do not refresh this digest to land new fields —
+// put them on v2. Revert the JSON if this test fails.
+const frozenWSSControlFramesV1SHA256 = "bdb0324ca88839d86fd02b9f807de8f27f5ffcd7174857554873d6e8ff24e683"
 
 func TestControlFrameRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -345,6 +352,16 @@ func TestSchemaV1AITurnEndStaysFrozenWithoutOutcome(t *testing.T) {
 	}
 	if _, ok := props["log_id"]; ok {
 		t.Fatal("v1 aiTurnEnd must stay frozen without log_id")
+	}
+}
+
+func TestSchemaV1BytesAreFrozen(t *testing.T) {
+	t.Parallel()
+
+	sum := sha256.Sum256(sharedschemas.WSSControlFramesV1)
+	got := hex.EncodeToString(sum[:])
+	if got != frozenWSSControlFramesV1SHA256 {
+		t.Fatalf("v1 WSS schema is frozen; revert schemas/transport/wss-control-frames-v1.json (got %s want %s)", got, frozenWSSControlFramesV1SHA256)
 	}
 }
 
