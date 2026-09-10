@@ -67,6 +67,24 @@ type SequencedVoiceProviderSession interface {
 	AdoptAudioSequence(uint32)
 }
 
+// StreamingVoiceProviderSession is a VoiceProviderSession that can push
+// outbounds while a control call is still in flight.
+//
+// HandleClientControl returns a slice, so a provider that wants to stream has
+// nowhere to put a fragment until the whole call is done — which is exactly why
+// the assistant's reply used to arrive only after the turn closed. A session
+// implementing this interface is handed an emitter the gateway has already
+// wired to the client connection, and may call it at any point during a control
+// call.
+//
+// Implementations must call the emitter on the same goroutine as the control
+// call that is in flight. The gateway's write path is serialized on its read
+// loop; an emitter called from a spawned goroutine would race it.
+type StreamingVoiceProviderSession interface {
+	VoiceProviderSession
+	SetOutboundEmitter(emit func(ProviderOutbound) error)
+}
+
 // MockVoiceProvider preserves the existing gateway behavior behind the provider seam.
 type MockVoiceProvider struct {
 	// ServerASRText, when non-empty, causes the mock session to echo it back

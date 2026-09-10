@@ -369,6 +369,7 @@ func (h *Handler) handleAudio(
 				if _, startErr := reopened.Start(ctx, voiceproto.SessionStart{}); startErr == nil {
 					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
+					attachOutboundEmitter(ctx, conn, reopened)
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
 						"session_id", session.SessionID,
 						"original_err", err,
@@ -469,6 +470,7 @@ func (h *Handler) handleControl(
 				})
 			}
 			rt.provider = provider
+			attachOutboundEmitter(ctx, conn, provider)
 			rt.started = true
 			rt.startedAt = h.now().UTC()
 		}
@@ -683,6 +685,23 @@ func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 		return err
 	}
 	return conn.Write(ctx, websocket.MessageText, raw)
+}
+
+// attachOutboundEmitter wires a provider session's streaming push path to the
+// client connection, when the session supports one.
+//
+// Called wherever rt.provider is (re)assigned. A reopen builds a fresh session,
+// which would otherwise stream nowhere — and, because the provider only
+// suppresses its end-of-turn text frame when a sink is installed, would keep
+// working but lose the streaming behaviour silently.
+func attachOutboundEmitter(ctx context.Context, conn *websocket.Conn, provider VoiceProviderSession) {
+	streamer, ok := provider.(StreamingVoiceProviderSession)
+	if !ok {
+		return
+	}
+	streamer.SetOutboundEmitter(func(item ProviderOutbound) error {
+		return writeProviderOutbound(ctx, conn, []ProviderOutbound{item})
+	})
 }
 
 func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {

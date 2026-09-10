@@ -118,6 +118,63 @@ type volcDuplexProviderSession struct {
 	// resetDuplexFn replaces defaultResetDuplex in tests. Abort uses it to
 	// drop the upstream audio buffer when Volc has no documented clear event.
 	resetDuplexFn func(context.Context) error
+
+	// emit is the gateway's push path, installed via SetOutboundEmitter. Nil
+	// means the gateway does not support streaming, in which case this session
+	// must fall back to emitting the reply once at turn end.
+	emit func(ProviderOutbound) error
+	// emitErr records the first push failure. It is not returned from
+	// HandleClientControl: a failed push means the client connection is gone,
+	// and the handler finds out on its own next write. Recorded so the failure
+	// is not silent, logged once in turnToOutbound.
+	emitErr error
+	// streamedText is set when this turn's reply was already pushed as deltas,
+	// so turnToOutbound must not send it a second time — the client appends
+	// ai.text.delta to the open AI item, so a repeat would duplicate the text.
+	streamedText bool
+}
+
+// SetOutboundEmitter implements StreamingVoiceProviderSession. The gateway
+// calls it whenever it (re)assigns a provider session.
+func (s *volcDuplexProviderSession) SetOutboundEmitter(emit func(ProviderOutbound) error) {
+	s.emit = emit
+	s.wireTurnSink()
+}
+
+// wireTurnSink points the live duplex session's streaming sink at this
+// provider session. Called after every assignment to s.session — a reopen
+// builds a fresh duplex, which would otherwise stream nowhere.
+//
+// The sink is installed only when an emitter is. Without somewhere to push,
+// streaming would suppress the end-of-turn full-text delta (see
+// turnToOutbound) and the client would get no reply at all.
+func (s *volcDuplexProviderSession) wireTurnSink() {
+	if s.session == nil {
+		return
+	}
+	if s.emit == nil {
+		s.session.SetTurnSink(nil)
+		return
+	}
+	s.session.SetTurnSink(s)
+}
+
+// AssistantTextDelta implements voicepoc.TurnSink: one fragment of the
+// assistant's reply, pushed the moment the vendor produces it.
+func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
+	if delta == "" || s.emit == nil {
+		return
+	}
+	s.streamedText = true
+	// Same id the end-of-turn frames will carry. activeTurnID is set at
+	// user.speech.end and nextSeq does not move again until turnToOutbound, so
+	// this resolves to the same value the terminal frames use.
+	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	if err := s.emit(ProviderOutbound{
+		Control: voiceproto.NewAITextDelta(delta, turnID, s.unixMilli()),
+	}); err != nil && s.emitErr == nil {
+		s.emitErr = err
+	}
 }
 
 func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart) ([]ProviderOutbound, error) {
@@ -133,6 +190,7 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 		return nil, err
 	}
 	s.session = session
+	s.wireTurnSink()
 	s.nextSeq = 1
 	if s.nowFn == nil {
 		s.nowFn = time.Now
@@ -166,6 +224,11 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		if s.session == nil {
 			return nil, fmt.Errorf("volc-duplex session not started")
 		}
+		// A new turn begins here. Clearing the flag at turn *start* rather than
+		// only at turn end is what makes it safe: an aborted turn never reaches
+		// turnToOutbound, and a flag left set would suppress the next turn's
+		// reply entirely.
+		s.streamedText = false
 		s.turnStarted = time.Now()
 		return nil, nil
 
@@ -298,6 +361,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// The next user.speech.start begins a fresh turn; WSS stays open.
 		s.turnStarted = time.Time{}
 		s.activeTurnID = ""
+		s.streamedText = false
 		if err := s.resetDuplex(ctx); err != nil {
 			// Keep the iOS WSS alive. The leftover Volc buffer is a residual
 			// risk logged here; the next audio-forward reopen-once may recover.
@@ -478,6 +542,9 @@ func (s *volcDuplexProviderSession) defaultResetDuplex(ctx context.Context) erro
 	}
 	old := s.session
 	s.session = newSess
+	// The fresh duplex has no sink; without this the reopened session would
+	// stop streaming for the rest of the run.
+	s.wireTurnSink()
 	if old != nil {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = old.Close(closeCtx)
@@ -554,9 +621,15 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	}
 	if reply != "" {
 		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
-		outbound = append(outbound, ProviderOutbound{
-			Control: voiceproto.NewAITextDelta(reply, turnID, s.unixMilli()),
-		})
+		// The utterance is recorded either way — it is the persisted record of
+		// the turn. The frame is not: when the reply already went out as deltas,
+		// sending the whole thing again would append it a second time on the
+		// client, whose reducer appends ai.text.delta to the open AI item.
+		if !s.streamedText {
+			outbound = append(outbound, ProviderOutbound{
+				Control: voiceproto.NewAITextDelta(reply, turnID, s.unixMilli()),
+			})
+		}
 		s.utterances = append(s.utterances, EndUtterance{
 			Seq:     s.nextSeq,
 			Speaker: "ai",
@@ -595,6 +668,15 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 			})
 		}
 	}
+	// A push that failed during the turn means the client connection went away
+	// mid-reply. Not returned as an error — the handler's own next write fails
+	// on the same dead socket — but never swallowed either.
+	if s.emitErr != nil {
+		// logger already carries session_id / ticket_id / user_id.
+		s.logger.Warn("streaming push failed during turn", "err", s.emitErr)
+		s.emitErr = nil
+	}
+	s.streamedText = false
 	s.turnStarted = time.Time{}
 	return outbound
 }

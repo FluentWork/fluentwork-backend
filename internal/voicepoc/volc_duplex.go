@@ -48,6 +48,28 @@ type DuplexSession struct {
 	// Set by the gateway provider before WaitTurnResult so segment logs join
 	// the same id that lands on ai.turn.end.
 	clientTurnID string
+	// turnSink, when non-nil, receives turn fragments *while* collectTurn is
+	// still running. It is what makes the assistant's reply reach the client
+	// as it is produced instead of after response.done.
+	turnSink TurnSink
+}
+
+// TurnSink receives turn fragments as they arrive, before collectTurn returns.
+//
+// This exists because collectTurn is otherwise a blocking accumulator: the
+// vendor streams text and audio into it, and the caller only sees the result
+// once the whole turn is done. The gateway installs a sink so it can forward
+// each fragment immediately.
+//
+// Called synchronously, on collectTurn's own goroutine, in arrival order. A
+// sink must not block — it sits on the read path — and must tolerate being
+// called for a turn that later ends in timeout or error.
+type TurnSink interface {
+	// AssistantTextDelta is one incremental fragment of the assistant's reply,
+	// verbatim from the vendor. Unlike TurnResult.AssistantText, which is the
+	// whole turn, this is a fragment: the caller is expected to append.
+	// Empty fragments are never delivered.
+	AssistantTextDelta(delta string)
 }
 
 // SessionID returns the server session id from session.created.
@@ -62,6 +84,16 @@ func (s *DuplexSession) SetClientTurnID(id string) {
 		return
 	}
 	s.clientTurnID = strings.TrimSpace(id)
+}
+
+// SetTurnSink installs a sink for turn fragments; nil stops streaming. It is a
+// session-level setting, not a per-turn one: the sink is installed once and the
+// callbacks read whatever state they need at call time.
+func (s *DuplexSession) SetTurnSink(sink TurnSink) {
+	if s == nil {
+		return
+	}
+	s.turnSink = sink
 }
 
 // duplexReadLimit bounds a single inbound duplex frame. coder/websocket reads
@@ -482,6 +514,12 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	// window, so we can distinguish timeout-with-no-progress from partial.
 	seenAnyEvent := false
 	var text strings.Builder
+	// streamed mirrors what the sink has already been handed. The vendor's
+	// response.output_text.done carries the authoritative full text, and it is
+	// not guaranteed to equal the concatenated deltas. When it does not, the
+	// client is displaying text the server will not persist — see the check at
+	// "response.output_text.done".
+	var streamed strings.Builder
 	seenUserProgress := false
 	seenResponse := false
 	apply := func(evt DuplexEvent) bool {
@@ -514,13 +552,35 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 		case "response.output_text.delta":
 			seenResponse = true
 			if evt.Delta != "" {
+				// Accumulate *and* forward. The builder still has to hold the
+				// whole reply: it becomes TurnResult.AssistantText, which is
+				// what the turn's utterance is recorded from.
 				text.WriteString(evt.Delta)
+				if s.turnSink != nil {
+					streamed.WriteString(evt.Delta)
+					s.turnSink.AssistantTextDelta(evt.Delta)
+				}
 			}
 		case "response.output_text.done":
 			seenResponse = true
 			if evt.Text != "" {
 				text.Reset()
 				text.WriteString(evt.Text)
+			}
+			// delta-then-done is the documented shape, so a mismatch means the
+			// vendor revised the text after streaming it. The client is already
+			// showing the deltas and the server is about to persist `text`, so
+			// the two would disagree on screen vs. review. Not corrected here —
+			// the protocol has no frame for it — but it must not pass unseen.
+			if streamed.Len() > 0 && strings.TrimSpace(streamed.String()) != strings.TrimSpace(text.String()) {
+				if s.cfg.Logger != nil {
+					s.cfg.Logger.Warn("streamed text disagrees with response.output_text.done",
+						"module", "voicepoc.duplex",
+						"session_id", s.sessionID,
+						"streamed_len", streamed.Len(),
+						"done_len", len(strings.TrimSpace(text.String())),
+					)
+				}
 			}
 		case "response.output_audio.started":
 			seenResponse = true
