@@ -370,6 +370,67 @@ func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
 	}
 }
 
+func TestDevEchoFixture_LoopbackLatencyUnderBudget(t *testing.T) {
+	t.Parallel()
+
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out:    voicegateway.ConsumedTicket{TicketID: "t-lat", SessionID: "s-lat", UserID: "u-lat"},
+	}
+	provider := voicegateway.NewDevEchoVoiceProvider("loopback", nil)
+	provider.Fixture = voicegateway.DevEchoFixtureGenerator(20)
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, provider, nil, voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialVoice(ctx, t, srv)
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+	authAndStart(ctx, t, conn)
+
+	start := time.Now()
+	if err := conn.Write(ctx, websocket.MessageText, voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		TurnID: "turn-lat-1",
+	})); err != nil {
+		t.Fatalf("write user.speech.end: %v", err)
+	}
+
+	var firstAudio, turnEnd time.Duration
+	for firstAudio == 0 || turnEnd == 0 {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		elapsed := time.Since(start)
+		if typ == websocket.MessageBinary && firstAudio == 0 {
+			firstAudio = elapsed
+			continue
+		}
+		if typ != websocket.MessageText {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw["type"] == voiceproto.TypeAITurnEnd {
+			turnEnd = elapsed
+		}
+	}
+
+	t.Logf("DevEcho loopback speech.end → first binary=%s → ai.turn.end=%s (not Volc, not device)", firstAudio, turnEnd)
+	if firstAudio > 2*time.Second {
+		t.Fatalf("first audio %s exceeds 2s loopback sanity budget", firstAudio)
+	}
+	if turnEnd > 3*time.Second {
+		t.Fatalf("turn end %s exceeds 3s loopback sanity budget", turnEnd)
+	}
+}
+
 // TestDevEchoFixture_LargeFixture_SendsMultipleChunks verifies that multi-chunk
 // fixtures stream correctly across multiple HandleClientAudio calls.
 func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {

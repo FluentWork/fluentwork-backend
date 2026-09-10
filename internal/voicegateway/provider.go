@@ -3,6 +3,7 @@ package voicegateway
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
@@ -74,11 +75,7 @@ func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.Session
 	s.nextSeq++
 	return []ProviderOutbound{
 		{
-			Control: map[string]any{
-				"type":    voiceproto.TypeAITextDelta,
-				"text":    stub,
-				"turn_id": "bootstrap",
-			},
+			Control: voiceproto.NewAITextDelta(stub, "bootstrap", time.Now().UnixMilli()),
 		},
 		{
 			Control: voiceproto.AITurnEnd{

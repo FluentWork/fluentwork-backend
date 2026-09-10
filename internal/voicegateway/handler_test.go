@@ -93,10 +93,7 @@ func (s *stubProviderSession) Start(_ context.Context, _ voiceproto.SessionStart
 	s.utterances = []voicegateway.EndUtterance{{Seq: 1, Speaker: "ai", Text: "provider-ready"}}
 	return []voicegateway.ProviderOutbound{
 		{
-			Control: map[string]any{
-				"type": voiceproto.TypeAITextDelta,
-				"text": "provider-ready",
-			},
+			Control: voiceproto.NewAITextDelta("provider-ready", "", time.Now().UnixMilli()),
 		},
 		{
 			Control: voiceproto.AITurnEnd{
@@ -194,6 +191,10 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	}
 	if delta["text"] != "provider-ready" {
 		t.Fatalf("unexpected provider delta: %#v", delta)
+	}
+	ts, _ := delta["server_ts_ms"].(float64)
+	if ts <= 0 {
+		t.Fatalf("bootstrap ai.text.delta must carry server_ts_ms, got %#v", delta)
 	}
 	turnEnd := readFrame(ctx, t, conn)
 	if turnEnd["type"] != voiceproto.TypeAITurnEnd {

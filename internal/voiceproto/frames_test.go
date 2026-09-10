@@ -328,6 +328,76 @@ func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
 	}
 }
 
+func TestSchemaV2AITextDeltaIncludesServerTsMs(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	delta, ok := defs["aiTextDelta"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.aiTextDelta")
+	}
+	props, ok := delta["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("aiTextDelta missing properties")
+	}
+	if _, ok := props["server_ts_ms"]; !ok {
+		t.Fatal("v2 ai.text.delta must include optional server_ts_ms")
+	}
+}
+
+func TestSchemaV1AITextDeltaOmitsServerTsMs(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	delta, ok := defs["aiTextDelta"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.aiTextDelta")
+	}
+	props, ok := delta["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("aiTextDelta missing properties")
+	}
+	if _, ok := props["server_ts_ms"]; ok {
+		t.Fatal("v1 ai.text.delta must stay frozen without server_ts_ms")
+	}
+}
+
+func TestAITextDeltaJSONIncludesServerTsMs(t *testing.T) {
+	t.Parallel()
+
+	raw, err := json.Marshal(voiceproto.NewAITextDelta("hi", "turn-1", 1_725_968_000_000))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(raw, &asMap); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if asMap["type"] != voiceproto.TypeAITextDelta || asMap["text"] != "hi" {
+		t.Fatalf("delta = %#v", asMap)
+	}
+	if asMap["turn_id"] != "turn-1" {
+		t.Fatalf("turn_id = %#v", asMap["turn_id"])
+	}
+	if asMap["server_ts_ms"] != float64(1_725_968_000_000) {
+		t.Fatalf("server_ts_ms = %#v", asMap["server_ts_ms"])
+	}
+}
+
 func TestSchemaV1AITurnEndStaysFrozenWithoutOutcome(t *testing.T) {
 	t.Parallel()
 

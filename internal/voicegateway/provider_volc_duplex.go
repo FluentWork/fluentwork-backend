@@ -103,6 +103,9 @@ type volcDuplexProviderSession struct {
 	probeFn func(context.Context) error
 	// nowFn lets tests freeze the clock for the idle-since calculation.
 	nowFn func() time.Time
+	// resetDuplexFn replaces defaultResetDuplex in tests. Abort uses it to
+	// drop the upstream audio buffer when Volc has no documented clear event.
+	resetDuplexFn func(context.Context) error
 }
 
 func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart) ([]ProviderOutbound, error) {
@@ -110,11 +113,10 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 		return nil, nil
 	}
 
-	cfg := s.cfg
 	if instructions := instructionsForSessionStart(start); instructions != "" {
-		cfg.Instructions = instructions
+		s.cfg.Instructions = instructions
 	}
-	session, err := voicepoc.OpenDuplex(ctx, cfg)
+	session, err := voicepoc.OpenDuplex(ctx, s.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +240,15 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// The next user.speech.start begins a fresh turn; WSS stays open.
 		s.turnStarted = time.Time{}
 		s.activeTurnID = ""
-		s.logger.Info("client.turn.abort dropped in-progress user speech")
+		if err := s.resetDuplex(ctx); err != nil {
+			// Keep the iOS WSS alive. The leftover Volc buffer is a residual
+			// risk logged here; the next audio-forward reopen-once may recover.
+			s.logger.Warn("abort duplex reset failed; next turn may see leftover audio",
+				"err", err,
+			)
+		} else {
+			s.logger.Info("client.turn.abort dropped in-progress user speech; duplex reset")
+		}
 		return nil, nil
 
 	case voiceproto.TypeInterrupt:
@@ -351,6 +361,39 @@ func (s *volcDuplexProviderSession) defaultProbe(ctx context.Context) error {
 	return s.session.CommitAudio(ctx)
 }
 
+const duplexResetTimeout = 8 * time.Second
+
+func (s *volcDuplexProviderSession) resetDuplex(ctx context.Context) error {
+	if s.resetDuplexFn != nil {
+		return s.resetDuplexFn(ctx)
+	}
+	return s.defaultResetDuplex(ctx)
+}
+
+// defaultResetDuplex opens a new Volc duplex session then closes the old one.
+// Official duplex events list append/commit only — no input_audio_buffer.clear
+// (volc docs 6561/2549778 / Seeduplex client events). Reconnect is the
+// isolation fallback so aborted PCM cannot contaminate the next ASR turn.
+func (s *volcDuplexProviderSession) defaultResetDuplex(ctx context.Context) error {
+	if s.session == nil {
+		return nil
+	}
+	resetCtx, cancel := context.WithTimeout(ctx, duplexResetTimeout)
+	defer cancel()
+	newSess, err := voicepoc.OpenDuplex(resetCtx, s.cfg)
+	if err != nil {
+		return err
+	}
+	old := s.session
+	s.session = newSess
+	if old != nil {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = old.Close(closeCtx)
+		closeCancel()
+	}
+	return nil
+}
+
 func (s *volcDuplexProviderSession) SnapshotUtterances() []EndUtterance {
 	return append([]EndUtterance(nil), s.utterances...)
 }
@@ -420,11 +463,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	if reply != "" {
 		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
 		outbound = append(outbound, ProviderOutbound{
-			Control: map[string]any{
-				"type":    voiceproto.TypeAITextDelta,
-				"text":    reply,
-				"turn_id": turnID,
-			},
+			Control: voiceproto.NewAITextDelta(reply, turnID, s.unixMilli()),
 		})
 		s.utterances = append(s.utterances, EndUtterance{
 			Seq:     s.nextSeq,
@@ -451,6 +490,14 @@ func instructionsForSessionStart(start voiceproto.SessionStart) string {
 		parts = append(parts, "素材编号："+material+"。")
 	}
 	return strings.Join(parts, " ")
+}
+
+func (s *volcDuplexProviderSession) unixMilli() int64 {
+	now := s.nowFn
+	if now == nil {
+		now = time.Now
+	}
+	return now().UTC().UnixMilli()
 }
 
 var (

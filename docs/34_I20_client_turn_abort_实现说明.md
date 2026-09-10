@@ -47,3 +47,5 @@ Provider 转发失败只打 WARN，不发 error 帧，避免 abort 自己把会�
 ## 后续
 
 未知 `type` 的默认策略已改为忽略 + 计数（`docs/38`），不再发 `unsupported_frame`。abort 白名单仍然需要：合法 abort 还要清 `turnStarted`、不能 `collectTurn`。
+
+abort 后 Volc 输入缓冲：官方无 `input_audio_buffer.clear`，改为重建 duplex（`docs/39`）。

@@ -136,6 +136,27 @@ type ClientASRTranscription struct {
 	TurnID string `json:"turn_id,omitempty"`
 }
 
+// AITextDelta is a gateway→client incremental assistant text frame (v2).
+// ServerTsMs is UTC Unix milliseconds taken at serialize time. It is optional
+// on the wire; iOS must still accept frames without it. Clock offset is
+// estimated from ping RTT, not from assuming NTP on the phone.
+type AITextDelta struct {
+	Type       string `json:"type"`
+	Text       string `json:"text"`
+	TurnID     string `json:"turn_id,omitempty"`
+	ServerTsMs int64  `json:"server_ts_ms,omitempty"`
+}
+
+// NewAITextDelta builds a v2 text delta. serverTsMs is Unix milliseconds.
+func NewAITextDelta(text, turnID string, serverTsMs int64) AITextDelta {
+	return AITextDelta{
+		Type:       TypeAITextDelta,
+		Text:       text,
+		TurnID:     strings.TrimSpace(turnID),
+		ServerTsMs: serverTsMs,
+	}
+}
+
 // AITTSStart warms the client decoder before binary TTS audio (WSS V2).
 type AITTSStart struct {
 	Type       string `json:"type"`

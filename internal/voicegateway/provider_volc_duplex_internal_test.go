@@ -304,6 +304,69 @@ func TestVolcDuplexAbortClearsTurnWithoutCollect(t *testing.T) {
 	}
 }
 
+func TestVolcDuplexAbortResetsUpstreamSession(t *testing.T) {
+	t.Parallel()
+
+	var resets int
+	sess := &volcDuplexProviderSession{
+		logger:       slog.Default(),
+		audioFormat:  "pcm-s16le",
+		turnStarted:  time.Now(),
+		activeTurnID: "turn-2",
+		resetDuplexFn: func(context.Context) error {
+			resets++
+			return nil
+		},
+	}
+
+	out, err := sess.HandleClientControl(context.Background(), voiceproto.TypeClientTurnAbort, voiceproto.MustMarshal(voiceproto.ClientTurnAbort{
+		Type:    voiceproto.TypeClientTurnAbort,
+		TurnID:  "turn-2",
+		Outcome: voiceproto.ClientTurnAbortUserAbandoned,
+	}))
+	if err != nil {
+		t.Fatalf("abort should not error: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("abort must not emit outbound, got %#v", out)
+	}
+	if resets != 1 {
+		t.Fatalf("abort must reset duplex once, got %d", resets)
+	}
+	if !sess.turnStarted.IsZero() || sess.activeTurnID != "" {
+		t.Fatalf("turn state should clear after reset")
+	}
+}
+
+func TestVolcDuplexAbortResetFailureKeepsSessionAlive(t *testing.T) {
+	t.Parallel()
+
+	sess := &volcDuplexProviderSession{
+		logger:       slog.Default(),
+		audioFormat:  "pcm-s16le",
+		turnStarted:  time.Now(),
+		activeTurnID: "turn-3",
+		resetDuplexFn: func(context.Context) error {
+			return errors.New("volc dial failed")
+		},
+	}
+
+	out, err := sess.HandleClientControl(context.Background(), voiceproto.TypeClientTurnAbort, voiceproto.MustMarshal(voiceproto.ClientTurnAbort{
+		Type:    voiceproto.TypeClientTurnAbort,
+		TurnID:  "turn-3",
+		Outcome: voiceproto.ClientTurnAbortError,
+	}))
+	if err != nil {
+		t.Fatalf("abort must not surface duplex reset errors (would kill iOS session): %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("abort must not emit outbound, got %#v", out)
+	}
+	if !sess.turnStarted.IsZero() || sess.activeTurnID != "" {
+		t.Fatalf("local turn state must still clear when reset fails")
+	}
+}
+
 func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
 	t.Parallel()
 
@@ -349,5 +412,40 @@ func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
 				t.Fatalf("outcome = %q want %q", end.Outcome, tc.wantWire)
 			}
 		})
+	}
+}
+
+func TestTurnToOutbound_StampsServerTsMsOnTextDelta(t *testing.T) {
+	t.Parallel()
+
+	frozen := time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)
+	sess := &volcDuplexProviderSession{
+		logger:       slog.Default(),
+		activeTurnID: "turn-1",
+		nextSeq:      1,
+		nowFn:        func() time.Time { return frozen },
+	}
+	out := sess.turnToOutbound(voicepoc.TurnResult{
+		Outcome:       voicepoc.TurnOutcomeOK,
+		AssistantText: "hello",
+	})
+	var delta voiceproto.AITextDelta
+	found := false
+	for _, frame := range out {
+		got, ok := frame.Control.(voiceproto.AITextDelta)
+		if !ok {
+			continue
+		}
+		found = true
+		delta = got
+	}
+	if !found {
+		t.Fatalf("expected AITextDelta in outbound, got %#v", out)
+	}
+	if delta.Text != "hello" || delta.TurnID != "turn-1" {
+		t.Fatalf("delta = %#v", delta)
+	}
+	if delta.ServerTsMs != frozen.UnixMilli() {
+		t.Fatalf("server_ts_ms = %d want %d", delta.ServerTsMs, frozen.UnixMilli())
 	}
 }

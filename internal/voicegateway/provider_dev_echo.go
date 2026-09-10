@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
@@ -128,11 +129,7 @@ func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]
 	const stub = "ready"
 	return []ProviderOutbound{
 		{
-			Control: map[string]any{
-				"type":    voiceproto.TypeAITextDelta,
-				"text":    stub,
-				"turn_id": "bootstrap",
-			},
+			Control: voiceproto.NewAITextDelta(stub, "bootstrap", time.Now().UnixMilli()),
 		},
 		{
 			Control: voiceproto.AITurnEnd{
