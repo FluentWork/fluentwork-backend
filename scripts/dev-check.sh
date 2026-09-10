@@ -40,4 +40,7 @@ go test ./...
 echo "== go build"
 go build ./...
 
+echo "== 缺陷修复纪律"
+"$ROOT/scripts/check-defect-discipline.sh"
+
 echo "All checks passed."
