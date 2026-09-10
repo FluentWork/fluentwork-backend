@@ -26,6 +26,10 @@ type EndSessionRequest struct {
 	DurationSec int
 	Reason      string
 	Utterances  []EndUtterance
+	// VoiceUsage is the audio this session moved. Nil when the provider cannot
+	// report it (mock, dev-echo); the wire field is omitted then, and the
+	// app-server writes no cost row rather than a zero-valued one.
+	VoiceUsage *VoiceUsage
 }
 
 // EndUtterance is one transcript turn for B4 persistence.
@@ -52,6 +56,16 @@ type endBody struct {
 	DurationSec int                `json:"duration_sec"`
 	Reason      string             `json:"reason"`
 	Utterances  []endUtteranceBody `json:"utterances"`
+	VoiceUsage  *endVoiceUsageBody `json:"voice_usage,omitempty"`
+}
+
+// endVoiceUsageBody is the wire shape for VoiceUsage. A separate type from
+// VoiceUsage for the same reason endUtteranceBody is separate from
+// EndUtterance: the JSON contract is not the in-process type, and keeping them
+// apart means a rename in one cannot silently change the wire.
+type endVoiceUsageBody struct {
+	UplinkMS   int64 `json:"uplink_ms"`
+	DownlinkMS int64 `json:"downlink_ms"`
 }
 
 type endUtteranceBody struct {
@@ -75,6 +89,12 @@ func (c *HTTPSessionClient) End(ctx context.Context, req EndSessionRequest) erro
 	}
 	for _, u := range req.Utterances {
 		body.Utterances = append(body.Utterances, endUtteranceBody(u))
+	}
+	if usage := req.VoiceUsage; usage != nil {
+		body.VoiceUsage = &endVoiceUsageBody{
+			UplinkMS:   usage.UplinkMS,
+			DownlinkMS: usage.DownlinkMS,
+		}
 	}
 	return c.post(ctx, "/internal/v1/sessions/end", body)
 }

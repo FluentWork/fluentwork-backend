@@ -720,6 +720,20 @@ func (r *sessionRuntime) snapshotUtterances() []EndUtterance {
 	return r.provider.SnapshotUtterances()
 }
 
+// snapshotVoiceUsage reports the audio the provider moved, when it can say.
+//
+// Nil for providers that carry no real conversation (mock, dev-echo): the field
+// is optional on the wire for the same reason, and an unreported session must
+// leave no cost row rather than a zero-valued one.
+func (r *sessionRuntime) snapshotVoiceUsage() *VoiceUsage {
+	reporter, ok := r.provider.(VoiceUsageReporter)
+	if !ok {
+		return nil
+	}
+	usage := reporter.VoiceUsage()
+	return &usage
+}
+
 // persistSession writes the session and its utterances through app-server and
 // returns the duration it recorded. A nil lifecycle is a no-op: local runs
 // without app-server still get the rest of the session behaviour.
@@ -747,6 +761,7 @@ func (h *Handler) persistSession(
 		DurationSec: durationSec,
 		Reason:      reason,
 		Utterances:  utterances,
+		VoiceUsage:  rt.snapshotVoiceUsage(),
 	})
 }
 
