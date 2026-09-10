@@ -125,7 +125,27 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	if s.nowFn == nil {
 		s.nowFn = time.Now
 	}
-	return nil, nil
+	// Announce that the session is open. iOS enters `aiSpeaking` on socketReady
+	// and only leaves it on `ai.turn.end`, so without this a volc-backed session
+	// sits in `aiSpeaking` until the first turn ends — the user's first tap is
+	// then read as barge-in and emits a spurious `interrupt` (I20 Item 4). Mock
+	// and DevEcho already emit this bootstrap frame; volc-duplex did not.
+	//
+	// Deliberately no LogID and no ai.text.delta:
+	//   - iOS keeps the first non-empty log_id for the whole session, and this
+	//     duplex is not the one the first turn runs on after an abort reset
+	//     (`resetDuplex` opens a new session), so stamping it here would break
+	//     the turn_id/log_id pairing from docs/35.
+	//   - a synthetic text delta would put words in the model's mouth in the
+	//     user-visible transcript. DevEcho's "ready" stub is fine there; a real
+	//     session must not fabricate assistant text.
+	return []ProviderOutbound{{
+		Control: voiceproto.AITurnEnd{
+			Type:    voiceproto.TypeAITurnEnd,
+			TurnID:  "bootstrap",
+			Outcome: "ok",
+		},
+	}}, nil
 }
 
 func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {

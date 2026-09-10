@@ -2,6 +2,7 @@ package voicepoc
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -109,6 +110,48 @@ func TestCollectTurn_OutcomePartialOnProgressThenWaitExpired(t *testing.T) {
 	}
 	if turn.Transcript != "hello there" {
 		t.Fatalf("expected transcript to be salvaged, got %q", turn.Transcript)
+	}
+}
+
+// TestCollectTurn_OutcomeErrorOnTransportFailureAfterProgress covers the shape
+// seen in the 2026-09-10 physical-device log: the duplex dies mid-turn after
+// delivering progress. The old code reported outcome=partial with a nil error,
+// which hid a dead upstream behind a benign label — collectTurn returned in
+// 2ms, which no wait window can produce. A read failure is not a timeout.
+func TestCollectTurn_OutcomeErrorOnTransportFailureAfterProgress(t *testing.T) {
+	t.Parallel()
+
+	url := startDuplexMockServer(t, func(conn *websocket.Conn) {
+		readUntilType(t, conn, "session.create")
+		writeJSONFrame(t, conn, `{"type":"session.created","session":{"id":"sess-dead"}}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.started"}`)
+		writeJSONFrame(t, conn, `{"type":"conversation.item.input_audio_transcription.completed","transcript":"今天学习 clean architecture。"}`)
+		writeJSONFrame(t, conn, `{"type":"response.output_text.delta","delta":"Sounds good."}`)
+		// Upstream dies before response.done.
+		_ = conn.CloseNow()
+		<-make(chan struct{})
+	})
+
+	session := openTestSession(t, url)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	started := time.Now()
+	turn, err := session.collectTurn(context.Background(), started, nil, 5*time.Second)
+	if err == nil {
+		t.Fatalf("transport failure must surface an error, got nil (turn=%+v)", turn)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("transport failure must not be classified as a timeout: %v", err)
+	}
+	if turn.Outcome != TurnOutcomeError {
+		t.Fatalf("expected Outcome=error, got %q (turn=%+v)", turn.Outcome, turn)
+	}
+	// Content that arrived before the failure is still salvaged for the caller.
+	if turn.Transcript == "" {
+		t.Fatalf("expected transcript to be salvaged, got %+v", turn)
+	}
+	if elapsed := time.Since(started); elapsed >= 5*time.Second {
+		t.Fatalf("collectTurn waited out the full window (%s) instead of failing fast", elapsed)
 	}
 }
 

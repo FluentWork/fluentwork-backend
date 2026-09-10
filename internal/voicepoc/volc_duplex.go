@@ -510,15 +510,18 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 		cancel()
 		if err != nil {
 			out.AssistantText = strings.TrimSpace(text.String())
-			// Graceful degradation: if we have any partial content (ASR or TTS),
-			// return it instead of failing. Timeout errors are recoverable.
-			if text.Len() > 0 || out.Transcript != "" || seenUserProgress || seenResponse {
-				out.Outcome = TurnOutcomePartial
-				return out, nil
-			}
-			// B15: distinguish timeout from real errors and stamp the outcome
-			// before returning so callers (and logx.Segment) record reality.
+			// `partial` means the wait window elapsed with content to salvage.
+			// A read failure is a different thing — the upstream duplex died
+			// under us. Reporting that as `partial` with a nil error hid dead
+			// connections behind a benign label: a 2ms "partial" is not a
+			// timeout. The caller emits ai.turn.end for any non-ok outcome, so
+			// iOS is still unblocked and the error rides along in its WARN.
 			if errors.Is(err, context.DeadlineExceeded) {
+				// Graceful degradation: salvage whatever arrived.
+				if text.Len() > 0 || out.Transcript != "" || seenUserProgress || seenResponse {
+					out.Outcome = TurnOutcomePartial
+					return out, nil
+				}
 				out.Outcome = TurnOutcomeTimeout
 				collectErr = fmt.Errorf("duplex turn timeout: %w", err)
 			} else {

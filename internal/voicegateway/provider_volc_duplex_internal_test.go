@@ -5,13 +5,101 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
+
+// startVolcDuplexStub answers the OpenDuplex handshake so Start can be driven
+// end to end without dialing Volc. It mirrors the mock server used by the
+// voicepoc collectTurn tests.
+func startVolcDuplexStub(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		for {
+			readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_, data, err := conn.Read(readCtx)
+			cancel()
+			if err != nil {
+				return
+			}
+			if strings.Contains(string(data), `"type":"session.create"`) {
+				_ = conn.Write(context.Background(), websocket.MessageText,
+					[]byte(`{"type":"session.created","session":{"id":"stub-duplex"}}`))
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// A volc-backed session must announce itself the way Mock and DevEcho do.
+// iOS leaves `aiSpeaking` only on `ai.turn.end`; with no bootstrap frame the
+// user's first tap is read as barge-in and emits a spurious `interrupt`
+// (I20 Item 4), which is exactly what the 2026-09-10 physical-device log showed
+// one millisecond after `user.speech.start`.
+func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
+	t.Parallel()
+
+	provider := NewVolcDuplexProvider(Config{
+		VolcSpeechAPIKey:   "test-key",
+		VolcDuplexEndpoint: startVolcDuplexStub(t),
+		VolcDuplexModel:    "test-model",
+		VolcDuplexVoice:    "test-voice",
+		ClientAudioFormat:  "pcm-s16le",
+	}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	out, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Exactly one frame: no ai.text.delta may be fabricated on a real session.
+	if len(out) != 1 {
+		t.Fatalf("bootstrap outbound count = %d, want 1: %+v", len(out), out)
+	}
+	end, ok := out[0].Control.(voiceproto.AITurnEnd)
+	if !ok {
+		t.Fatalf("bootstrap outbound is %T, want voiceproto.AITurnEnd", out[0].Control)
+	}
+	if end.TurnID != "bootstrap" || end.Outcome != "ok" {
+		t.Fatalf("unexpected bootstrap turn.end: %+v", end)
+	}
+	// iOS keeps the first non-empty log_id for the whole session; a greeting
+	// stamp would win over the first real turn's vendor id after an abort reset.
+	if end.LogID != "" {
+		t.Fatalf("bootstrap frame must not carry log_id, got %q", end.LogID)
+	}
+	raw, err := json.Marshal(end)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "log_id") {
+		t.Fatalf("bootstrap wire frame must omit log_id: %s", raw)
+	}
+}
 
 func TestVolcDuplexProviderOpenRequiresSpeechKey(t *testing.T) {
 	t.Parallel()

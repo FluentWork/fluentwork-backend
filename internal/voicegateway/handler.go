@@ -268,11 +268,17 @@ type sessionRuntime struct {
 	// type this session ignored. Forward-compat: a future v3 type must
 	// not kill a v2 gateway the way client.turn.abort once did.
 	unknownFrameCount int
+	// ended records that this session was already persisted (by the client's
+	// `session.end`). The loop exit path must not persist a second time.
+	ended bool
 }
 
-func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) error {
+func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
 	rt := &sessionRuntime{}
-	defer rt.close(ctx)
+	defer func() {
+		rt.close(ctx)
+		h.persistOnExit(ctx, rt, session, loopErr)
+	}()
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, h.idleTimeout)
 		typ, data, err := conn.Read(readCtx)
@@ -582,36 +588,20 @@ func (h *Handler) handleControl(
 		if reason == "" {
 			reason = "user"
 		}
-		durationSec := 0
-		if rt.started && !rt.startedAt.IsZero() {
-			durationSec = int(h.now().UTC().Sub(rt.startedAt).Seconds())
-			if durationSec < 0 {
-				durationSec = 0
-			}
+		durationSec, err := h.persistSession(ctx, rt, session, reason)
+		if err != nil {
+			h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
+			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "end_failed",
+				Message: err.Error(),
+			})
 		}
-		if h.lifecycle != nil {
-			endCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-			utterances := append([]EndUtterance(nil), rt.snapshotUtterances()...)
-			if err := h.lifecycle.End(endCtx, EndSessionRequest{
-				SessionID:   session.SessionID,
-				DurationSec: durationSec,
-				Reason:      reason,
-				Utterances:  utterances,
-			}); err != nil {
-				h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
-				return writeJSON(ctx, conn, voiceproto.ErrorFrame{
-					Type:    voiceproto.TypeError,
-					Code:    "end_failed",
-					Message: err.Error(),
-				})
-			}
-		}
-		utterances := rt.snapshotUtterances()
+		rt.ended = true
 		h.logger.Info("session.end persisted",
 			"session_id", session.SessionID,
 			"duration_sec", durationSec,
-			"utterance_count", len(utterances),
+			"utterance_count", len(rt.snapshotUtterances()),
 			"unknown_frame_count", rt.unknownFrameCount,
 			"stage", "orchestration",
 		)
@@ -688,11 +678,82 @@ func (r *sessionRuntime) snapshotUtterances() []EndUtterance {
 	return r.provider.SnapshotUtterances()
 }
 
+// persistSession writes the session and its utterances through app-server and
+// returns the duration it recorded. A nil lifecycle is a no-op: local runs
+// without app-server still get the rest of the session behaviour.
+func (h *Handler) persistSession(
+	ctx context.Context,
+	rt *sessionRuntime,
+	session ConsumedTicket,
+	reason string,
+) (int, error) {
+	durationSec := 0
+	if rt.started && !rt.startedAt.IsZero() {
+		durationSec = int(h.now().UTC().Sub(rt.startedAt).Seconds())
+		if durationSec < 0 {
+			durationSec = 0
+		}
+	}
+	if h.lifecycle == nil {
+		return durationSec, nil
+	}
+	endCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	utterances := append([]EndUtterance(nil), rt.snapshotUtterances()...)
+	return durationSec, h.lifecycle.End(endCtx, EndSessionRequest{
+		SessionID:   session.SessionID,
+		DurationSec: durationSec,
+		Reason:      reason,
+		Utterances:  utterances,
+	})
+}
+
+// persistOnExit writes the session when the WSS loop ends without a client
+// `session.end`. Without it a session killed by a provider failure loses every
+// utterance — no rows, no session.finished job, no review.
+func (h *Handler) persistOnExit(
+	ctx context.Context,
+	rt *sessionRuntime,
+	session ConsumedTicket,
+	loopErr error,
+) {
+	if h.lifecycle == nil || !rt.started || rt.ended {
+		return
+	}
+	reason := "connection_closed"
+	switch {
+	case rt.broken:
+		reason = "provider_audio_failed"
+	case errors.Is(loopErr, context.DeadlineExceeded):
+		reason = "idle_timeout"
+	}
+	// By the time the loop unwinds the connection context is already done.
+	// Keep its values (log context) but drop its cancellation, otherwise the
+	// app-server call would fail before it left the process.
+	_, err := h.persistSession(context.WithoutCancel(ctx), rt, session, reason)
+	if err != nil {
+		h.logger.Warn("session exit persist failed",
+			"session_id", session.SessionID, "reason", reason, "err", err)
+		return
+	}
+	rt.ended = true
+	h.logger.Info("session.exit persisted",
+		"session_id", session.SessionID,
+		"duration_sec", int(h.now().UTC().Sub(rt.startedAt).Seconds()),
+		"reason", reason,
+		"utterance_count", len(rt.snapshotUtterances()),
+		"unknown_frame_count", rt.unknownFrameCount,
+		"stage", "orchestration",
+	)
+}
+
 func (r *sessionRuntime) close(ctx context.Context) {
 	if r.provider == nil {
 		return
 	}
-	closeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// Same reason as persistOnExit: a cancelled parent would make this a
+	// no-op and leak the upstream vendor connection on every error exit.
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	_ = r.provider.Close(closeCtx)
 }

@@ -146,6 +146,9 @@ Examples:
 | `docs/39_Abort重建VolcDuplex_实现说明.md` | abort 后重建 Volc duplex | (本提交) |
 | `docs/40_server_ts_ms校准_实现说明.md` | ai.text.delta 时间戳与校准设计 | `abb01ab` |
 | `docs/41_真机联调_I20_B15.md` | 回家 192.168 真机联调指导（DevEcho Phase 1） | (本提交) |
+| `docs/42_网关异常退出持久化_实现说明.md` | 异常退出也持久化 session（真机 `cbfa2d23` 丢轮回溯） | (本提交) |
+| `docs/43_collectTurn读错误与超时区分_实现说明.md` | collectTurn 区分读错误与窗口超时 | (本提交) |
+| `docs/44_网关开场帧补齐_实现说明.md` | volc-duplex 补齐 bootstrap `ai.turn.end`（I20 Item 4 相位） | (本提交) |
 
 ## 关键 Issue 追踪
 
@@ -195,5 +198,8 @@ Examples:
 | `docs/39_Abort重建VolcDuplex_实现说明.md` | abort 后重建 Volc duplex |
 | `docs/40_server_ts_ms校准_实现说明.md` | ai.text.delta 时间戳与校准设计 |
 | `docs/41_真机联调_I20_B15.md` | 真机联调 Phase 1 DevEcho / §7.3 |
+| `docs/42_网关异常退出持久化_实现说明.md` | 异常退出落库 / reason 取值 / WithoutCancel |
+| `docs/43_collectTurn读错误与超时区分_实现说明.md` | collectTurn 读错误 vs 窗口超时 |
+| `docs/44_网关开场帧补齐_实现说明.md` | volc-duplex bootstrap `ai.turn.end` |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |
