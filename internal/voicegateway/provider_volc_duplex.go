@@ -97,6 +97,11 @@ type volcDuplexProviderSession struct {
 	activeTurnID string
 	// audio moved this session, for cost accounting. See VoiceUsage.
 	usage voiceUsage
+	// inputMuted tracks whether the vendor has been told the microphone is
+	// silent. Not bookkeeping for its own sake: the event must be sent once per
+	// silent stretch, and sending unmute without a preceding mute (or twice in
+	// a row) is a protocol violation the vendor is entitled to reject.
+	inputMuted bool
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
 	// the next HandleClientAudio call probes the upstream with an empty commit
 	// before forwarding the real payload. Probing first (instead of reacting to
@@ -189,6 +194,22 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		}
 		if err := s.session.CommitAudio(ctx); err != nil {
 			return nil, err
+		}
+
+		// The client goes silent from here until the next turn — it sends PCM
+		// only inside a speech window (docs/40) — so declare the microphone
+		// muted. Without this the vendor keeps waiting for uplink audio that
+		// will never come, times out, and stops responding.
+		//
+		// Note the division of labour with `DuplexSession.sendSilence`, which
+		// already pumps 20ms silence frames to keep the uplink warm: that runs
+		// only *during* collectTurn and stops when it returns. The gap this
+		// event covers is the one between turns, which nothing else fills.
+		if !s.inputMuted {
+			if err := s.session.CommitInputMute(ctx); err != nil {
+				return nil, err
+			}
+			s.inputMuted = true
 		}
 
 		// B15: Try with primary timeout first. WaitTurnResult returns a TurnResult
@@ -319,6 +340,16 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 	if s.turnStarted.IsZero() {
 		s.turnStarted = time.Now()
 	}
+	// Audio is arriving again, so the microphone is no longer silent. Unmute
+	// before the first frame of the new turn: the vendor was told at the last
+	// turn end that nothing more was coming, and leaving that standing would
+	// make this turn look like it arrived out of nowhere.
+	if s.inputMuted {
+		if err := s.session.CommitInputUnmute(ctx); err != nil {
+			return nil, err
+		}
+		s.inputMuted = false
+	}
 	// Counted here, after the format and empty-payload guards, so a dropped
 	// frame is not billed as audio that reached the vendor.
 	s.usage.addUplink(len(payload))
@@ -418,6 +449,13 @@ func (s *volcDuplexProviderSession) resetAfterTurnReadFailure(ctx context.Contex
 }
 
 func (s *volcDuplexProviderSession) resetDuplex(ctx context.Context) error {
+	// Reset here rather than inside defaultResetDuplex: resetDuplexFn is an
+	// injectable seam, and the invariant ("a replaced duplex has been told
+	// nothing") belongs to *any* reset, not to one implementation of it. Placing
+	// it in the default left a custom reset carrying the old session's mute
+	// state, so the new session would never be unmuted. Caught by
+	// TestVolcDuplexResetClearsMuteState.
+	s.inputMuted = false
 	if s.resetDuplexFn != nil {
 		return s.resetDuplexFn(ctx)
 	}

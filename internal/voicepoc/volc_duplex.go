@@ -265,9 +265,43 @@ func (s *DuplexSession) SendPCM(ctx context.Context, pcm []byte) error {
 }
 
 // CommitAudio commits the current input audio buffer (force endpoint).
+//
+// Not to be confused with CommitInputMute: this one ends the current audio
+// *query*; that one declares the *microphone* silent. Both are sent around the
+// same moment and they do different things.
 func (s *DuplexSession) CommitAudio(ctx context.Context) error {
 	return s.send(ctx, map[string]any{
 		"type":     "input_audio_buffer.commit",
+		"event_id": uuid.NewString(),
+	})
+}
+
+// CommitInputMute declares the microphone muted.
+//
+// The duplex model keeps its session alive on the uplink audio stream. A client
+// that stops sending between turns is therefore indistinguishable from a
+// stalled one: the server keeps waiting for input it will never get, times out,
+// and stops responding. This event is how the protocol tells "silent on
+// purpose" from "gone".
+//
+// Our client sends PCM only inside a speech window (docs/40), so the mute must
+// be declared at every turn end — which is exactly what the gateway now does.
+func (s *DuplexSession) CommitInputMute(ctx context.Context) error {
+	return s.send(ctx, map[string]any{
+		"type":     "input_audio_mute.commit",
+		"event_id": uuid.NewString(),
+	})
+}
+
+// CommitInputUnmute is the counterpart, sent when the client sends audio again.
+//
+// Not to be confused with `input_mod: "keep_alive"`, a session-level input mode
+// the vendor's SDK documentation mentions for the same "no audio reaching the
+// server" scenario. Whether that mode is a *prerequisite* for these events is
+// unverified — see docs/53.
+func (s *DuplexSession) CommitInputUnmute(ctx context.Context) error {
+	return s.send(ctx, map[string]any{
+		"type":     "input_audio_unmute.commit",
 		"event_id": uuid.NewString(),
 	})
 }
