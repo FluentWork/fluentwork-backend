@@ -16,6 +16,11 @@ package voicegateway
 type VoiceUsage struct {
 	UplinkMS   int64 `json:"uplink_ms"`
 	DownlinkMS int64 `json:"downlink_ms"`
+	// Model is the duplex model that produced this usage. It travels with the
+	// measurement because the gateway is the only side that knows it, and a
+	// ledger row without it cannot be attributed (meta 77_ P2-1: the version we
+	// configure and the one the vendor documents already disagree).
+	Model string `json:"model,omitempty"`
 }
 
 // Wire-format rates. Both directions are mono s16le, so bytes per millisecond

@@ -108,6 +108,23 @@ type EndRequest struct {
 	DurationSec int                `json:"duration_sec"`
 	Reason      string             `json:"reason"`
 	Utterances  []EndUtteranceItem `json:"utterances"`
+	// VoiceUsage is what the gateway measured for this session. Absent when the
+	// provider cannot report it (mock, dev-echo) — and absent means *no ledger
+	// row*, not a row of zeroes. See buildVoiceCostLog.
+	VoiceUsage *VoiceUsageItem `json:"voice_usage,omitempty"`
+}
+
+// VoiceUsageItem is the voice path's contribution to cost accounting, as the
+// gateway measured it.
+//
+// Milliseconds per direction rather than one total, because the two directions
+// are not priced alike and the split cannot be recovered later. The ledger
+// currently stores only their sum in `audio_sec`; see buildVoiceCostLog for why
+// that is a known limitation rather than a design.
+type VoiceUsageItem struct {
+	UplinkMS   int64  `json:"uplink_ms"`
+	DownlinkMS int64  `json:"downlink_ms"`
+	Model      string `json:"model,omitempty"`
 }
 
 // EndUtteranceItem is a transcript turn submitted at session end.

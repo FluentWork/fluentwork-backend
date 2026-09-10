@@ -39,7 +39,12 @@ type Store interface {
 	GetTicketByHash(ctx context.Context, hash string) (Ticket, error)
 	ConsumeTicket(ctx context.Context, hash string, at time.Time) (Ticket, error)
 	MarkSessionActive(ctx context.Context, sessionID string, at time.Time) (Session, error)
-	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error)
+	// EndSession ends the session and replaces its utterances. When costLog is
+	// non-nil it also writes that ai_cost_logs row **in the same transaction**,
+	// so a session can never end with its usage recorded but its transcript
+	// missing (or the reverse). nil means the provider reported no usage and no
+	// row is owed — distinct from a row of zeroes.
+	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error)
 	ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error)
 	EnqueueJob(ctx context.Context, job Job) error
 	HasSessionJob(ctx context.Context, sessionID, jobType string, statuses ...string) (bool, error)

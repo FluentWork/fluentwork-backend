@@ -169,7 +169,7 @@ func TestGetDetail_Full(t *testing.T) {
 	if _, _, _, err := store.EndSession(context.Background(), "s1", 12, []session.Utterance{
 		{ID: "u1", SessionID: "s1", Seq: 1, Speaker: session.SpeakerUser, Text: "hello"},
 		{ID: "u2", SessionID: "s1", Seq: 2, Speaker: session.SpeakerAI, Text: "hi"},
-	}, now); err != nil {
+	}, now, nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	if _, err := store.MarkSessionReviewed(context.Background(), "s1", []byte(`{}`), now); err != nil {
@@ -285,7 +285,7 @@ func TestGetDetail_ReviewReady(t *testing.T) {
 	store := session.NewMemoryStore()
 	now := time.Now().UTC()
 	seedSession(t, store, "user-1", "s1", now)
-	if _, _, _, err := store.EndSession(context.Background(), "s1", 8, nil, now); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), "s1", 8, nil, now, nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	if _, err := store.MarkSessionReviewed(context.Background(), "s1", []byte(`{}`), now); err != nil {
@@ -315,7 +315,7 @@ func TestGetDetail_FiftyUtterancesP95(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		utts[i] = session.Utterance{ID: fmt.Sprintf("u-%d", i), SessionID: "s1", Seq: i + 1, Speaker: session.SpeakerUser, Text: "ok"}
 	}
-	if _, _, _, err := store.EndSession(context.Background(), "s1", 60, utts, now); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), "s1", 60, utts, now, nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	svc := NewService(store, nil, nil)

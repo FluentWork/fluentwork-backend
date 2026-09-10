@@ -593,7 +593,11 @@ var _ SequencedVoiceProviderSession = (*volcDuplexProviderSession)(nil)
 
 // VoiceUsage implements VoiceUsageReporter. Read at session end, when the
 // gateway hands the session's totals to cost accounting.
-func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage { return s.usage.measure() }
+func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage {
+	usage := s.usage.measure()
+	usage.Model = strings.TrimSpace(s.cfg.Model)
+	return usage
+}
 
 var _ VoiceUsageReporter = (*volcDuplexProviderSession)(nil)
 

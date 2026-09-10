@@ -64,8 +64,9 @@ type endBody struct {
 // EndUtterance: the JSON contract is not the in-process type, and keeping them
 // apart means a rename in one cannot silently change the wire.
 type endVoiceUsageBody struct {
-	UplinkMS   int64 `json:"uplink_ms"`
-	DownlinkMS int64 `json:"downlink_ms"`
+	UplinkMS   int64  `json:"uplink_ms"`
+	DownlinkMS int64  `json:"downlink_ms"`
+	Model      string `json:"model,omitempty"`
 }
 
 type endUtteranceBody struct {
@@ -94,6 +95,7 @@ func (c *HTTPSessionClient) End(ctx context.Context, req EndSessionRequest) erro
 		body.VoiceUsage = &endVoiceUsageBody{
 			UplinkMS:   usage.UplinkMS,
 			DownlinkMS: usage.DownlinkMS,
+			Model:      usage.Model,
 		}
 	}
 	return c.post(ctx, "/internal/v1/sessions/end", body)

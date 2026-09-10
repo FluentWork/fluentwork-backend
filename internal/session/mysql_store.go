@@ -239,7 +239,7 @@ func (s *MySQLStore) MarkSessionActive(ctx context.Context, sessionID string, at
 }
 
 // EndSession marks a session ended and writes utterances in one transaction.
-func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error) {
+func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, nil, false, err
@@ -292,6 +292,21 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 	for _, u := range utterances {
 		u.SessionID = sessionID
 		saved = append(saved, cloneUtterance(u))
+	}
+	// Same transaction as the session and its transcript: a session must not be
+	// able to end with its usage billed but its transcript missing, or the
+	// reverse.
+	if costLog != nil {
+		// Same rule as MarkSessionReviewedWithCost: without the transactional
+		// writer there is no way to keep "session ended" and "usage billed" in
+		// one commit, so refuse rather than write the session and quietly lose
+		// the row.
+		if s.costTx == nil {
+			return Session{}, nil, false, errors.New("end session: cost ledger writer is not wired")
+		}
+		if err := s.costTx(ctx, tx, *costLog); err != nil {
+			return Session{}, nil, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Session{}, nil, false, err

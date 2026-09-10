@@ -137,7 +137,7 @@ func TestService_RateLimitSleeps(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		utts = append(utts, session.Utterance{ID: string(rune('a' + i)), SessionID: "s", Seq: i, Speaker: session.SpeakerUser, Text: "hello", CreatedAt: now})
 	}
-	if _, _, _, err := store.EndSession(ctx, "s", 4, utts, now); err != nil {
+	if _, _, _, err := store.EndSession(ctx, "s", 4, utts, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	var sleeps []time.Duration
@@ -163,7 +163,7 @@ func TestService_FiftyUtterancesUnderBudget(t *testing.T) {
 	for i := 1; i <= 50; i++ {
 		utts = append(utts, session.Utterance{ID: "id-" + itoa(i), SessionID: "big", Seq: i, Speaker: session.SpeakerUser, Text: "hello team", CreatedAt: now})
 	}
-	if _, _, _, err := store.EndSession(ctx, "big", 50, utts, now); err != nil {
+	if _, _, _, err := store.EndSession(ctx, "big", 50, utts, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(store, nil, StaticCompleter{Body: `{"score":0.6,"dims":{"grammar":0.6,"fluency":0.6,"vocabulary":0.6}}`}, nil)
@@ -248,7 +248,7 @@ func endedSession(t *testing.T, id, userID string, utts ...session.Utterance) (*
 			utts[i].CreatedAt = now
 		}
 	}
-	if _, _, _, err := store.EndSession(context.Background(), id, 10, utts, now); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), id, 10, utts, now, nil); err != nil {
 		t.Fatalf("end: %v", err)
 	}
 	return store, now

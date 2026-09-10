@@ -198,7 +198,7 @@ func (s *MemoryStore) MarkSessionActive(_ context.Context, sessionID string, at 
 
 // EndSession marks a session ended and replaces its utterances atomically.
 // If already ended, returns the existing rows with alreadyEnded=true.
-func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time) (Session, []Utterance, bool, error) {
+func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]
@@ -225,6 +225,11 @@ func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSe
 		cloned = append(cloned, cloneUtterance(u))
 	}
 	s.utterances[sessionID] = cloned
+	// No real transaction here; the row is written only on the path that
+	// actually ends the session, so a replayed end cannot double-charge.
+	if costLog != nil {
+		s.costLogs[costLog.ID] = *costLog
+	}
 	return cloneSession(session), cloneUtterances(cloned), false, nil
 }
 

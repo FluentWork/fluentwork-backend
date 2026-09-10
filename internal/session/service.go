@@ -249,7 +249,10 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 	if err != nil {
 		return EndResponse{}, err
 	}
-	session, saved, alreadyEnded, err := s.store.EndSession(ctx, sessionID, req.DurationSec, utterances, now)
+	session, saved, alreadyEnded, err := s.store.EndSession(
+		ctx, sessionID, req.DurationSec, utterances, now,
+		buildVoiceCostLog(existing, req.VoiceUsage, s.newID, now),
+	)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):

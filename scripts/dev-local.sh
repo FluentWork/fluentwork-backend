@@ -15,6 +15,6 @@ export SEED_DEVICE_ID="${SEED_DEVICE_ID:-${DEVICE_ID:-DA87E7D4-1371-4984-AD3F-D6
 export VOICE_GATEWAY_PROVIDER="${VOICE_GATEWAY_PROVIDER:-volc-duplex}"
 # Home LAN example only. Override: HOST=$(ipconfig getifaddr en0)
 # Phase 1 真机联调用 DevEcho，不要走本脚本（见 docs/41）。
-export HOST="${HOST:-192.168.2.15}"
+export HOST="${HOST:-192.168.2.104}"
 
 exec "$ROOT/scripts/dev-up.sh" --local-mysql "$@"
