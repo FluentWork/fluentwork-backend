@@ -213,12 +213,59 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 	if len(pcm) == 0 || s.emit == nil {
 		return
 	}
+	if !s.streamedAudio {
+		s.markFirstAudio()
+	}
 	s.streamedAudio = true
 	for _, frame := range s.frameAudio(pcm, false) {
 		if err := s.emit(ProviderOutbound{Binary: frame}); err != nil && s.emitErr == nil {
 			s.emitErr = err
 		}
 	}
+}
+
+// markFirstAudio records the gateway's own instant for the first audio frame of
+// a turn — the moment the learner actually starts hearing the assistant.
+//
+// P1-21: `server_ts_ms` rides on `ai.text.delta` alone, so a first *text* frame
+// can be split into upstream / server / downstream while the first *audio*
+// frame — the one the user perceives — could only ever be reported as a single
+// total. There was no server-side instant to subtract.
+//
+// # Why this is a log and not a wire field
+//
+// The obvious carrier already exists and cannot be used. `ai.tts.start` is
+// deliberately **not** sent by this provider: `TTSFrameDispatcher` only claims
+// binary frames once it has seen one, and the decoder bound into it does not
+// drive `AVAudioEngine` — emitting it would move the audio onto a path that
+// makes no sound. (See the ordering note in `turnToOutbound`.)
+//
+// So the alternatives were a new control frame, widening every binary audio
+// frame for a stamp that matters once per turn, or a log. A log costs nothing
+// on the wire, and these two logs are already correlated by `session_id` /
+// `turn_id` — the client's total minus `server_ms` is the network's share,
+// which is the split this record exists to make possible.
+//
+// `server_ts_ms` is absolute so the join does not depend on either clock being
+// the same: with the ping-derived offset the client can place it on its own
+// clock, exactly as it does for `ai.text.delta`.
+func (s *volcDuplexProviderSession) markFirstAudio() {
+	if s.logger == nil || s.turnStarted.IsZero() {
+		return
+	}
+	now := s.unixMilli()
+	sessionID := ""
+	if s.session != nil {
+		sessionID = s.session.SessionID()
+	}
+	s.logger.Info("voice.duplex.first_audio",
+		"module", "voicegateway",
+		"stage", "tts",
+		"session_id", sessionID,
+		"turn_id", canonicalTurnID(s.activeTurnID, s.nextSeq),
+		"server_ts_ms", now,
+		"server_ms", now-s.turnStarted.UTC().UnixMilli(),
+	)
 }
 
 // frameAudio resamples one vendor chunk and cuts it into client frames.
