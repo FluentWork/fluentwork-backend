@@ -435,6 +435,70 @@ func TestSchemaV1BytesAreFrozen(t *testing.T) {
 	}
 }
 
+// v1 carries two faces that have never run, and the record lives here because
+// nowhere else is left.
+//
+// The hash freeze above is why this test exists rather than a comment in the
+// schema: the file cannot be edited — not to delete them, and *not even to
+// annotate them*. An attempt to add a `description` to either one fails
+// `TestSchemaV1BytesAreFrozen`. So the note has to sit next to the constraint,
+// where someone who wonders "is `ai.audio.chunk` live?" will actually land.
+//
+//   - `ai.audio.chunk` — no producer, no consumer, no test, on either side of
+//     the wire. The gateway has the type name as a constant and nothing else.
+//     It was specified alongside the binary audio path that shipped; that path
+//     carries the sequence in the binary frame header instead, which is why
+//     this text frame never found a sender.
+//
+//   - `interrupt.max_seq` — declared `omitempty` and never set; the client does
+//     not decode it at all (its `interrupt` case carries no payload). Barge-in
+//     is governed by the audio sequence numbers in the binary frames.
+//
+// The lesson is not "these two were forgotten". It is that they were frozen
+// **before anything ran them**, which converted an unknown into a permanent
+// liability: v1 is a promise, and a promise about code nobody exercised is a
+// promise about nothing. Freeze only what you have executed.
+func TestSchemaV1DeadFacesAreStillPresentAndStillDead(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV1, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+
+	// They are still there — the freeze is doing its job. This is the assertion
+	// that fails if someone "cleans them up", and the failure is the reminder.
+	if _, ok := defs["aiAudioChunk"]; !ok {
+		t.Fatal("v1 aiAudioChunk is gone: it is frozen bytes and cannot be removed; see the P1-18 note above")
+	}
+	interrupt, ok := defs["interrupt"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.interrupt")
+	}
+	props, ok := interrupt["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("interrupt missing properties")
+	}
+	if _, ok := props["max_seq"]; !ok {
+		t.Fatal("v1 interrupt.max_seq is gone: it is frozen bytes and cannot be removed; see the P1-18 note above")
+	}
+
+	// And still dead: the zero value must not serialise the field, which is what
+	// "declared but never set" looks like from the outside.
+	raw, err := json.Marshal(voiceproto.Interrupt{Type: voiceproto.TypeInterrupt})
+	if err != nil {
+		t.Fatalf("marshal interrupt: %v", err)
+	}
+	if strings.Contains(string(raw), "max_seq") {
+		t.Fatalf("interrupt now serialises max_seq (%s) — if something started "+
+			"setting it, the P1-18 note above needs updating rather than deleting", raw)
+	}
+}
+
 func TestAITTSStartEndJSONRoundTrip(t *testing.T) {
 	t.Parallel()
 	start := voiceproto.AITTSStart{
