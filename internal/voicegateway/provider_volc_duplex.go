@@ -128,6 +128,13 @@ type volcDuplexProviderSession struct {
 	// and the handler finds out on its own next write. Recorded so the failure
 	// is not silent, logged once in turnToOutbound.
 	emitErr error
+	// deliveredText accumulates the assistant text actually pushed to the client
+	// this turn. On a barge-in it is the record of what the user heard, which is
+	// what the transcript should contain — the rest was never spoken to them.
+	deliveredText strings.Builder
+	// interruptedThisTurn is set by a client `interrupt` and read once, at turn
+	// end, when the assistant utterance is written.
+	interruptedThisTurn bool
 	// streamedText is set when this turn's reply was already pushed as deltas,
 	// so turnToOutbound must not send it a second time — the client appends
 	// ai.text.delta to the open AI item, so a repeat would duplicate the text.
@@ -180,6 +187,7 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 		return
 	}
 	s.streamedText = true
+	s.deliveredText.WriteString(delta)
 	// Same id the end-of-turn frames will carry. activeTurnID is set at
 	// user.speech.end and nextSeq does not move again until turnToOutbound, so
 	// this resolves to the same value the terminal frames use.
@@ -198,6 +206,8 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.streamedText = false
 	s.streamedAudio = false
+	s.deliveredText.Reset()
+	s.interruptedThisTurn = false
 	s.audioResampler = nil
 	s.audioPending = nil
 }
@@ -492,7 +502,13 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		return nil, nil
 
 	case voiceproto.TypeInterrupt:
-		s.logger.Info("interrupt forwarded to live provider boundary")
+		// The user cut this reply off. Everything already pushed to the client
+		// stays; everything after this point is audio the client discards at
+		// its barge-in watermark, so it was never heard and must not reach the
+		// transcript as if it had been.
+		s.interruptedThisTurn = true
+		s.logger.Info("interrupt forwarded to live provider boundary",
+			"delivered_chars", s.deliveredText.Len())
 		return nil, nil
 
 	default:
@@ -748,11 +764,33 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				Control: voiceproto.NewAITextDelta(reply, turnID, s.unixMilli()),
 			})
 		}
-		s.utterances = append(s.utterances, EndUtterance{
-			Seq:     s.nextSeq,
-			Speaker: "ai",
-			Text:    reply,
-		})
+		// What the user heard, not what the vendor produced.
+		//
+		// An interrupted reply is cut at the point of the barge-in: the audio
+		// after it was dropped by the client, so recording the whole reply
+		// would put words in the transcript that nobody ever heard. When the
+		// user heard nothing at all there is no assistant turn to record —
+		// an empty row would claim the assistant spoke.
+		spoken := reply
+		record := true
+		if s.interruptedThisTurn {
+			spoken = strings.TrimSpace(s.deliveredText.String())
+			// Nothing had reached the client, so the user heard nothing. An
+			// empty row would claim the assistant spoke.
+			record = spoken != ""
+			if !record {
+				s.logger.Info("interrupted before any delivery; no assistant turn recorded",
+					"turn_id", turnID)
+			}
+		}
+		if record {
+			s.utterances = append(s.utterances, EndUtterance{
+				Seq:         s.nextSeq,
+				Speaker:     "ai",
+				Text:        spoken,
+				Interrupted: s.interruptedThisTurn,
+			})
+		}
 		s.nextSeq++
 		s.activeTurnID = turnID
 	} else {

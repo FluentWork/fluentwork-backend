@@ -629,12 +629,13 @@ func (s *Service) normalizeEndUtterances(sessionID string, items []EndUtteranceI
 			return nil, apierr.InvalidArgument("utterance text is too long")
 		}
 		out = append(out, Utterance{
-			ID:        s.newID(),
-			SessionID: sessionID,
-			Seq:       item.Seq,
-			Speaker:   speaker,
-			Text:      text,
-			CreatedAt: now,
+			ID:          s.newID(),
+			SessionID:   sessionID,
+			Seq:         item.Seq,
+			Speaker:     speaker,
+			Text:        text,
+			CreatedAt:   now,
+			Interrupted: item.Interrupted,
 		})
 	}
 	return out, nil

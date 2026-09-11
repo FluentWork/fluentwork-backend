@@ -37,6 +37,10 @@ type EndUtterance struct {
 	Seq     int
 	Speaker string
 	Text    string
+	// Interrupted marks a reply the user cut off, in which case Text is only
+	// the part that had been delivered when they did — the transcript records
+	// what was heard, not what was generated. See `77_` P1-14.
+	Interrupted bool `json:"interrupted,omitempty"`
 }
 
 // HTTPSessionClient calls app-server internal session lifecycle endpoints.
@@ -73,6 +77,9 @@ type endUtteranceBody struct {
 	Seq     int    `json:"seq"`
 	Speaker string `json:"speaker"`
 	Text    string `json:"text"`
+	// Interrupted travels to the app-server so the persisted transcript can say
+	// "the user cut this off" rather than presenting a partial reply as whole.
+	Interrupted bool `json:"interrupted,omitempty"`
 }
 
 // Activate marks the practice session active.

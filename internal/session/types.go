@@ -100,6 +100,10 @@ type Utterance struct {
 	AudioURL      *string
 	LLMEvalJSON   []byte
 	CreatedAt     time.Time
+	// Interrupted marks a reply the user cut off. `Text` is then only the part
+	// that had been delivered when they did — the transcript records what was
+	// heard, not what was generated (77_ P1-14).
+	Interrupted bool
 }
 
 // EndRequest is the body of POST /internal/v1/sessions/end.
@@ -132,6 +136,8 @@ type EndUtteranceItem struct {
 	Seq     int    `json:"seq"`
 	Speaker string `json:"speaker"`
 	Text    string `json:"text"`
+	// Interrupted is set by the gateway when the user barged in mid-reply.
+	Interrupted bool `json:"interrupted,omitempty"`
 }
 
 // EndResponse is returned after a session is ended (or already ended).

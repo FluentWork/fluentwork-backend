@@ -279,9 +279,9 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 	for _, u := range utterances {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO utterances (
-				id, session_id, seq, speaker, text, asr_confidence, audio_url, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, u.ID, sessionID, u.Seq, u.Speaker, u.Text, nullFloat(u.ASRConfidence), nullString(u.AudioURL), u.CreatedAt); err != nil {
+				id, session_id, seq, speaker, text, asr_confidence, audio_url, created_at, interrupted
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, u.ID, sessionID, u.Seq, u.Speaker, u.Text, nullFloat(u.ASRConfidence), nullString(u.AudioURL), u.CreatedAt, u.Interrupted); err != nil {
 			return Session{}, nil, false, err
 		}
 	}
@@ -555,7 +555,7 @@ type queryRower interface {
 
 func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Utterance, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT id, session_id, seq, speaker, text, asr_confidence, audio_url, llm_eval_json, created_at
+		SELECT id, session_id, seq, speaker, text, asr_confidence, audio_url, llm_eval_json, created_at, interrupted
 		FROM utterances
 		WHERE session_id = ?
 		ORDER BY seq ASC
@@ -571,7 +571,7 @@ func listUtterancesTx(ctx context.Context, q queryRower, sessionID string) ([]Ut
 		var confidence sql.NullFloat64
 		var audioURL sql.NullString
 		var evalJSON []byte
-		if err := rows.Scan(&u.ID, &u.SessionID, &u.Seq, &u.Speaker, &u.Text, &confidence, &audioURL, &evalJSON, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.SessionID, &u.Seq, &u.Speaker, &u.Text, &confidence, &audioURL, &evalJSON, &u.CreatedAt, &u.Interrupted); err != nil {
 			return nil, err
 		}
 		if confidence.Valid {
