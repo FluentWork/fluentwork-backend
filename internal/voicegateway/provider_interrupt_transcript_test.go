@@ -110,3 +110,120 @@ func TestInterruptBeforeAnyDeliveryRecordsNoAssistantTurn(t *testing.T) {
 		t.Fatalf("recorded an assistant turn for speech the user never heard: %+v", got)
 	}
 }
+
+// 2026-09-12 真机：长 TTS 还在播，用户点说话。iOS 先发 user.speech.start，
+// 再发 interrupt。start 会 resetTurnStreamingState，把已经推给客户端的
+// deliveredText 和 interruptedThisTurn 清掉，所以日志里永远是
+// delivered_chars: 0。P1-14 的「转录记听到的」在这条生产帧序上成了空操作。
+//
+// collectingTurn 是「助手回复还没走完 turnToOutbound」：abort 漏掉的轮次
+// 仍然要靠 start 清 streamed 标志（见 TestNewTurnClearsTheStreamedFlag），
+// 但正在收集的这一轮不行。
+func TestBargeInStartThenInterruptStillRecordsWhatWasDelivered(t *testing.T) {
+	t.Parallel()
+
+	sess, _ := streamableSession(t)
+	sess.turnStarted = timeNow()
+	sess.collectingTurn = true
+
+	sess.AssistantTextDelta("Sounds")
+	sess.AssistantTextDelta(" good.")
+
+	ctx := context.Background()
+	if _, err := sess.HandleClientControl(ctx, voiceproto.TypeUserSpeechStart, nil); err != nil {
+		t.Fatalf("user.speech.start: %v", err)
+	}
+	if _, err := sess.HandleClientControl(ctx, voiceproto.TypeInterrupt, nil); err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+
+	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "Sounds good. But let me add something you never heard.",
+		Outcome:       voicepoc.TurnOutcomeOK,
+	})
+
+	utterances := assistantUtterances(sess)
+	if len(utterances) != 1 {
+		t.Fatalf("expected one assistant utterance, got %d (%+v)", len(utterances), utterances)
+	}
+	got := utterances[0]
+	if strings.Contains(got.Text, "never heard") {
+		t.Fatalf("the transcript recorded speech the user never heard: %q", got.Text)
+	}
+	if got.Text != "Sounds good." {
+		t.Fatalf("utterance text = %q, want %q (exactly what had been delivered before barge-in)", got.Text, "Sounds good.")
+	}
+	if !got.Interrupted {
+		t.Fatalf("utterance is not marked interrupted, so a reader cannot tell it is partial")
+	}
+
+	for _, item := range outbound {
+		delta, ok := item.Control.(voiceproto.AITextDelta)
+		if !ok {
+			continue
+		}
+		if strings.Contains(delta.Text, "never heard") {
+			t.Fatalf("start wiped streamedText, so the unheard tail went out as a fresh delta: %q", delta.Text)
+		}
+	}
+}
+
+// docs/63 left "stop forwarding leftover TTS" as the other half of interrupt.
+// P1-14 only truncated the transcript. After barge-in the vendor keeps
+// producing; if we keep pushing those frames the client (and a late
+// turnToOutbound flush) still hears speech the user already talked over.
+func TestInterruptStopsForwardingFurtherAssistantAudio(t *testing.T) {
+	t.Parallel()
+
+	sess, emitter := streamableSession(t)
+	sess.turnStarted = timeNow()
+
+	sess.AssistantAudio(randomPCM(t, 4800, 11))
+	before := len(emitter.binaryFrames())
+	if before == 0 {
+		t.Fatal("need audio on the wire before interrupt")
+	}
+
+	if _, err := sess.HandleClientControl(context.Background(), voiceproto.TypeInterrupt, nil); err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+
+	sess.AssistantAudio(randomPCM(t, 4800, 12))
+	if got := len(emitter.binaryFrames()); got != before {
+		t.Fatalf("forwarded %d audio frames after interrupt (had %d) — leftover TTS still reached the client", got, before)
+	}
+}
+
+func TestInterruptStopsForwardingFurtherTextDeltas(t *testing.T) {
+	t.Parallel()
+
+	sess, emitter := streamableSession(t)
+	sess.turnStarted = timeNow()
+
+	sess.AssistantTextDelta("Heard this.")
+	if _, err := sess.HandleClientControl(context.Background(), voiceproto.TypeInterrupt, nil); err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+	sess.AssistantTextDelta(" Never heard.")
+
+	for _, fragment := range emitter.textDeltas() {
+		if strings.Contains(fragment, "Never heard") {
+			t.Fatalf("text after interrupt still reached the client: %q", fragment)
+		}
+	}
+
+	sess.turnToOutbound(voicepoc.TurnResult{
+		AssistantText: "Heard this. Never heard.",
+		Outcome:       voicepoc.TurnOutcomeOK,
+	})
+	utterances := assistantUtterances(sess)
+	if len(utterances) != 1 {
+		t.Fatalf("expected one assistant utterance, got %d (%+v)", len(utterances), utterances)
+	}
+	if strings.Contains(utterances[0].Text, "Never heard") {
+		t.Fatalf("transcript recorded speech forwarded after interrupt: %q", utterances[0].Text)
+	}
+	if utterances[0].Text != "Heard this." {
+		t.Fatalf("utterance text = %q, want the pre-interrupt delivery", utterances[0].Text)
+	}
+}

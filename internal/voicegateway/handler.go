@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -295,6 +297,27 @@ type sessionRuntime struct {
 	// ended records that this session was already persisted (by the client's
 	// `session.end`). The loop exit path must not persist a second time.
 	ended bool
+	// writeMu serializes gateway→client writes. collectTurn now runs on its
+	// own goroutine so interrupt can be read during WaitTurnResult; its sink
+	// emits on that goroutine while the loop still writes ping/interrupt.
+	writeMu sync.Mutex
+	// collectWG counts an in-flight user.speech.end / WaitTurnResult.
+	collectWG sync.WaitGroup
+	// collecting is set while WaitTurnResult is running so a second
+	// user.speech.end cannot start a overlapping collect on the same duplex.
+	collecting atomic.Bool
+}
+
+func (rt *sessionRuntime) sendJSON(ctx context.Context, conn *websocket.Conn, v any) error {
+	rt.writeMu.Lock()
+	defer rt.writeMu.Unlock()
+	return writeJSON(ctx, conn, v)
+}
+
+func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
+	rt.writeMu.Lock()
+	defer rt.writeMu.Unlock()
+	return writeProviderOutbound(ctx, conn, outbound)
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
@@ -392,14 +415,14 @@ func (h *Handler) handleAudio(
 				if _, startErr := reopened.Start(ctx, reopenStart, rt.continuation); startErr == nil {
 					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
-					attachOutboundEmitter(ctx, conn, reopened)
+					attachOutboundEmitter(ctx, conn, rt, reopened)
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
 						"session_id", session.SessionID,
 						"original_err", err,
 					)
 					retried, retryErr := rt.provider.HandleClientAudio(ctx, data)
 					if retryErr == nil {
-						return writeProviderOutbound(ctx, conn, retried)
+						return rt.sendOutbound(ctx, conn, retried)
 					}
 					err = retryErr
 				} else {
@@ -421,14 +444,14 @@ func (h *Handler) handleAudio(
 		// error so the loop exits immediately instead of waiting for idle timeout.
 		// If the WS is already dead writeJSON will fail — that's fine, the error
 		// return below still terminates the session.
-		_ = writeJSON(ctx, conn, voiceproto.ErrorFrame{
+		_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
 			Code:    "provider_audio_failed",
 			Message: err.Error(),
 		})
 		return fmt.Errorf("provider audio forward failed: %w", err)
 	}
-	return writeProviderOutbound(ctx, conn, outbound)
+	return rt.sendOutbound(ctx, conn, outbound)
 }
 
 func (h *Handler) handleControl(
@@ -440,7 +463,7 @@ func (h *Handler) handleControl(
 ) error {
 	frameType, err := voiceproto.DecodeType(data)
 	if err != nil {
-		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+		return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
 			Code:    "invalid_frame",
 			Message: err.Error(),
@@ -451,7 +474,7 @@ func (h *Handler) handleControl(
 	case voiceproto.TypePing:
 		var ping voiceproto.Ping
 		if err := json.Unmarshal(data, &ping); err != nil {
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "invalid_frame",
 				Message: err.Error(),
@@ -461,12 +484,12 @@ func (h *Handler) handleControl(
 		if ts == 0 {
 			ts = h.now().UnixMilli()
 		}
-		return writeJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
+		return rt.sendJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
 
 	case voiceproto.TypeSessionStart:
 		var start voiceproto.SessionStart
 		if err := json.Unmarshal(data, &start); err != nil {
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "invalid_frame",
 				Message: err.Error(),
@@ -476,7 +499,7 @@ func (h *Handler) handleControl(
 			if h.lifecycle != nil {
 				if err := h.lifecycle.Activate(ctx, session.SessionID); err != nil {
 					h.logger.Warn("session activate failed", "session_id", session.SessionID, "err", err)
-					return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+					return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 						Type:    voiceproto.TypeError,
 						Code:    "activate_failed",
 						Message: err.Error(),
@@ -486,14 +509,14 @@ func (h *Handler) handleControl(
 			provider, err := h.provider.Open(ctx, session)
 			if err != nil {
 				h.logger.Warn("provider open failed", "session_id", session.SessionID, "err", err)
-				return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+				return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 					Type:    voiceproto.TypeError,
 					Code:    "provider_open_failed",
 					Message: err.Error(),
 				})
 			}
 			rt.provider = provider
-			attachOutboundEmitter(ctx, conn, provider)
+			attachOutboundEmitter(ctx, conn, rt, provider)
 			rt.started = true
 			rt.startedAt = h.now().UTC()
 		}
@@ -530,17 +553,17 @@ func (h *Handler) handleControl(
 		outbound, err := rt.provider.Start(ctx, start, rt.continuation)
 		if err != nil {
 			h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "provider_start_failed",
 				Message: err.Error(),
 			})
 		}
-		return writeProviderOutbound(ctx, conn, outbound)
+		return rt.sendOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd:
 		if !rt.started {
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "session_not_started",
 				Message: "send session.start first",
@@ -562,6 +585,9 @@ func (h *Handler) handleControl(
 				"stage", "orchestration",
 			)
 		}
+		if frameType == voiceproto.TypeUserSpeechEnd {
+			return h.startCollectTurn(ctx, conn, rt, session, data)
+		}
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
 		if err != nil {
 			h.logger.Warn("provider control forward failed",
@@ -569,50 +595,13 @@ func (h *Handler) handleControl(
 				"type", frameType,
 				"err", err,
 			)
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "provider_control_failed",
 				Message: err.Error(),
 			})
 		}
-		if err := writeProviderOutbound(ctx, conn, outbound); err != nil {
-			return err
-		}
-		// B13 gate: when client ASR is required and text is empty, reject early.
-		if frameType == voiceproto.TypeUserSpeechEnd && h.clientASRRequired {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				if strings.TrimSpace(end.Text) == "" {
-					return writeJSON(ctx, conn, voiceproto.ErrorFrame{
-						Type:    voiceproto.TypeError,
-						Code:    "client_asr_required",
-						Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
-					})
-				}
-			}
-		}
-		// B12 — fire-and-forget hit detection on user.speech.end so the
-		// client ASR transcript can be matched against stored phrase blocks.
-		// Never blocks the control frame; failures are logged by the emitter.
-		// B14: When client text is empty (B13 client ASR disabled), fall back to
-		// server-side ASR text from the provider's ProviderOutbound.ServerASRText.
-		if frameType == voiceproto.TypeUserSpeechEnd && h.badgeEmitter != nil {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				turnID := strings.TrimSpace(end.TurnID)
-				if turnID == "" {
-					// No client-supplied turn id → scope dedupe by session.
-					turnID = session.SessionID
-				}
-				// Prefer client ASR text; fall back to server ASR text (B14).
-				asrText := strings.TrimSpace(end.Text)
-				if asrText == "" {
-					asrText = extractServerASRText(outbound)
-				}
-				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
-			}
-		}
-		return nil
+		return rt.sendOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeClientTurnAbort:
 		// I20: recording abort. iOS already stopped PCM and will not send
@@ -620,14 +609,14 @@ func (h *Handler) handleControl(
 		// keeps the session alive for the next user.speech.start.
 		var abort voiceproto.ClientTurnAbort
 		if err := json.Unmarshal(data, &abort); err != nil {
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "invalid_frame",
 				Message: err.Error(),
 			})
 		}
 		if !voiceproto.ValidClientTurnAbortOutcome(abort.Outcome) {
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "invalid_frame",
 				Message: "client.turn.abort.outcome must be timeout, user_abandoned, or error",
@@ -653,7 +642,7 @@ func (h *Handler) handleControl(
 			)
 			return nil
 		}
-		return writeProviderOutbound(ctx, conn, outbound)
+		return rt.sendOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeInterrupt:
 		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
@@ -663,13 +652,13 @@ func (h *Handler) handleControl(
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
 		if err != nil {
 			h.logger.Warn("provider interrupt forward failed", "session_id", session.SessionID, "err", err)
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "provider_interrupt_failed",
 				Message: err.Error(),
 			})
 		}
-		return writeProviderOutbound(ctx, conn, outbound)
+		return rt.sendOutbound(ctx, conn, outbound)
 
 	case voiceproto.TypeSessionEnd:
 		var end voiceproto.SessionEnd
@@ -680,10 +669,11 @@ func (h *Handler) handleControl(
 		if reason == "" {
 			reason = "user"
 		}
+		rt.collectWG.Wait()
 		durationSec, err := h.persistSession(ctx, rt, session, reason)
 		if err != nil {
 			h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
-			return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 				Type:    voiceproto.TypeError,
 				Code:    "end_failed",
 				Message: err.Error(),
@@ -697,7 +687,7 @@ func (h *Handler) handleControl(
 			"unknown_frame_count", rt.unknownFrameCount,
 			"stage", "orchestration",
 		)
-		_ = writeJSON(ctx, conn, map[string]any{
+		_ = rt.sendJSON(ctx, conn, map[string]any{
 			"type":   voiceproto.TypeSessionEnd,
 			"reason": "ack",
 		})
@@ -705,7 +695,7 @@ func (h *Handler) handleControl(
 		return errSessionEnded
 
 	case voiceproto.TypeAuth:
-		return writeJSON(ctx, conn, voiceproto.ErrorFrame{
+		return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
 			Type:    voiceproto.TypeError,
 			Code:    "already_authenticated",
 			Message: "auth already completed",
@@ -727,6 +717,81 @@ func (h *Handler) handleControl(
 	}
 }
 
+// startCollectTurn runs WaitTurnResult off the WSS read loop.
+//
+// The loop used to call HandleClientControl(user.speech.end) synchronously,
+// so an interrupt that arrived while the assistant was still generating sat
+// in the TCP buffer until collectTurn returned. By then the full reply was
+// already persisted and leftover TTS had already been forwarded.
+func (h *Handler) startCollectTurn(
+	ctx context.Context,
+	conn *websocket.Conn,
+	rt *sessionRuntime,
+	session ConsumedTicket,
+	data []byte,
+) error {
+	if !rt.collecting.CompareAndSwap(false, true) {
+		h.logger.Warn("user.speech.end ignored; collect already in flight",
+			"session_id", session.SessionID,
+		)
+		return nil
+	}
+	rt.collectWG.Add(1)
+	go func() {
+		defer rt.collectWG.Done()
+		defer rt.collecting.Store(false)
+
+		outbound, err := rt.provider.HandleClientControl(ctx, voiceproto.TypeUserSpeechEnd, data)
+		if err != nil {
+			h.logger.Warn("provider control forward failed",
+				"session_id", session.SessionID,
+				"type", voiceproto.TypeUserSpeechEnd,
+				"err", err,
+			)
+			_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "provider_control_failed",
+				Message: err.Error(),
+			})
+			return
+		}
+		if err := rt.sendOutbound(ctx, conn, outbound); err != nil {
+			h.logger.Warn("collect turn outbound write failed",
+				"session_id", session.SessionID,
+				"err", err,
+			)
+			return
+		}
+		if h.clientASRRequired {
+			var end voiceproto.UserSpeechEnd
+			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
+				if strings.TrimSpace(end.Text) == "" {
+					_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
+						Type:    voiceproto.TypeError,
+						Code:    "client_asr_required",
+						Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
+					})
+				}
+			}
+		}
+		if h.badgeEmitter != nil {
+			var end voiceproto.UserSpeechEnd
+			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
+				turnID := strings.TrimSpace(end.TurnID)
+				if turnID == "" {
+					turnID = session.SessionID
+				}
+				asrText := strings.TrimSpace(end.Text)
+				if asrText == "" {
+					asrText = extractServerASRText(outbound)
+				}
+				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
+			}
+		}
+	}()
+	return nil
+}
+
 func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -742,13 +807,13 @@ func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 // which would otherwise stream nowhere — and, because the provider only
 // suppresses its end-of-turn text frame when a sink is installed, would keep
 // working but lose the streaming behaviour silently.
-func attachOutboundEmitter(ctx context.Context, conn *websocket.Conn, provider VoiceProviderSession) {
+func attachOutboundEmitter(ctx context.Context, conn *websocket.Conn, rt *sessionRuntime, provider VoiceProviderSession) {
 	streamer, ok := provider.(StreamingVoiceProviderSession)
 	if !ok {
 		return
 	}
 	streamer.SetOutboundEmitter(func(item ProviderOutbound) error {
-		return writeProviderOutbound(ctx, conn, []ProviderOutbound{item})
+		return rt.sendOutbound(ctx, conn, []ProviderOutbound{item})
 	})
 }
 
@@ -780,11 +845,11 @@ func extractServerASRText(outbound []ProviderOutbound) string {
 	return ""
 }
 
-func (r *sessionRuntime) snapshotUtterances() []EndUtterance {
-	if r.provider == nil {
+func (rt *sessionRuntime) snapshotUtterances() []EndUtterance {
+	if rt.provider == nil {
 		return nil
 	}
-	return r.provider.SnapshotUtterances()
+	return rt.provider.SnapshotUtterances()
 }
 
 // snapshotVoiceUsage reports the audio the provider moved, when it can say.
@@ -792,8 +857,8 @@ func (r *sessionRuntime) snapshotUtterances() []EndUtterance {
 // Nil for providers that carry no real conversation (mock, dev-echo): the field
 // is optional on the wire for the same reason, and an unreported session must
 // leave no cost row rather than a zero-valued one.
-func (r *sessionRuntime) snapshotVoiceUsage() *VoiceUsage {
-	reporter, ok := r.provider.(VoiceUsageReporter)
+func (rt *sessionRuntime) snapshotVoiceUsage() *VoiceUsage {
+	reporter, ok := rt.provider.(VoiceUsageReporter)
 	if !ok {
 		return nil
 	}
@@ -881,13 +946,14 @@ func (h *Handler) persistOnExit(
 	)
 }
 
-func (r *sessionRuntime) close(ctx context.Context) {
-	if r.provider == nil {
-		return
+func (rt *sessionRuntime) close(ctx context.Context) {
+	if rt.provider != nil {
+		// Close the upstream first so WaitTurnResult unblocks, then wait for
+		// the collect goroutine. Waiting first deadlocks: collect holds the
+		// vendor socket open.
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		_ = rt.provider.Close(closeCtx)
+		cancel()
 	}
-	// Same reason as persistOnExit: a cancelled parent would make this a
-	// no-op and leak the upstream vendor connection on every error exit.
-	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-	defer cancel()
-	_ = r.provider.Close(closeCtx)
+	rt.collectWG.Wait()
 }

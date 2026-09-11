@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
-	defaultDuplexModel    = "1.2.6.0"
+	defaultDuplexModel    = "1.2.6.1"
 	defaultDuplexVoice    = "zh_female_vv_jupiter_bigtts"
 )
 
@@ -76,6 +76,14 @@ type TurnSink interface {
 	// resampled here — the rate is the vendor's, and converting to whatever the
 	// client plays is the gateway's job. Empty chunks are never delivered.
 	AssistantAudio(pcm []byte)
+
+	// UserTranscript is the provider-side ASR text, forwarded the moment the
+	// vendor finishes transcribing this turn. Empty strings are never delivered.
+	//
+	// This is a different clock from the assistant reply. ASR completes before
+	// TTS is generated; if the gateway waits for collectTurn to return, the
+	// client keeps showing "正在转写…" until the answer is already playing.
+	UserTranscript(text string)
 }
 
 // SessionID returns the server session id from session.created.
@@ -542,6 +550,15 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 	var streamed strings.Builder
 	seenUserProgress := false
 	seenResponse := false
+	var lastForwardedASR string
+	forwardASR := func() {
+		t := strings.TrimSpace(out.Transcript)
+		if t == "" || t == lastForwardedASR || s.turnSink == nil {
+			return
+		}
+		lastForwardedASR = t
+		s.turnSink.UserTranscript(t)
+	}
 	apply := func(evt DuplexEvent) bool {
 		seenAnyEvent = true
 		out.EventTypes = append(out.EventTypes, evt.Type)
@@ -552,6 +569,7 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			if t := evt.Transcript; t != "" {
 				out.Transcript = t
 			}
+			forwardASR()
 		case "conversation.item.input_audio_transcription.delta":
 			seenUserProgress = true
 			if evt.Transcript != "" {
@@ -559,6 +577,7 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			} else if evt.Delta != "" {
 				out.Transcript = evt.Delta
 			}
+			forwardASR()
 		case "conversation.item.input_audio_transcription.completed":
 			seenUserProgress = true
 			out.ASRDoneAtMS = time.Since(started).Milliseconds()
@@ -567,9 +586,17 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 			} else if evt.Text != "" {
 				out.Transcript = evt.Text
 			}
+			forwardASR()
 		case "input_audio_buffer.committed":
 			seenUserProgress = true
 		case "response.output_text.delta":
+			// Leftover deltas from the previous turn arrive before this turn's
+			// ASR. collectTurn already ignored a stale response.done; it must
+			// ignore leftover text/audio the same way or they splice into the
+			// new reply (2026-09-12).
+			if !seenUserProgress {
+				return false
+			}
 			seenResponse = true
 			if evt.Delta != "" {
 				// Accumulate *and* forward. The builder still has to hold the
@@ -582,6 +609,9 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 				}
 			}
 		case "response.output_text.done":
+			if !seenUserProgress {
+				return false
+			}
 			seenResponse = true
 			if evt.Text != "" {
 				text.Reset()
@@ -603,10 +633,16 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 				}
 			}
 		case "response.output_audio.started":
+			if !seenUserProgress {
+				return false
+			}
 			seenResponse = true
 		case "response.output_audio.delta":
 			// The assistant's voice. Previously dropped here, which is why the
 			// speaking room had no sound at all on the volc path.
+			if !seenUserProgress {
+				return false
+			}
 			seenResponse = true
 			if evt.Delta != "" {
 				if chunk, decodeErr := base64.StdEncoding.DecodeString(evt.Delta); decodeErr == nil {
@@ -620,7 +656,16 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 					}
 				}
 			}
-		case "response.output_audio.done", "response.done":
+		case "response.output_audio.done":
+			// The audio stream finished. This is not the turn terminator —
+			// Volc still sends response.done after it. Ending here (2026-09-12
+			// d5090fe1) left that done on the socket; the next collectTurn
+			// started with leftover done, ASR started, then Volc produced
+			// nothing for 60s.
+			if seenUserProgress {
+				seenResponse = true
+			}
+		case "response.done":
 			// Ignore stale done from a previous turn until this turn has user+response progress.
 			if !seenUserProgress || !seenResponse {
 				return false

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
@@ -83,6 +84,7 @@ const keepaliveIdleThreshold = 60 * time.Second
 const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
+	mu          sync.Mutex
 	cfg         voicepoc.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
@@ -135,6 +137,16 @@ type volcDuplexProviderSession struct {
 	// interruptedThisTurn is set by a client `interrupt` and read once, at turn
 	// end, when the assistant utterance is written.
 	interruptedThisTurn bool
+	// collectingTurn is true while WaitTurnResult is in flight — the assistant
+	// reply has not yet been finalized by turnToOutbound. A barge-in
+	// user.speech.start must not reset interrupt accounting or streamed flags
+	// in this window: iOS sends start before interrupt, and wiping here is
+	// how delivered_chars became 0 on 2026-09-12.
+	collectingTurn bool
+	// streamedASR is the same idea for the user's transcript: pushed as
+	// client.asr.transcription the moment the vendor finishes ASR, so
+	// turnToOutbound must not send that frame a second time.
+	streamedASR bool
 	// streamedText is set when this turn's reply was already pushed as deltas,
 	// so turnToOutbound must not send it a second time — the client appends
 	// ai.text.delta to the open AI item, so a repeat would duplicate the text.
@@ -180,10 +192,39 @@ func (s *volcDuplexProviderSession) wireTurnSink() {
 	s.session.SetTurnSink(s)
 }
 
+func (s *volcDuplexProviderSession) UserTranscript(text string) {
+	if text == "" || s.emit == nil {
+		return
+	}
+	s.mu.Lock()
+	s.streamedASR = true
+	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	s.mu.Unlock()
+	if err := s.emit(ProviderOutbound{
+		Control: voiceproto.ClientASRTranscription{
+			Type:   voiceproto.TypeClientASRTranscription,
+			Text:   text,
+			TurnID: turnID,
+		},
+		ServerASRText: text,
+	}); err != nil {
+		s.mu.Lock()
+		if s.emitErr == nil {
+			s.emitErr = err
+		}
+		s.mu.Unlock()
+	}
+}
+
 // AssistantTextDelta implements voicepoc.TurnSink: one fragment of the
 // assistant's reply, pushed the moment the vendor produces it.
 func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 	if delta == "" || s.emit == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.interruptedThisTurn {
+		s.mu.Unlock()
 		return
 	}
 	s.streamedText = true
@@ -192,10 +233,15 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 	// user.speech.end and nextSeq does not move again until turnToOutbound, so
 	// this resolves to the same value the terminal frames use.
 	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	s.mu.Unlock()
 	if err := s.emit(ProviderOutbound{
 		Control: voiceproto.NewAITextDelta(delta, turnID, s.unixMilli()),
-	}); err != nil && s.emitErr == nil {
-		s.emitErr = err
+	}); err != nil {
+		s.mu.Lock()
+		if s.emitErr == nil {
+			s.emitErr = err
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -206,10 +252,12 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.streamedText = false
 	s.streamedAudio = false
+	s.streamedASR = false
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
 	s.audioPending = nil
+	s.collectingTurn = false
 }
 
 // AssistantAudio implements voicepoc.TurnSink: one chunk of the assistant's
@@ -223,13 +271,24 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 	if len(pcm) == 0 || s.emit == nil {
 		return
 	}
-	if !s.streamedAudio {
+	s.mu.Lock()
+	if s.interruptedThisTurn {
+		s.mu.Unlock()
+		return
+	}
+	first := !s.streamedAudio
+	s.streamedAudio = true
+	s.mu.Unlock()
+	if first {
 		s.markFirstAudio()
 	}
-	s.streamedAudio = true
 	for _, frame := range s.frameAudio(pcm, false) {
-		if err := s.emit(ProviderOutbound{Binary: frame}); err != nil && s.emitErr == nil {
-			s.emitErr = err
+		if err := s.emit(ProviderOutbound{Binary: frame}); err != nil {
+			s.mu.Lock()
+			if s.emitErr == nil {
+				s.emitErr = err
+			}
+			s.mu.Unlock()
 		}
 	}
 }
@@ -356,8 +415,18 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// turnToOutbound, and state left over from it would corrupt the next
 		// turn — a stale streamed flag would suppress its reply entirely, and
 		// stale audioPending would prepend the previous turn's tail to it.
-		s.resetTurnStreamingState()
-		s.turnStarted = time.Now()
+		//
+		// Exception: iOS barge-in sends user.speech.start *then* interrupt,
+		// while the previous assistant reply is still being collected. Wiping
+		// here is how delivered_chars became 0 on 2026-09-12 and P1-14's
+		// transcript truncation became a no-op. Leave accounting for
+		// turnToOutbound to consume.
+		s.mu.Lock()
+		if !s.collectingTurn {
+			s.resetTurnStreamingState()
+			s.turnStarted = time.Now()
+		}
+		s.mu.Unlock()
 		return nil, nil
 
 	case voiceproto.TypeUserSpeechEnd:
@@ -406,6 +475,16 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// B15: Try with primary timeout first. WaitTurnResult returns a TurnResult
 		// with Outcome set on every exit path (ok/partial/timeout/error). When Outcome
 		// is already set, use the partial content even if an error is also returned.
+		s.mu.Lock()
+		s.collectingTurn = true
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			if s.collectingTurn {
+				s.collectingTurn = false
+			}
+			s.mu.Unlock()
+		}()
 		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
 
 		// The turn's read failed: the upstream socket is gone. Replace it here,
@@ -487,9 +566,11 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 	case voiceproto.TypeClientTurnAbort:
 		// Cancel the open user-speech window without CommitAudio / collectTurn.
 		// The next user.speech.start begins a fresh turn; WSS stays open.
+		s.mu.Lock()
 		s.turnStarted = time.Time{}
 		s.activeTurnID = ""
 		s.resetTurnStreamingState()
+		s.mu.Unlock()
 		if err := s.resetDuplex(ctx); err != nil {
 			// Keep the iOS WSS alive. The leftover Volc buffer is a residual
 			// risk logged here; the next audio-forward reopen-once may recover.
@@ -502,13 +583,15 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		return nil, nil
 
 	case voiceproto.TypeInterrupt:
-		// The user cut this reply off. Everything already pushed to the client
-		// stays; everything after this point is audio the client discards at
-		// its barge-in watermark, so it was never heard and must not reach the
-		// transcript as if it had been.
+		// The user cut this reply off. Stop forwarding leftover TTS; keep
+		// what already went out. The vendor may still generate (no cancel
+		// API), but the client and the transcript must not hear the tail.
+		s.mu.Lock()
 		s.interruptedThisTurn = true
+		delivered := s.deliveredText.Len()
+		s.mu.Unlock()
 		s.logger.Info("interrupt forwarded to live provider boundary",
-			"delivered_chars", s.deliveredText.Len())
+			"delivered_chars", delivered)
 		return nil, nil
 
 	default:
@@ -711,6 +794,20 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		"event_types", turn.EventTypes,
 		"outcome", turn.Outcome, // B15: explicit outcome in logs
 	)
+
+	s.mu.Lock()
+	interrupted := s.interruptedThisTurn
+	delivered := strings.TrimSpace(s.deliveredText.String())
+	streamedText := s.streamedText
+	streamedAudio := s.streamedAudio
+	streamedASR := s.streamedASR
+	if interrupted {
+		// Barge-in: drop the unsent partial frame. Flushing it would put
+		// leftover TTS on the wire after the user had already started speaking.
+		s.audioPending = nil
+	}
+	s.mu.Unlock()
+
 	if transcript != "" {
 		s.utterances = append(s.utterances, EndUtterance{
 			Seq:     s.nextSeq,
@@ -718,48 +815,31 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 			Text:    transcript,
 		})
 		s.nextSeq++
-		// B14: relay authoritative provider-side ASR transcript back to the client
-		// so the client can use it for B7 hit-detection instead of re-running
-		// a separate local ASR pass (e.g., Apple Speech).
-		// Also carry it in ServerASRText for backend badge detection.
-		outbound = append(outbound, ProviderOutbound{
-			Control: voiceproto.ClientASRTranscription{
+		item := ProviderOutbound{ServerASRText: transcript}
+		if !streamedASR {
+			item.Control = voiceproto.ClientASRTranscription{
 				Type:   voiceproto.TypeClientASRTranscription,
 				Text:   transcript,
 				TurnID: s.activeTurnID,
-			},
-			ServerASRText: transcript, // B14: for badge emitter
-		})
+			}
+		}
+		outbound = append(outbound, item)
 	}
 
 	reply := strings.TrimSpace(turn.AssistantText)
-	// B15: always send ai.turn.end so iOS can leave .processing even when reply is
-	// empty (e.g., timeout with partial ASR transcript but no TTS). Outcome is always
-	// set on every exit path in collectTurn, so we can stamp it faithfully here.
-	{
-		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
-		// B15-I3: include the Volcengine vendor log_id so iOS can correlate
-		// tracker events with backend and vendor-side diagnostic logs.
-		var logID string
-		if s.session != nil {
-			logID = s.session.LogID()
-		}
-		outbound = append(outbound, ProviderOutbound{
-			Control: voiceproto.AITurnEnd{
-				Type:    voiceproto.TypeAITurnEnd,
-				TurnID:  turnID,
-				Outcome: string(turn.Outcome), // B15: explicit outcome in ai.turn.end
-				LogID:   logID,                // B15-I3: vendor trace log_id
-			},
-		})
+	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	// B15-I3: include the Volcengine vendor log_id so iOS can correlate
+	// tracker events with backend and vendor-side diagnostic logs.
+	var logID string
+	if s.session != nil {
+		logID = s.session.LogID()
 	}
 	if reply != "" {
-		turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
 		// The utterance is recorded either way — it is the persisted record of
 		// the turn. The frame is not: when the reply already went out as deltas,
 		// sending the whole thing again would append it a second time on the
 		// client, whose reducer appends ai.text.delta to the open AI item.
-		if !s.streamedText {
+		if !streamedText {
 			outbound = append(outbound, ProviderOutbound{
 				Control: voiceproto.NewAITextDelta(reply, turnID, s.unixMilli()),
 			})
@@ -773,8 +853,8 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		// an empty row would claim the assistant spoke.
 		spoken := reply
 		record := true
-		if s.interruptedThisTurn {
-			spoken = strings.TrimSpace(s.deliveredText.String())
+		if interrupted {
+			spoken = delivered
 			// Nothing had reached the client, so the user heard nothing. An
 			// empty row would claim the assistant spoke.
 			record = spoken != ""
@@ -788,22 +868,21 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				Seq:         s.nextSeq,
 				Speaker:     "ai",
 				Text:        spoken,
-				Interrupted: s.interruptedThisTurn,
+				Interrupted: interrupted,
 			})
 		}
 		s.nextSeq++
 		s.activeTurnID = turnID
 	} else {
-		// No reply but we sent ai.turn.end above; advance seq so next turn gets a fresh ID.
 		s.nextSeq++
 	}
-	// The assistant's voice.
+
+	// The assistant's voice, then the stream terminator, then ai.turn.end.
 	//
-	// Ordering note: this used to be documented as "last, so it follows
-	// ai.turn.end". When the audio streams, most of it now precedes
-	// ai.turn.end — that is the entire point, since the client plays frames as
-	// they arrive and `ai.turn.end` only finalizes the transcript item. The two
-	// are independent on the client, so the reordering is deliberate.
+	// iOS finalizes the open AI item on ai.turn.end and leaves aiSpeaking.
+	// Any binary audio after that is a new bubble — that is the 2026-09-12
+	// split: a leftover partial frame (and ai.tts.end) arrived after
+	// ai.turn.end and reopened the turn. Close the audio stream first.
 	//
 	// Sent as plain binary frames with **no** ai.tts.start on purpose.
 	// TTSFrameDispatcher only claims binary frames once it has seen an
@@ -815,26 +894,28 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
 	s.usage.addDownlink(len(turn.AudioPCM))
-	if s.streamedAudio {
-		// Already on the wire, frame by frame. What remains is the trailing
-		// partial frame the resampler held back — flushed here, exactly once,
-		// because frameAudio cannot know it is the last one until now.
-		for _, frame := range s.frameAudio(nil, true) {
-			outbound = append(outbound, ProviderOutbound{Binary: frame})
-		}
-	} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
-		for offset := 0; offset < len(pcm); offset += audioFrameBytes {
-			end := offset + audioFrameBytes
-			if end > len(pcm) {
-				end = len(pcm)
+	if !interrupted {
+		if streamedAudio {
+			// Already on the wire, frame by frame. What remains is the trailing
+			// partial frame the resampler held back — flushed here, exactly once,
+			// because frameAudio cannot know it is the last one until now.
+			for _, frame := range s.frameAudio(nil, true) {
+				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
-			// Pre-increment: the counter belongs to the emission path, so it is
-			// correct whether or not Start() ran. A first frame numbered 0 would
-			// also sit at the client's barge-in watermark.
-			s.nextAudioSeq++
-			outbound = append(outbound, ProviderOutbound{
-				Binary: encodeAudioFrame(s.nextAudioSeq, pcm[offset:end]),
-			})
+		} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
+			for offset := 0; offset < len(pcm); offset += audioFrameBytes {
+				end := offset + audioFrameBytes
+				if end > len(pcm) {
+					end = len(pcm)
+				}
+				// Pre-increment: the counter belongs to the emission path, so it is
+				// correct whether or not Start() ran. A first frame numbered 0 would
+				// also sit at the client's barge-in watermark.
+				s.nextAudioSeq++
+				outbound = append(outbound, ProviderOutbound{
+					Binary: encodeAudioFrame(s.nextAudioSeq, pcm[offset:end]),
+				})
+			}
 		}
 	}
 	// Terminate the audio stream explicitly.
@@ -853,13 +934,27 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// Safe to send precisely because `ai.tts.start` is not: `TTSDecoder` keeps
 	// its stream `.idle` until it sees a start, and the `.idle` branch of
 	// `ai.tts.end` is a no-op — so this adds a terminator without moving the
-	// audio onto the decoder path. See the ordering note above `turnToOutbound`.
+	// audio onto the decoder path.
 	outbound = append(outbound, ProviderOutbound{
 		Control: voiceproto.AITTSEnd{
 			Type:             voiceproto.TypeAITTSEnd,
-			TurnID:           canonicalTurnID(s.activeTurnID, s.nextSeq),
+			TurnID:           turnID,
 			CompletionStatus: ttsCompletionStatus(turn.Outcome),
 			DurationMs:       audioDurationMs(len(turn.AudioPCM)),
+		},
+	})
+
+	// B15: always send ai.turn.end so iOS can leave .processing even when reply
+	// is empty (e.g., timeout with partial ASR transcript but no TTS). Outcome
+	// is always set on every exit path in collectTurn, so we can stamp it
+	// faithfully here. Last among closeout frames — see the audio ordering
+	// note above.
+	outbound = append(outbound, ProviderOutbound{
+		Control: voiceproto.AITurnEnd{
+			Type:    voiceproto.TypeAITurnEnd,
+			TurnID:  turnID,
+			Outcome: string(turn.Outcome), // B15: explicit outcome in ai.turn.end
+			LogID:   logID,                // B15-I3: vendor trace log_id
 		},
 	})
 
@@ -871,7 +966,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		s.logger.Warn("streaming push failed during turn", "err", s.emitErr)
 		s.emitErr = nil
 	}
+	s.mu.Lock()
 	s.resetTurnStreamingState()
+	s.mu.Unlock()
 	s.turnStarted = time.Time{}
 	return outbound
 }

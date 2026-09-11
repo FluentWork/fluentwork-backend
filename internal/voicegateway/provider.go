@@ -90,9 +90,9 @@ type SequencedVoiceProviderSession interface {
 // wired to the client connection, and may call it at any point during a control
 // call.
 //
-// Implementations must call the emitter on the same goroutine as the control
-// call that is in flight. The gateway's write path is serialized on its read
-// loop; an emitter called from a spawned goroutine would race it.
+// Implementations may call the emitter from the collect goroutine. The
+// gateway serializes writes on sessionRuntime.writeMu, so a sink push
+// during WaitTurnResult does not race ping/interrupt on the read loop.
 type StreamingVoiceProviderSession interface {
 	VoiceProviderSession
 	SetOutboundEmitter(emit func(ProviderOutbound) error)
