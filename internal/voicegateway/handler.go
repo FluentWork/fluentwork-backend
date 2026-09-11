@@ -82,6 +82,10 @@ type Options struct {
 	// exactly the case it exists for. See `defaultIdleTimeout` for why "reap a
 	// connected but idle user" is a different and unbuilt capability.
 	IdleTimeout time.Duration
+	// WriteTimeout bounds a single gateway→client write. Expiry closes the
+	// connection (see defaultWriteTimeout for why that is the intended
+	// outcome, not a side effect). Zero means defaultWriteTimeout.
+	WriteTimeout time.Duration
 }
 
 // Handler serves WSS upgrades and the control-frame loop.
@@ -94,6 +98,7 @@ type Handler struct {
 	now                func() time.Time
 	insecureSkipOrigin bool
 	idleTimeout        time.Duration
+	writeTimeout       time.Duration
 	clientASRRequired  bool // B13: gate user.speech.end with empty text when true
 }
 
@@ -115,6 +120,10 @@ func NewHandler(
 	if idle <= 0 {
 		idle = defaultIdleTimeout
 	}
+	write := opts.WriteTimeout
+	if write <= 0 {
+		write = defaultWriteTimeout
+	}
 	return &Handler{
 		consumer:           consumer,
 		lifecycle:          lifecycle,
@@ -123,6 +132,7 @@ func NewHandler(
 		now:                time.Now,
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
 		idleTimeout:        idle,
+		writeTimeout:       write,
 	}
 }
 
@@ -301,6 +311,10 @@ type sessionRuntime struct {
 	// own goroutine so interrupt can be read during WaitTurnResult; its sink
 	// emits on that goroutine while the loop still writes ping/interrupt.
 	writeMu sync.Mutex
+	// writeTimeout bounds each write made under writeMu. A zero value falls
+	// back to defaultWriteTimeout so a directly-built sessionRuntime is never
+	// left unbounded.
+	writeTimeout time.Duration
 	// collectWG counts an in-flight user.speech.end / WaitTurnResult.
 	collectWG sync.WaitGroup
 	// collecting is set while WaitTurnResult is running so a second
@@ -308,20 +322,40 @@ type sessionRuntime struct {
 	collecting atomic.Bool
 }
 
+// resolveWriteTimeout bounds every write made under writeMu. It is a method
+// rather than a plain field so that a zero-valued sessionRuntime — which tests
+// and any future caller may build — is bounded too, instead of silently
+// reproducing the unbounded write this exists to remove.
+func (rt *sessionRuntime) resolveWriteTimeout() time.Duration {
+	if rt.writeTimeout <= 0 {
+		return defaultWriteTimeout
+	}
+	return rt.writeTimeout
+}
+
+// The deadline starts *after* the lock is taken, so it bounds this caller's
+// write rather than its wait for the mutex. A second caller can therefore wait
+// up to one writeTimeout behind a stalled writer before its own deadline even
+// begins; that is bounded, and it is the earlier writer's expiry that ends the
+// connection anyway.
 func (rt *sessionRuntime) sendJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
+	defer cancel()
 	return writeJSON(ctx, conn, v)
 }
 
 func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
+	defer cancel()
 	return writeProviderOutbound(ctx, conn, outbound)
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
-	rt := &sessionRuntime{}
+	rt := &sessionRuntime{writeTimeout: h.writeTimeout}
 	defer func() {
 		rt.close(ctx)
 		h.persistOnExit(ctx, rt, session, loopErr)
