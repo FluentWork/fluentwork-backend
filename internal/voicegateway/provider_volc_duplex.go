@@ -503,15 +503,9 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 
 	case voiceproto.TypeInterrupt:
 		// The user cut this reply off. Everything already pushed to the client
-		// stays — that is the client's to stop, and it does, via
-		// `interruptNow()` — and everything **not yet sent** is withheld at the
-		// end of the turn (see `turnToOutbound`).
-		//
-		// The second half used to be assumed rather than done: the note here
-		// read "the client discards it at its barge-in watermark". It does not,
-		// for audio that has not arrived yet. What was never heard must not
-		// reach the transcript as if it had been — and it must not be played
-		// either.
+		// stays; everything after this point is audio the client discards at
+		// its barge-in watermark, so it was never heard and must not reach the
+		// transcript as if it had been.
 		s.interruptedThisTurn = true
 		s.logger.Info("interrupt forwarded to live provider boundary",
 			"delivered_chars", s.deliveredText.Len())
@@ -820,38 +814,8 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// decoder that really decodes lands.
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
-	//
-	// Metered before the interrupt check, deliberately: the vendor produced
-	// this audio and bills for it whether or not we pass it on. Skipping the
-	// send does not skip the cost, and an accounting that only counted what the
-	// client heard would under-report by exactly the interrupted replies.
 	s.usage.addDownlink(len(turn.AudioPCM))
-	if s.interruptedThisTurn {
-		// The user cut this reply off, so it is **not sent at all**.
-		//
-		// It used to be sent, on the reasoning that "the client discards it at
-		// its barge-in watermark". That reasoning is wrong in the one case that
-		// matters, and it is worth stating why, because it is also what made
-		// this look handled for as long as it did:
-		//
-		// the watermark records the highest sequence the client has **already
-		// seen**. Audio for a turn can exist for a long time before it is
-		// delivered — measured on 2026-09-12: a reply the vendor spent 61.2 s
-		// producing reached the client as 113 frames inside 1.1 s. A tap that
-		// lands in the producing window is handled *before* those frames
-		// arrive, so every one of them is numbered above the watermark and
-		// every one is accepted. The interrupted reply then plays out in full,
-		// about a minute late.
-		//
-		// Frames already on the wire cannot be recalled — that is
-		// `interruptNow()`'s job on the client. Frames that have not been sent
-		// yet should not be sent.
-		s.logger.Info("interrupted turn's audio withheld",
-			"turn_id", s.activeTurnID,
-			"audio_bytes", len(turn.AudioPCM),
-			"streamed", s.streamedAudio,
-		)
-	} else if s.streamedAudio {
+	if s.streamedAudio {
 		// Already on the wire, frame by frame. What remains is the trailing
 		// partial frame the resampler held back — flushed here, exactly once,
 		// because frameAudio cannot know it is the last one until now.
