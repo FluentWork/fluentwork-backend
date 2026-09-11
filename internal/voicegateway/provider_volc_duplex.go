@@ -799,6 +799,32 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 			})
 		}
 	}
+	// Terminate the audio stream explicitly.
+	//
+	// P1-16: this frame used to be emitted only by the local mock, so on the
+	// production path the client could not tell "the assistant finished
+	// speaking" from "the assistant got stuck" — both present as audio that
+	// stopped arriving. A stream needs a terminator (chunked encoding, SSE's
+	// `[DONE]`, a WebSocket close frame); inferring the end from silence is the
+	// classic version of this mistake, and it is what pushes an implementer to
+	// approximate the signal with a timer that is early or late for every reply.
+	//
+	// Emitted even when the turn produced no audio: "finished with nothing to
+	// say" and "still going" are different, and only one of them is a problem.
+	//
+	// Safe to send precisely because `ai.tts.start` is not: `TTSDecoder` keeps
+	// its stream `.idle` until it sees a start, and the `.idle` branch of
+	// `ai.tts.end` is a no-op — so this adds a terminator without moving the
+	// audio onto the decoder path. See the ordering note above `turnToOutbound`.
+	outbound = append(outbound, ProviderOutbound{
+		Control: voiceproto.AITTSEnd{
+			Type:             voiceproto.TypeAITTSEnd,
+			TurnID:           canonicalTurnID(s.activeTurnID, s.nextSeq),
+			CompletionStatus: ttsCompletionStatus(turn.Outcome),
+			DurationMs:       audioDurationMs(len(turn.AudioPCM)),
+		},
+	})
+
 	// A push that failed during the turn means the client connection went away
 	// mid-reply. Not returned as an error — the handler's own next write fails
 	// on the same dead socket — but never swallowed either.
@@ -907,3 +933,26 @@ var (
 	_ VoiceProvider        = VolcDuplexProvider{}
 	_ VoiceProviderSession = (*volcDuplexProviderSession)(nil)
 )
+
+// ttsCompletionStatus describes how an audio stream ended, in the vocabulary
+// `ai.tts.end` already uses. Falling back to "ok" for an unset outcome keeps
+// the field non-empty: an empty status would read as "unknown", which is the
+// one thing this marker exists to rule out.
+func ttsCompletionStatus(outcome voicepoc.TurnOutcome) string {
+	if outcome == "" {
+		return string(voicepoc.TurnOutcomeOK)
+	}
+	return string(outcome)
+}
+
+// audioDurationMs converts vendor audio bytes to milliseconds.
+//
+// The vendor's output rate is fixed at 24 kHz mono s16le, so a byte count is an
+// exact duration: 24000 samples/s * 2 bytes = 48 bytes per millisecond.
+func audioDurationMs(bytes int) *int {
+	if bytes <= 0 {
+		return nil
+	}
+	ms := bytes / (2 * duplexOutputRate / 1000)
+	return &ms
+}

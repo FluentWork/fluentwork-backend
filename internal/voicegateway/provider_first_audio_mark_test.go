@@ -118,3 +118,7 @@ func TestVolcDuplexDoesNotMarkOnAnEmptyAudioChunk(t *testing.T) {
 		t.Fatalf("marked a first audio frame for an empty chunk: %s", buf.String())
 	}
 }
+
+// timeNow is the test-side clock, kept here so the marker tests do not each
+// import time.
+func timeNow() time.Time { return time.Now() }
