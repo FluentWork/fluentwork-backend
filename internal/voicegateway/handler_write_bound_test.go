@@ -109,3 +109,126 @@ func TestSessionRuntime_ZeroWriteTimeoutResolvesToDefault(t *testing.T) {
 		t.Fatalf("resolveWriteTimeout() ignored an explicit value: got %s", got)
 	}
 }
+
+// 2026-09-12: `sendOutbound` 先取锁、再遍历 —— 即使没有任何字节会离开进程。
+//
+// `writeProviderOutbound` 只写 `Control` 和 `Binary`；只带 `ServerASRText` 的
+// outbound（B14 徽章载体）什么都不写。但锁已经在这里被抢过了。
+//
+// 生产上最要命的是 `interrupt` 分支：它**无条件**调用 `sendOutbound`，而
+// provider 对 interrupt 返回的是 `nil, nil`。于是读循环为了发"零个字节"，
+// 去等一把被阻塞写持有的锁 —— `interruptedThisTurn` 因此永远置不上，
+// 长 TTS 打断退回空操作（`docs/67` §2.1）。
+//
+// 不变量：**不产生任何字节的调用，不得参与写锁的竞争。**
+func TestSessionRuntime_OutboundThatWritesNothingDoesNotContendForTheWriteLock(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		outbound []ProviderOutbound
+	}{
+		{"nil", nil},
+		{"empty slice", []ProviderOutbound{}},
+		{"only ServerASRText (B14 badge carrier)", []ProviderOutbound{{ServerASRText: "hello"}}},
+		{"empty control and empty binary", []ProviderOutbound{{Control: nil, Binary: nil}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &sessionRuntime{}
+
+			// Hold the lock for the whole subtest: this models a write that is
+			// in flight (and, before WriteTimeout existed, blocked forever).
+			rt.writeMu.Lock()
+			defer rt.writeMu.Unlock()
+
+			// A nil conn is deliberate: nothing may reach the wire here, so
+			// nothing may dereference it either.
+			done := make(chan error, 1)
+			go func() {
+				done <- rt.sendOutbound(context.Background(), nil, tc.outbound)
+			}()
+
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("sendOutbound with nothing to write returned %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal(
+					"sendOutbound took writeMu even though nothing would reach the wire —— " +
+						"读循环会在这里被一次阻塞的写挡住（interrupt 就是这条路径）。",
+				)
+			}
+		})
+	}
+}
+
+// The guard above would also pass if `sendOutbound` simply stopped taking the
+// lock at all. This pins the other side: a payload that *does* reach the wire
+// must still serialize behind an in-flight write.
+func TestSessionRuntime_WritableOutboundStillWaitsForTheWriteLock(t *testing.T) {
+	t.Parallel()
+
+	accepted := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		accepted <- c
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = client.CloseNow() }()
+
+	var serverConn *websocket.Conn
+	select {
+	case serverConn = <-accepted:
+	case <-ctx.Done():
+		t.Fatal("server never accepted the connection")
+	}
+
+	// Drain, so the post-unlock write can actually complete rather than run
+	// into its own deadline.
+	go func() {
+		for {
+			if _, _, err := client.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+
+	rt := &sessionRuntime{writeTimeout: testWriteTimeout}
+	rt.writeMu.Lock()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- rt.sendOutbound(ctx, serverConn, []ProviderOutbound{{Binary: []byte("x")}})
+	}()
+
+	select {
+	case <-done:
+		rt.writeMu.Unlock()
+		t.Fatal("a writable outbound did not wait for writeMu —— 锁不再串行化了")
+	case <-time.After(300 * time.Millisecond):
+		// Expected: still queued behind the in-flight write.
+	}
+	rt.writeMu.Unlock()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("write after the lock was released: %v", err)
+		}
+	case <-time.After(stalledWriteBudget):
+		t.Fatal("sendOutbound never proceeded after the lock was released")
+	}
+}

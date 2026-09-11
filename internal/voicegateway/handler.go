@@ -347,6 +347,14 @@ func (rt *sessionRuntime) sendJSON(ctx context.Context, conn *websocket.Conn, v 
 }
 
 func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
+	// Ask whether anything would reach the wire *before* contending for the
+	// lock. The interrupt branch calls this unconditionally while the provider
+	// returns `nil, nil`, so without this check the read loop queues behind an
+	// in-flight write to send zero bytes — and `interruptedThisTurn` never gets
+	// set. (docs/67 §2.1)
+	if !writableOutbound(outbound) {
+		return nil
+	}
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
@@ -851,7 +859,23 @@ func attachOutboundEmitter(ctx context.Context, conn *websocket.Conn, rt *sessio
 	})
 }
 
+// writableOutbound reports whether any item would put bytes on the wire.
+//
+// `writeProviderOutbound` writes only `Control` and `Binary`, so this must
+// agree with its switch — an item whose only payload is `ServerASRText` is a
+// B14 badge carrier and writes nothing.
+func writableOutbound(outbound []ProviderOutbound) bool {
+	for _, item := range outbound {
+		if item.Control != nil || len(item.Binary) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
+	// Keep the switch in sync with writableOutbound: it is what decides whether
+	// sendOutbound contends for the write lock at all.
 	for _, item := range outbound {
 		switch {
 		case item.Control != nil:
