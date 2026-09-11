@@ -74,7 +74,11 @@ type TicketConsumer interface {
 type Options struct {
 	// InsecureSkipOrigin skips WebSocket Origin checks (local/dev only).
 	InsecureSkipOrigin bool
-	// IdleTimeout bounds each WebSocket read; zero uses a 2m default.
+	// IdleTimeout bounds each WebSocket read — a half-open connection detector,
+	// not an idle-user reaper. The client's 30s application-level ping keeps
+	// resetting it, so it fires only when the client stops sending, which is
+	// exactly the case it exists for. See `defaultIdleTimeout` for why "reap a
+	// connected but idle user" is a different and unbuilt capability.
 	IdleTimeout time.Duration
 }
 
@@ -801,7 +805,17 @@ func (h *Handler) persistOnExit(
 	case rt.broken:
 		reason = "provider_audio_failed"
 	case errors.Is(loopErr, context.DeadlineExceeded):
-		reason = "idle_timeout"
+		// The read deadline is a **half-open connection detector**, and with a
+		// 30s client heartbeat that is the only way it can expire: the peer
+		// stopped sending, so it is gone. The name says that.
+		//
+		// It used to say `idle_timeout`, which promised a category — "the user
+		// was idle" — that this mechanism cannot observe. A connected client
+		// that keeps pinging never trips it, however long the user says nothing.
+		// (`77_` P1-17.) Renaming is cheap because the old value described a
+		// state nothing could reach: a reader of the session record should not
+		// go looking for idle users in a column that only ever holds corpses.
+		reason = "connection_silent"
 	}
 	// By the time the loop unwinds the connection context is already done.
 	// Keep its values (log context) but drop its cancellation, otherwise the

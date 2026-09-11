@@ -13,7 +13,20 @@ import (
 const (
 	defaultVoiceHTTPAddr = ":8081"
 	defaultAppServerURL  = "http://127.0.0.1:8080"
-	defaultIdleTimeout   = 2 * time.Minute
+	// defaultIdleTimeout bounds each WebSocket read — a **half-open connection
+	// detector**, not an idle-user reaper.
+	//
+	// The client sends an application-level ping every 30s (NAT keepalive and
+	// liveness; every production WebSocket client does this). That resets this
+	// deadline each time, so it can only expire when the client has *stopped
+	// sending* — i.e. when it is gone. That is the job, and it does it.
+	//
+	// What it therefore cannot do is notice a **connected but idle user**: a
+	// client that keeps pinging holds the session open, and with it the upstream
+	// vendor duplex, until the user leaves. "Reap a user who stopped talking" is
+	// a different capability, and it is **not implemented** — see `77_` P1-17.
+	// Nobody should read this knob as if it were that.
+	defaultIdleTimeout = 2 * time.Minute
 )
 
 // Config holds voice-gateway process settings.
