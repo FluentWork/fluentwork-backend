@@ -49,6 +49,11 @@ type sampleResult struct {
 	Hypothesis string   `json:"hypothesis"`
 	voicepoc.WERResult
 	Rate float64 `json:"rate"`
+	// Normalised is the same utterance scored after NormalizeSurface. Carried
+	// alongside rather than instead of the raw result: the gap between them is
+	// the measurement of how much of the "error" was spelling.
+	Normalised     voicepoc.WERResult `json:"normalised"`
+	NormalisedRate float64            `json:"normalised_rate"`
 }
 
 func run() error {
@@ -122,12 +127,15 @@ func run() error {
 		}
 
 		scored := voicepoc.ScoreWER(s.Text, hypothesis)
+		normalised := voicepoc.ScoreWERNormalized(s.Text, hypothesis)
 		results = append(results, sampleResult{
 			ID: s.ID, Scene: s.Scene, Difficulty: s.Difficulty, Traps: s.Traps,
 			Reference: s.Text, Hypothesis: strings.TrimSpace(hypothesis),
 			WERResult: scored, Rate: scored.Rate(),
+			Normalised: normalised, NormalisedRate: normalised.Rate(),
 		})
-		fmt.Printf("  %-8s %5.1f%%  said: %s\n", s.ID, scored.Rate()*100, strings.TrimSpace(hypothesis))
+		fmt.Printf("  %-8s %5.1f%% (归一化 %4.1f%%)  said: %s\n",
+			s.ID, scored.Rate()*100, normalised.Rate()*100, strings.TrimSpace(hypothesis))
 	}
 
 	if len(results) == 0 {
@@ -165,9 +173,18 @@ type report struct {
 	SamplesMissing int     `json:"samples_missing"`
 	SamplesFailed  int     `json:"samples_failed"`
 	OverallRate    float64 `json:"overall_rate"`
-	ByTrap         []slice `json:"by_trap"`
-	ByScene        []slice `json:"by_scene"`
-	ByDifficulty   []slice `json:"by_difficulty"`
+	// The same run, scored after normalisation. Both are reported because
+	// neither is the truth on its own: the raw number carries formatting
+	// differences the recogniser had no part in, and the normalised one carries
+	// whatever the rules happen to admit. The gap between them is the part
+	// worth arguing about.
+	OverallNormalisedRate float64 `json:"overall_normalised_rate"`
+	// FormattingOnlyErrors is raw errors minus normalised errors — the count of
+	// mistakes that were spelling rather than mishearing.
+	FormattingOnlyErrors int     `json:"formatting_only_errors"`
+	ByTrap               []slice `json:"by_trap"`
+	ByScene              []slice `json:"by_scene"`
+	ByDifficulty         []slice `json:"by_difficulty"`
 }
 
 func buildReport(results []sampleResult, missing, failed []string) report {
@@ -185,6 +202,16 @@ func buildReport(results []sampleResult, missing, failed []string) report {
 		total.ReferenceLength += r.ReferenceLength
 	}
 	rep.OverallRate = total.Rate()
+
+	normalisedTotal := voicepoc.WERResult{}
+	for _, r := range results {
+		normalisedTotal.Substitutions += r.Normalised.Substitutions
+		normalisedTotal.Deletions += r.Normalised.Deletions
+		normalisedTotal.Insertions += r.Normalised.Insertions
+		normalisedTotal.ReferenceLength += r.Normalised.ReferenceLength
+	}
+	rep.OverallNormalisedRate = normalisedTotal.Rate()
+	rep.FormattingOnlyErrors = total.Errors() - normalisedTotal.Errors()
 
 	byTrap := map[string][]sampleResult{}
 	for _, r := range results {
@@ -243,6 +270,10 @@ func printReport(rep report) {
 	}
 	fmt.Printf(" ===\n\n")
 	fmt.Printf("总体 WER: %.1f%%\n", rep.OverallRate*100)
+	fmt.Printf("          归一化 %.1f%%  (两者相差 %d 处, 是写法差异不是听错)\n",
+		rep.OverallNormalisedRate*100, rep.FormattingOnlyErrors)
+	fmt.Printf("\n两个数都要报: 原始数里混着识别器没有参与的写法差异, 归一化数里混着\n")
+	fmt.Printf("这套规则恰好承认的东西。**相差的那部分才是值得争论的。**\n")
 
 	printSlice("按音素陷阱(这是这个样本集存在的意义)", rep.ByTrap)
 	printSlice("按场景", rep.ByScene)
