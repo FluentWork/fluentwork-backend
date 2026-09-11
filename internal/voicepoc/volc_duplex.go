@@ -379,6 +379,20 @@ const (
 // still be reused: a closed connection cannot, an expired window can.
 var ErrDuplexClosed = errors.New("duplex connection closed")
 
+// ErrTurnCancelled marks a turn whose read ended because the **caller's**
+// context was cancelled — the client disconnected, or the session is being torn
+// down. It is deliberately *not* `ErrDuplexClosed`.
+//
+// The two call for opposite responses. `ErrDuplexClosed` says the socket is
+// dead, so the caller replaces it. Cancellation says the caller is leaving: the
+// socket is fine, and replacing it would discard the server-side conversation
+// context for a session that may well continue. That is the same distinction
+// the provider already draws for a provider error event.
+//
+// Folding the two together made "which cases should reset" unanswerable — every
+// cancellation looked like a corpse.
+var ErrTurnCancelled = errors.New("turn cancelled by caller")
+
 // TurnResult captures one user-audio turn observation for B14 V1/V3 probes.
 //
 // Outcome is the explicit terminal status (see TurnOutcome). It is set on
@@ -662,6 +676,12 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 				}
 				out.Outcome = TurnOutcomeTimeout
 				collectErr = fmt.Errorf("duplex turn timeout: %w", err)
+			} else if errors.Is(err, context.Canceled) {
+				// The caller withdrew; the socket did not die. Classified
+				// separately so callers do not replace a healthy duplex — and
+				// so "should this reset?" has an answer for every branch.
+				out.Outcome = TurnOutcomeError
+				collectErr = fmt.Errorf("%w: %w", ErrTurnCancelled, err)
 			} else {
 				// Wrap so callers can tell a dead socket from a provider
 				// error event without string matching.

@@ -281,3 +281,46 @@ func openTestSession(t *testing.T, wsURL string) *DuplexSession {
 	}
 	return s
 }
+
+// A cancelled caller is not a dead socket.
+//
+// `collectTurn` classified everything that was not a `DeadlineExceeded` as
+// `ErrDuplexClosed`, and the provider's response to that is to *replace the
+// duplex* — throwing away the server-side conversation context. But
+// `context.Canceled` means the **caller** withdrew (client disconnected, the
+// session is ending), not that the socket died.
+//
+// The provider already draws exactly this distinction for a provider error
+// event — "the session is still usable and resetting would discard the
+// server-side conversation context" — so folding cancellation into the same
+// bucket as a dead socket makes "which cases should reset" unanswerable.
+func TestCollectTurn_CallerCancellationIsNotADeadSocket(t *testing.T) {
+	t.Parallel()
+
+	url := startDuplexMockServer(t, func(conn *websocket.Conn) {
+		readUntilType(t, conn, "session.create")
+		writeJSONFrame(t, conn, `{"type":"session.created","session":{"id":"sess-cancel"}}`)
+		// Stay silent: the read blocks until the caller's context is cancelled.
+		<-make(chan struct{})
+	})
+
+	session := openTestSession(t, url)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	turn, err := session.collectTurn(ctx, time.Now(), nil, 10*time.Second)
+	if err == nil {
+		t.Fatalf("cancellation must surface an error, got nil (turn=%+v)", turn)
+	}
+	if errors.Is(err, ErrDuplexClosed) {
+		t.Fatalf("caller cancellation was classified as a dead socket: %v", err)
+	}
+	if turn.Outcome != TurnOutcomeError {
+		t.Fatalf("expected Outcome=error, got %q (turn=%+v)", turn.Outcome, turn)
+	}
+}
