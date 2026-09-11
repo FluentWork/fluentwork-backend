@@ -49,7 +49,7 @@ type sequencedSession struct {
 	seq      uint32
 }
 
-func (s *sequencedSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *sequencedSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},

@@ -160,6 +160,39 @@ type ActivateResponse struct {
 	Status    string `json:"status"`
 }
 
+// ContinuationContextRequest is the body of
+// POST /internal/v1/sessions/continuation-context.
+//
+// Both ids are required and that is the point of the endpoint: the previous
+// session's transcript may only be handed to a session owned by the same user,
+// and the app-server is the only side that knows who owns what. The gateway
+// knows one of these ids from a ticket it issued and the other from a frame the
+// client wrote, so it cannot make this call on its own.
+type ContinuationContextRequest struct {
+	CurrentSessionID  string `json:"current_session_id"`
+	PreviousSessionID string `json:"previous_session_id"`
+	Limit             int    `json:"limit"`
+}
+
+// ContinuationContextResponse carries the tail of the previous transcript,
+// oldest first. An empty list is a normal answer — the previous session may
+// have had nothing said in it — and is not distinguished from one the gateway
+// should ignore.
+type ContinuationContextResponse struct {
+	Utterances []ContinuationUtterance `json:"utterances"`
+}
+
+// ContinuationUtterance is one turn of a previous session, for seeding a new
+// one. Deliberately not `Utterance`: that type carries row ids, interrupted
+// flags and eval payloads, none of which the provider has any use for, and
+// keeping them apart means a column added there cannot silently widen what is
+// sent to a model.
+type ContinuationUtterance struct {
+	Seq     int    `json:"seq"`
+	Speaker string `json:"speaker"`
+	Text    string `json:"text"`
+}
+
 // CreateRequest is the body of POST /sessions.
 type CreateRequest struct {
 	MaterialID *string `json:"material_id"`

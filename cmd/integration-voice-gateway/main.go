@@ -271,6 +271,13 @@ func (*integrationLifecycle) End(_ context.Context, _ voicegateway.EndSessionReq
 	return nil
 }
 
+// No continuation context: this harness drives the transport, not the
+// prompt, and "no context" is the answer a real app-server gives when the
+// client did not ask for any.
+func (*integrationLifecycle) ContinuationContext(_ context.Context, _, _ string, _ int) ([]voicegateway.ContinuationTurn, error) {
+	return nil, nil
+}
+
 type integrationProvider struct{ session *integrationProviderSession }
 
 func (p *integrationProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
@@ -281,7 +288,7 @@ type integrationProviderSession struct {
 	serverASRText string
 }
 
-func (s *integrationProviderSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *integrationProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{
 			"type": voiceproto.TypeAITextDelta,

@@ -283,7 +283,7 @@ func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
 	}
 	defer func() { _ = sess.Close(context.Background()) }()
 
-	out, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart})
+	out, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart}, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -332,9 +332,51 @@ func TestInstructionsForSessionStartIncludesContext(t *testing.T) {
 		Type:       voiceproto.TypeSessionStart,
 		SceneType:  "daily-read",
 		MaterialID: "m-42",
-	})
+	}, nil)
 	if !strings.Contains(text, "daily-read") || !strings.Contains(text, "m-42") {
 		t.Fatalf("unexpected instructions: %q", text)
+	}
+}
+
+// The continuation block is the entire user-visible difference of the feature:
+// if this text is not in the instructions, the model has no way to know it is
+// continuing anything, and the opening line will be as generic as before.
+func TestInstructionsCarryThePreviousTranscript(t *testing.T) {
+	t.Parallel()
+
+	text := instructionsForSessionStart(voiceproto.SessionStart{
+		Type: voiceproto.TypeSessionStart,
+	}, []ContinuationTurn{
+		{Seq: 1, Speaker: "user", Text: "how do I say 限流?"},
+		{Seq: 2, Speaker: "ai", Text: "Rate limiting."},
+	})
+
+	for _, want := range []string{"上一场练习", "user: how do I say 限流?", "ai: Rate limiting."} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("instructions missing %q:\n%s", want, text)
+		}
+	}
+	// The prompt states the facts and asks for one behaviour. It must not
+	// script the opening sentence: the PRD's example is what the model should
+	// derive from the transcript, and a canned line would appear whether or not
+	// it matched what was actually said.
+	if strings.Contains(text, "上次我们聊到") {
+		t.Fatalf("instructions script the opening line:\n%s", text)
+	}
+}
+
+// No turns means no block — not an empty preamble telling the model to
+// continue a conversation it cannot see.
+func TestInstructionsOmitTheBlockWhenThereIsNothingToContinueFrom(t *testing.T) {
+	t.Parallel()
+
+	for _, turns := range [][]ContinuationTurn{nil, {}} {
+		text := instructionsForSessionStart(voiceproto.SessionStart{
+			Type: voiceproto.TypeSessionStart,
+		}, turns)
+		if strings.Contains(text, "上一场练习") {
+			t.Fatalf("empty continuation produced a block: %q", text)
+		}
 	}
 }
 

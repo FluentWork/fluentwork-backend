@@ -28,7 +28,7 @@ type emitterTrackingSession struct {
 
 var _ voicegateway.StreamingVoiceProviderSession = (*emitterTrackingSession)(nil)
 
-func (s *emitterTrackingSession) Start(context.Context, voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *emitterTrackingSession) Start(context.Context, voiceproto.SessionStart, []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	// Two frames because that is what the session bootstrap puts on the wire
 	// (see authAndStart): a greeting and the turn-end that closes it.
 	return []voicegateway.ProviderOutbound{

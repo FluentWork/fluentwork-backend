@@ -268,6 +268,17 @@ type sessionRuntime struct {
 	// reopenAttempted records one transparent provider reopen after an
 	// upstream audio write failure (backend #43).
 	reopenAttempted bool
+	// lastStart is the session.start frame this connection opened with, kept
+	// so a transparent reopen can open the *same* session rather than a blank
+	// one. The reopen used to pass an empty frame, which silently dropped the
+	// scene and material the client sent — and would have dropped continuation
+	// context the same way. See `77_` P0-9 for the same family of loss on the
+	// vendor side.
+	lastStart *voiceproto.SessionStart
+	// continuation is the resolved tail of the session this one continues, if
+	// any. Resolved once, at session.start, and replayed on reopen for the
+	// same reason as lastStart.
+	continuation []ContinuationTurn
 	// B15: warn deduplication state — prevents 80+ identical WARN lines
 	// when the audio forward path fails repeatedly (e.g., provider timeout).
 	warnDedup struct {
@@ -370,7 +381,15 @@ func (h *Handler) handleAudio(
 			rt.reopenAttempted = true
 			reopened, openErr := h.provider.Open(ctx, session)
 			if openErr == nil {
-				if _, startErr := reopened.Start(ctx, voiceproto.SessionStart{}); startErr == nil {
+				// The same frame the session opened with, not a blank one: a
+				// reopened session that has forgotten what the practice is
+				// about is a different session that happens to share a
+				// socket.
+				reopenStart := voiceproto.SessionStart{}
+				if rt.lastStart != nil {
+					reopenStart = *rt.lastStart
+				}
+				if _, startErr := reopened.Start(ctx, reopenStart, rt.continuation); startErr == nil {
 					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
 					attachOutboundEmitter(ctx, conn, reopened)
@@ -483,7 +502,32 @@ func (h *Handler) handleControl(
 			"user_id", session.UserID,
 			"stage", "orchestration",
 		)
-		outbound, err := rt.provider.Start(ctx, start)
+		rt.lastStart = &start
+		// Resolved once, before the first Start, so the reopened path replays
+		// the same context (see rt.continuation). A refusal is not fatal: the
+		// session opens without the tail, which is what it would have done
+		// before this existed. Failing the whole session because a
+		// nice-to-have lookup missed would trade a small loss for a total one.
+		if previous := strings.TrimSpace(start.ContinueFromSessionID); previous != "" && h.lifecycle != nil {
+			turns, ctxErr := h.lifecycle.ContinuationContext(ctx, session.SessionID, previous, 0)
+			switch {
+			case ctxErr != nil:
+				h.logger.Warn("continuation context unavailable; opening without it",
+					"session_id", session.SessionID,
+					"continue_from_session_id", previous,
+					"err", ctxErr,
+				)
+			default:
+				rt.continuation = turns
+				h.logger.Info("continuation context resolved",
+					"session_id", session.SessionID,
+					"continue_from_session_id", previous,
+					"turns", len(turns),
+					"stage", "orchestration",
+				)
+			}
+		}
+		outbound, err := rt.provider.Start(ctx, start, rt.continuation)
 		if err != nil {
 			h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
 			return writeJSON(ctx, conn, voiceproto.ErrorFrame{

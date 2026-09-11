@@ -55,6 +55,16 @@ type SessionStart struct {
 	MaterialID string `json:"material_id,omitempty"`
 	SceneType  string `json:"scene_type,omitempty"`
 	Voice      string `json:"voice,omitempty"`
+	// ContinueFromSessionID asks for this session to open with the tail of an
+	// earlier one, so "continue where we left off" does not start from zero.
+	//
+	// It is an **id, not content**: the client is not allowed to write the
+	// provider's instructions, and the transcript it names belongs to a user
+	// who has to be checked. Both of those are the app-server's to enforce, so
+	// the gateway resolves this through an internal call before opening the
+	// provider, and an id that fails to resolve leaves the session exactly as
+	// it would have been otherwise.
+	ContinueFromSessionID string `json:"continue_from_session_id,omitempty"`
 }
 
 // SessionEnd closes the voice session from the client.

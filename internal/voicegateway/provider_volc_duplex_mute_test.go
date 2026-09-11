@@ -91,7 +91,7 @@ func openMuteTestSession(t *testing.T) (*volcDuplexProviderSession, <-chan map[s
 	}
 	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 
-	if _, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart}); err != nil {
+	if _, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart}, nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if got := nextFrame(t, frames); got != "session.create" {

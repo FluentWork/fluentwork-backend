@@ -14,10 +14,22 @@ import (
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
-// SessionLifecycle notifies app-server of session.start / session.end.
+// SessionLifecycle notifies app-server of session.start / session.end, and
+// resolves the one thing the gateway needs to *read* back.
 type SessionLifecycle interface {
 	Activate(ctx context.Context, sessionID string) error
 	End(ctx context.Context, req EndSessionRequest) error
+	// ContinuationContext returns the tail of an earlier session's transcript,
+	// or an empty slice when there is nothing to continue from.
+	//
+	// Both ids go over the wire because the ownership check cannot happen
+	// here: the current session's owner is known to app-server (from the
+	// ticket it issued), the previous session's owner only to the store, and
+	// `previousSessionID` comes from a frame the client wrote.
+	//
+	// A refusal is an error, but callers are expected to **carry on without
+	// context** rather than fail the session — see handler's session.start.
+	ContinuationContext(ctx context.Context, currentSessionID, previousSessionID string, limit int) ([]ContinuationTurn, error)
 }
 
 // EndSessionRequest is posted to app-server on WSS session.end.
@@ -82,6 +94,50 @@ type endUtteranceBody struct {
 	Interrupted bool `json:"interrupted,omitempty"`
 }
 
+type continuationContextBody struct {
+	CurrentSessionID  string `json:"current_session_id"`
+	PreviousSessionID string `json:"previous_session_id"`
+	Limit             int    `json:"limit"`
+}
+
+type continuationContextResponse struct {
+	Utterances []continuationUtteranceBody `json:"utterances"`
+}
+
+type continuationUtteranceBody struct {
+	Seq     int    `json:"seq"`
+	Speaker string `json:"speaker"`
+	Text    string `json:"text"`
+}
+
+// ContinuationContext reads the tail of a previous session's transcript.
+func (c *HTTPSessionClient) ContinuationContext(
+	ctx context.Context,
+	currentSessionID string,
+	previousSessionID string,
+	limit int,
+) ([]ContinuationTurn, error) {
+	var resp continuationContextResponse
+	err := c.postInto(ctx, "/internal/v1/sessions/continuation-context", continuationContextBody{
+		CurrentSessionID:  currentSessionID,
+		PreviousSessionID: previousSessionID,
+		Limit:             limit,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	// A conversion rather than a field-by-field literal. The two types are
+	// deliberately separate — the wire shape is not the in-process type — but
+	// while they happen to match, the conversion is the better of the two: if
+	// either gains a field, this stops compiling instead of silently dropping
+	// it. staticcheck S1016 asks for exactly this.
+	out := make([]ContinuationTurn, 0, len(resp.Utterances))
+	for _, u := range resp.Utterances {
+		out = append(out, ContinuationTurn(u))
+	}
+	return out, nil
+}
+
 // Activate marks the practice session active.
 func (c *HTTPSessionClient) Activate(ctx context.Context, sessionID string) error {
 	return c.post(ctx, "/internal/v1/sessions/activate", activateBody{SessionID: sessionID})
@@ -109,6 +165,14 @@ func (c *HTTPSessionClient) End(ctx context.Context, req EndSessionRequest) erro
 }
 
 func (c *HTTPSessionClient) post(ctx context.Context, path string, payload any) error {
+	return c.postInto(ctx, path, payload, nil)
+}
+
+// postInto is post plus a response target. The body is already read for the
+// error path, so decoding it on success costs a call rather than a round trip —
+// which is why continuation context can be a plain request instead of the
+// gateway holding its own client and token.
+func (c *HTTPSessionClient) postInto(ctx context.Context, path string, payload any, out any) error {
 	base := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
 	if base == "" {
 		return fmt.Errorf("app-server base URL is required")
@@ -163,6 +227,12 @@ func (c *HTTPSessionClient) post(ctx context.Context, path string, payload any) 
 		}
 		reqErr = fmt.Errorf("%s", msg)
 		return reqErr
+	}
+	if out != nil {
+		if err := json.Unmarshal(body, out); err != nil {
+			reqErr = fmt.Errorf("decode %s response: %w", path, err)
+			return reqErr
+		}
 	}
 	endAttrs = []any{
 		"status", resp.StatusCode,

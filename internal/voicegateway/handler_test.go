@@ -43,6 +43,14 @@ type stubLifecycle struct {
 	lastEnd       voicegateway.EndSessionRequest
 	activateErr   error
 	endErr        error
+	// continuation is what ContinuationContext answers with; continuationErr
+	// makes it refuse. Both default to "nothing to continue from", which is
+	// the answer a session that did not ask for context gets.
+	continuation        []voicegateway.ContinuationTurn
+	continuationErr     error
+	continuationCalls   int
+	continuationAsked   [2]string
+	continuationLimitIn int
 }
 
 func (s *stubLifecycle) Activate(_ context.Context, _ string) error {
@@ -54,6 +62,16 @@ func (s *stubLifecycle) End(_ context.Context, req voicegateway.EndSessionReques
 	s.endCalls++
 	s.lastEnd = req
 	return s.endErr
+}
+
+func (s *stubLifecycle) ContinuationContext(_ context.Context, currentSessionID, previousSessionID string, limit int) ([]voicegateway.ContinuationTurn, error) {
+	s.continuationCalls++
+	s.continuationAsked = [2]string{currentSessionID, previousSessionID}
+	s.continuationLimitIn = limit
+	if s.continuationErr != nil {
+		return nil, s.continuationErr
+	}
+	return s.continuation, nil
 }
 
 type stubProvider struct {
@@ -74,19 +92,27 @@ func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (v
 }
 
 type stubProviderSession struct {
-	startCalls    int
-	controlTypes  []string
-	audioPayload  [][]byte
-	closed        bool
-	utterances    []voicegateway.EndUtterance
-	startErr      error
-	controlErr    error
-	audioErr      error
+	startCalls   int
+	controlTypes []string
+	audioPayload [][]byte
+	closed       bool
+	utterances   []voicegateway.EndUtterance
+	startErr     error
+	controlErr   error
+	audioErr     error
+	// continuation records what each Start was handed, in call order — a
+	// reopened session is a second Start, and the point of recording a slice
+	// rather than a single value is that the reopen has to carry the same
+	// context as the original.
+	continuation  [][]voicegateway.ContinuationTurn
+	startFrames   []voiceproto.SessionStart
 	serverASRText string // B14: server-side ASR text for badge detection
 }
 
-func (s *stubProviderSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionStart, continuation []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	s.startCalls++
+	s.startFrames = append(s.startFrames, start)
+	s.continuation = append(s.continuation, continuation)
 	if s.startErr != nil {
 		return nil, s.startErr
 	}

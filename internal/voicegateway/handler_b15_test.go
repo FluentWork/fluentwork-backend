@@ -59,7 +59,7 @@ type brokenProviderSession struct {
 	audioCalls int32
 }
 
-func (s *brokenProviderSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *brokenProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},
@@ -195,7 +195,7 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 // the iOS WebSocket — collectTurn setting TurnResult.Outcome is not enough.
 type timeoutTurnSession struct{}
 
-func (s *timeoutTurnSession) Start(_ context.Context, _ voiceproto.SessionStart) ([]voicegateway.ProviderOutbound, error) {
+func (s *timeoutTurnSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "bootstrap", Outcome: "ok"}},

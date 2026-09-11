@@ -195,6 +195,100 @@ func (s *Service) Activate(ctx context.Context, sessionID string) (ActivateRespo
 	return ActivateResponse{SessionID: session.ID, Status: session.Status}, nil
 }
 
+// continuationDefaultLimit and continuationMaxLimit bound the tail the gateway
+// may ask for. The cap exists because this text goes into a system prompt
+// verbatim: an unbounded `limit` off a frame the client wrote is a way to make
+// one session's opening turn arbitrarily expensive.
+const (
+	continuationDefaultLimit = 6
+	continuationMaxLimit     = 20
+)
+
+// ContinuationContext returns the tail of `previousSessionID`'s transcript, for
+// the gateway to seed a new session with.
+//
+// The ownership check is the whole reason this runs here rather than in the
+// gateway. `previous_session_id` arrives from the client, so it names whatever
+// the client feels like naming; comparing owners is the only thing standing
+// between "continue my last session" and "read me someone else's". A session
+// owned by somebody else answers **NotFound, not Forbidden** — telling a caller
+// that a session exists but is not theirs is itself the leak.
+func (s *Service) ContinuationContext(
+	ctx context.Context,
+	currentSessionID string,
+	previousSessionID string,
+	limit int,
+) (ContinuationContextResponse, error) {
+	currentSessionID = strings.TrimSpace(currentSessionID)
+	previousSessionID = strings.TrimSpace(previousSessionID)
+	if currentSessionID == "" || previousSessionID == "" {
+		return ContinuationContextResponse{}, apierr.InvalidArgument(
+			"current_session_id and previous_session_id are required",
+		)
+	}
+	if limit <= 0 {
+		limit = continuationDefaultLimit
+	}
+	if limit > continuationMaxLimit {
+		limit = continuationMaxLimit
+	}
+
+	current, err := s.store.GetSession(ctx, currentSessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ContinuationContextResponse{}, apierr.NotFound("session not found")
+		}
+		return ContinuationContextResponse{}, err
+	}
+	previous, err := s.store.GetSession(ctx, previousSessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ContinuationContextResponse{}, apierr.NotFound("session not found")
+		}
+		return ContinuationContextResponse{}, err
+	}
+	if previous.UserID != current.UserID {
+		// Same answer as a miss, deliberately. See the doc comment.
+		s.logger.Warn("continuation context refused across users",
+			"current_session_id", currentSessionID,
+			"previous_session_id", previousSessionID,
+		)
+		return ContinuationContextResponse{}, apierr.NotFound("session not found")
+	}
+
+	all, err := s.store.ListUtterances(ctx, previousSessionID)
+	if err != nil {
+		return ContinuationContextResponse{}, err
+	}
+	// The tail, not the head: "where we left off" is the end of the
+	// conversation, and a session long enough to be truncated is one whose
+	// beginning is the least relevant part of it.
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	// No filtering of empty or untrimmed text here, deliberately.
+	// `normalizeEndUtterances` rejects blank text, trims what it keeps, and
+	// pins the speaker to user/ai, and `store.EndSession` — its only caller —
+	// is the only thing that writes an utterance row. A guard here would be
+	// dead code that looks like it is defending something, which is worse than
+	// no guard: the next reader would assume rows can be blank.
+	//
+	// What is *not* bounded by that invariant is size. The per-turn cap is
+	// 32 KiB, so the worst case is `limit` × 32 KiB in a system prompt. The
+	// default of 6 makes that ~200 KiB; the cap of 20 makes it ~640 KiB. If
+	// this limit is ever raised, that is the moment to add a total budget —
+	// not now, when nothing can reach it.
+	out := make([]ContinuationUtterance, 0, len(all))
+	for _, u := range all {
+		out = append(out, ContinuationUtterance{
+			Seq:     u.Seq,
+			Speaker: u.Speaker,
+			Text:    u.Text,
+		})
+	}
+	return ContinuationContextResponse{Utterances: out}, nil
+}
+
 // End persists session.end status and transcript rows (idempotent if already ended).
 func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) {
 	sessionID := strings.TrimSpace(req.SessionID)

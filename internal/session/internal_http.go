@@ -29,6 +29,7 @@ func RegisterInternalRoutes(rg gin.IRouter, h *Handler, expectedToken string) {
 	rg.POST("/tickets/consume", requireInternalToken(expectedToken), h.PostConsumeTicket)
 	rg.POST("/sessions/activate", requireInternalToken(expectedToken), h.PostActivate)
 	rg.POST("/sessions/end", requireInternalToken(expectedToken), h.PostEnd)
+	rg.POST("/sessions/continuation-context", requireInternalToken(expectedToken), h.PostContinuationContext)
 }
 
 func requireInternalToken(expected string) gin.HandlerFunc {
@@ -74,6 +75,28 @@ func (h *Handler) PostActivate(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.Activate(c.Request.Context(), req.SessionID)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostContinuationContext handles POST /internal/v1/sessions/continuation-context
+// for voice-gateway. See Service.ContinuationContext for why the ownership
+// check lives behind this endpoint rather than in the gateway.
+func (h *Handler) PostContinuationContext(c *gin.Context) {
+	var req ContinuationContextRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.ContinuationContext(
+		c.Request.Context(),
+		req.CurrentSessionID,
+		req.PreviousSessionID,
+		req.Limit,
+	)
 	if err != nil {
 		httpjson.Error(c, err)
 		return

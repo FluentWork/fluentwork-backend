@@ -304,12 +304,12 @@ func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte 
 	return frames
 }
 
-func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart) ([]ProviderOutbound, error) {
+func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart, continuation []ContinuationTurn) ([]ProviderOutbound, error) {
 	if s.session != nil {
 		return nil, nil
 	}
 
-	if instructions := instructionsForSessionStart(start); instructions != "" {
+	if instructions := instructionsForSessionStart(start, continuation); instructions != "" {
 		s.cfg.Instructions = instructions
 	}
 	session, err := voicepoc.OpenDuplex(ctx, s.cfg)
@@ -947,7 +947,7 @@ func resampleToPlaybackRate(pcm []byte) []byte {
 	return r.Write(pcm)
 }
 
-func instructionsForSessionStart(start voiceproto.SessionStart) string {
+func instructionsForSessionStart(start voiceproto.SessionStart, continuation []ContinuationTurn) string {
 	var parts []string
 	parts = append(parts, "你是 FluentWork 英语口语练习助手。用简短中文或英文回应用户。")
 	if scene := strings.TrimSpace(start.SceneType); scene != "" {
@@ -956,7 +956,43 @@ func instructionsForSessionStart(start voiceproto.SessionStart) string {
 	if material := strings.TrimSpace(start.MaterialID); material != "" {
 		parts = append(parts, "素材编号："+material+"。")
 	}
+	if block := continuationBlock(continuation); block != "" {
+		parts = append(parts, block)
+	}
 	return strings.Join(parts, " ")
+}
+
+// continuationBlock renders a previous session's tail for the system prompt.
+//
+// The prompt states the facts and asks for one behaviour — pick up where the
+// conversation left off and say what that was. It deliberately does **not**
+// script the opening line: the PRD's example ("上次我们聊到限流方案，今天继续？")
+// is what the model should produce from the transcript, and hard-coding a
+// sentence would produce it whether or not it matched what was actually said.
+//
+// `speaker` comes from the store and is written as-is rather than mapped
+// through a table here. A new value reaching the model labelled `system` is
+// more useful than one relabelled `ai`.
+func continuationBlock(turns []ContinuationTurn) string {
+	if len(turns) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(turns)+3)
+	lines = append(lines,
+		"这是同一用户的上一场练习，以下是它的末尾几轮对话（最早在前）：",
+	)
+	for _, t := range turns {
+		text := strings.TrimSpace(t.Text)
+		if text == "" {
+			continue
+		}
+		lines = append(lines, t.Speaker+": "+text)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	lines = append(lines, "开场时用一句话自然承接上面聊到的内容，让用户知道你还记得，然后继续这次练习。")
+	return strings.Join(lines, "\n")
 }
 
 func (s *volcDuplexProviderSession) unixMilli() int64 {
