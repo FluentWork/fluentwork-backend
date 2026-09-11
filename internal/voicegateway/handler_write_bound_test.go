@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -230,5 +231,44 @@ func TestSessionRuntime_WritableOutboundStillWaitsForTheWriteLock(t *testing.T) 
 		}
 	case <-time.After(stalledWriteBudget):
 		t.Fatal("sendOutbound never proceeded after the lock was released")
+	}
+}
+
+// `writableOutbound` 与 `writeProviderOutbound` 各自枚举一遍"哪些字段会到
+// 线上"。**两处分离是有意的，不是遗漏**：
+//
+//	漏更新谓词 → 多抢一次锁（无害，最坏是等一个 WriteTimeout）
+//	漏更新写侧 → 字段静默不上线（丢数据）
+//
+// 所以合并成单一谓词反而把"无害的漏"换成"有害的漏"。真正该挡的是"有人
+// 加了字段却两处都没想起来" —— 这条用反射把它变成一个**必须做的决定**。
+func TestProviderOutbound_EveryFieldIsClassified(t *testing.T) {
+	t.Parallel()
+
+	// true  = 会写到线上（writableOutbound 与 writeProviderOutbound 都要认）
+	// false = 不上线，注释说明它承载什么
+	classified := map[string]bool{
+		"Control":       true,
+		"Binary":        true,
+		"ServerASRText": false, // B14 徽章载体：服务端内部用，不上线
+	}
+
+	typ := reflect.TypeOf(ProviderOutbound{})
+	for i := range typ.NumField() {
+		name := typ.Field(i).Name
+		if _, ok := classified[name]; !ok {
+			t.Fatalf(
+				"ProviderOutbound 新增了字段 %q，尚未分类。\n"+
+					"  会写到线上 → 同时更新 writableOutbound 与 writeProviderOutbound，并在此标 true\n"+
+					"  不上线     → 在此标 false，并写明它承载什么",
+				name,
+			)
+		}
+	}
+	if len(classified) != typ.NumField() {
+		t.Fatalf(
+			"classified 有 %d 项，ProviderOutbound 有 %d 个字段 —— 有字段已删除（清理此表），或有一项从未存在",
+			len(classified), typ.NumField(),
+		)
 	}
 }
