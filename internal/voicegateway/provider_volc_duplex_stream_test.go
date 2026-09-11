@@ -29,15 +29,6 @@ func (r *recordingEmitter) emit(item ProviderOutbound) error {
 	return nil
 }
 
-// snapshotOutbound is everything pushed mid-turn, in order. Position matters to
-// the callers that assert an `ai.tts.start` came before the audio it introduces,
-// so this is the raw slice rather than a filtered view.
-func (r *recordingEmitter) snapshotOutbound() []ProviderOutbound {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]ProviderOutbound(nil), r.outbound...)
-}
-
 func (r *recordingEmitter) binaryFrames() [][]byte {
 	r.mu.Lock()
 	defer r.mu.Unlock()

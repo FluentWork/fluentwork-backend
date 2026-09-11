@@ -143,9 +143,6 @@ type volcDuplexProviderSession struct {
 	// frame during the turn, so turnToOutbound must not send the whole turn's
 	// audio again.
 	streamedAudio bool
-	// ttsStartSent records that this turn's `ai.tts.start` has gone out ahead of
-	// its first audio frame. Reset with the rest of the per-turn streaming state.
-	ttsStartSent bool
 	// audioResampler converts vendor chunks to the client's playback rate as
 	// they arrive. Rebuilt each turn, which is what keeps the output
 	// byte-identical to the batch form it replaced: that one converted each
@@ -209,7 +206,6 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.streamedText = false
 	s.streamedAudio = false
-	s.ttsStartSent = false
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
@@ -231,11 +227,6 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 		s.markFirstAudio()
 	}
 	s.streamedAudio = true
-	if start, ok := s.ttsStartOutbound(); ok {
-		if err := s.emit(start); err != nil && s.emitErr == nil {
-			s.emitErr = err
-		}
-	}
 	for _, frame := range s.frameAudio(pcm, false) {
 		if err := s.emit(ProviderOutbound{Binary: frame}); err != nil && s.emitErr == nil {
 			s.emitErr = err
@@ -293,40 +284,6 @@ func (s *volcDuplexProviderSession) markFirstAudio() {
 // happen exactly once, at turn end: without it the last few milliseconds of the
 // assistant's speech would sit in audioPending forever — clipped, and then
 // prepended to the *next* turn's audio.
-// ttsWireCodec is what the binary audio frames actually carry: raw s16le PCM at
-// `clientPlaybackRate`. The client's frame type calls the field `opusPayload`,
-// which is a name from the path this replaced — the bytes have not been Opus for
-// as long as `resampleToPlaybackRate` has existed. Announcing "opus" here would
-// hand PCM to an Opus decoder.
-const ttsWireCodec = "pcm"
-
-// ttsStartOutbound returns the `ai.tts.start` that must precede this turn's
-// first audio frame, or false if it has already gone out.
-//
-// Until 2026-09-12 this provider deliberately sent no `ai.tts.start`, and the
-// reason was sound: `TTSFrameDispatcher` only claims binary frames once it has
-// seen one, and the decoder bound to it was a recorder that drove no
-// `AVAudioEngine` — so sending it moved the audio onto a path that made no
-// sound. The client now has a decoder that plays, and the frame is what gives a
-// binary frame a **turn** — which is what makes an interrupted turn's in-flight
-// audio droppable instead of merely late.
-//
-// It is emitted per turn, immediately before the turn's first frame, in both
-// emission paths (streaming and batch). The turn id matches `ai.tts.end`'s.
-func (s *volcDuplexProviderSession) ttsStartOutbound() (ProviderOutbound, bool) {
-	if s.ttsStartSent {
-		return ProviderOutbound{}, false
-	}
-	s.ttsStartSent = true
-	return ProviderOutbound{Control: voiceproto.AITTSStart{
-		Type:       voiceproto.TypeAITTSStart,
-		TurnID:     canonicalTurnID(s.activeTurnID, s.nextSeq),
-		VoiceID:    s.cfg.Voice,
-		SampleRate: clientPlaybackRate,
-		Codec:      ttsWireCodec,
-	}}, true
-}
-
 func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte {
 	if s.audioResampler == nil {
 		s.audioResampler = &pcmResampler{}
@@ -898,16 +855,10 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		// Already on the wire, frame by frame. What remains is the trailing
 		// partial frame the resampler held back — flushed here, exactly once,
 		// because frameAudio cannot know it is the last one until now.
-		//
-		// No `ai.tts.start` here: the streamed frames carried it, and a second
-		// one would look like a new turn.
 		for _, frame := range s.frameAudio(nil, true) {
 			outbound = append(outbound, ProviderOutbound{Binary: frame})
 		}
 	} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
-		if start, ok := s.ttsStartOutbound(); ok {
-			outbound = append(outbound, start)
-		}
 		for offset := 0; offset < len(pcm); offset += audioFrameBytes {
 			end := offset + audioFrameBytes
 			if end > len(pcm) {
