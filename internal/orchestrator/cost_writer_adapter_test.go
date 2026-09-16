@@ -50,6 +50,43 @@ func TestAICostWriterAdapter_Write(t *testing.T) {
 	if recorded.TokensOut != 200 {
 		t.Errorf("expected tokens_out 200, got %d", recorded.TokensOut)
 	}
+	if recorded.CostFen <= 0 {
+		t.Errorf("expected CostFen > 0, got %d", recorded.CostFen)
+	}
+}
+
+func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
+	store := aicost.NewMemoryStore()
+	service := aicost.NewService(store, nil)
+	adapter := NewAICostWriterAdapter(service)
+
+	log := CostLog{
+		UserID:       "user-cost-test",
+		Operation:    "review.eval",
+		Model:        "ep-20260830204651-pffhf",
+		PromptTokens: 1000,
+		OutputTokens: 500,
+	}
+
+	err := adapter.Write(context.Background(), log)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	logs, err := store.ListRecent(context.Background(), "user-cost-test", 10)
+	if err != nil {
+		t.Fatalf("ListRecent failed: %v", err)
+	}
+
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+
+	recorded := logs[0]
+	expectedCost := 9
+	if recorded.CostFen != expectedCost {
+		t.Errorf("CostFen = %d; want %d (1000*5/1000 + 500*9/1000)", recorded.CostFen, expectedCost)
+	}
 }
 
 func TestAICostWriterAdapter_NilService(t *testing.T) {

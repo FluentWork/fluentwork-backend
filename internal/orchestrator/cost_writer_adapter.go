@@ -29,7 +29,7 @@ func (a *AICostWriterAdapter) Write(ctx context.Context, log CostLog) error {
 		TokensIn:  log.PromptTokens,
 		TokensOut: log.OutputTokens,
 		AudioSec:  0,
-		CostFen:   0, // TODO: 实现费用计算
+		CostFen:   CalculateCost(log.Model, log.PromptTokens, log.OutputTokens),
 	}
 
 	_, err := a.service.Record(ctx, req)
