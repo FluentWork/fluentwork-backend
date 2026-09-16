@@ -31,22 +31,15 @@ type Service struct {
 }
 
 // NewService constructs a review eval service.
-// llm may be review.Completer, drill.Completer, or nil (fallback scores).
-func NewService(sessions session.Store, hits HitSource, llm interface {
-	Complete(ctx context.Context, prompt string) (string, error)
-}, logger *slog.Logger,
-) *Service {
+// llm accepts Completer or orchestrator.Client (via OrchestratorAdapter).
+func NewService(sessions session.Store, hits HitSource, llm Completer, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
-	}
-	var evalLLM Completer
-	if llm != nil {
-		evalLLM = llm
 	}
 	return &Service{
 		sessions: sessions,
 		hits:     hits,
-		eval:     &Evaluator{LLM: evalLLM},
+		eval:     &Evaluator{LLM: llm},
 		logger:   logger.With("component", "review.eval"),
 		interval: DefaultQPSInterval,
 		sleep:    time.Sleep,

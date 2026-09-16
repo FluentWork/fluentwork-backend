@@ -14,6 +14,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
+	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -69,7 +70,9 @@ func run() error {
 	if arkReviewEnabled {
 		svc.SetReviewGenerator(reviewGenerator)
 	}
-	svc.SetEvalProcessor(review.NewService(store, corpusStore, drill.NewArkCompleter(cfg), logger))
+	svc.SetEvalProcessor(review.NewService(store, corpusStore, &review.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, nil), // TODO: wire CostWriter
+	}, logger))
 
 	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)
 	if err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/materials"
+	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	reviewpkg "github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
@@ -127,7 +128,9 @@ func run() error {
 		sessionSvc.SetReviewGenerator(reviewGenerator)
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
-	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, drill.NewArkCompleter(cfg), logger)
+	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, &reviewpkg.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, nil), // TODO: wire CostWriter
+	}, logger)
 	sessionSvc.SetEvalProcessor(reviewEval)
 	ttsHandler := tts.NewHandler(newTTSProvider(logger))
 
