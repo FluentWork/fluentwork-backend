@@ -27,6 +27,26 @@ const (
 	// a different capability, and it is **not implemented** — see `77_` P1-17.
 	// Nobody should read this knob as if it were that.
 	defaultIdleTimeout = 2 * time.Minute
+
+	// defaultWriteTimeout bounds a single gateway→client write.
+	//
+	// Without it a client that stops reading fills its receive window, and the
+	// write blocks **forever**. That is not one lost frame: the sink runs
+	// synchronously on collectTurn's goroutine, so collectTurn stops calling
+	// recv and the vendor duplex's send buffer fills behind it; and the read
+	// loop blocks on the same `writeMu` the next time it has anything to send
+	// — including the `interrupt` branch, which takes the lock even when the
+	// provider returned nothing to write.
+	//
+	// Note what bounding a write costs here: `coder/websocket`'s
+	// setupWriteTimeout closes the **whole connection** when the context
+	// expires, not just the write. That is deliberate — speech is real time,
+	// so a client that cannot take bytes for several seconds is not "slow", it
+	// is gone, and dropping frames to keep a session alive would let it fall
+	// further behind a stream it can never catch up to. Closing it lets
+	// persistOnExit record the session and tears the vendor duplex down
+	// cleanly, which is what a stalled client used to prevent.
+	defaultWriteTimeout = 5 * time.Second
 )
 
 // Config holds voice-gateway process settings.
