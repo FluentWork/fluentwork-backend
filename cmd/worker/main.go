@@ -96,7 +96,7 @@ func run() error {
 		}
 	}()
 	topicSched := topic.NewScheduler(topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{
-		Client: orchestrator.NewClient(cfg, nil),
+		Client: orchestrator.NewClient(cfg, costWriter),
 	}, topic.PracticeSignals{Blocks: corpusStore, Sessions: store}), store, logger)
 
 	workerID := envOr("WORKER_ID", "worker-1")
