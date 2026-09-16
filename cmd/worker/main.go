@@ -72,16 +72,10 @@ func run() error {
 	costWriter := orchestrator.NewAICostWriterAdapter(costSvc)
 
 	svc := session.NewService(store, cfg, logger)
-	reviewGenerator := reviewgen.ArkGenerator{
-		BaseURL:  cfg.ArkBaseURL,
-		APIKey:   cfg.ArkAPIKey,
-		Endpoint: cfg.ArkReviewRefineEP,
-		Logger:   logger.With("component", "reviewgen.ark"),
+	reviewGenerator := &reviewgen.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
 	}
-	arkReviewEnabled := reviewGenerator.Enabled()
-	if arkReviewEnabled {
-		svc.SetReviewGenerator(reviewGenerator)
-	}
+	svc.SetReviewGenerator(reviewGenerator)
 	svc.SetEvalProcessor(review.NewService(store, corpusStore, &review.OrchestratorAdapter{
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}, logger))

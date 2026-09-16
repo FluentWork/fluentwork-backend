@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -26,10 +25,7 @@ type ArkClient struct {
 
 // NewArkClient 创建 Ark 客户端
 func NewArkClient(cfg config.Config, costWriter CostWriter) *ArkClient {
-	model := strings.TrimSpace(os.Getenv("ARK_EP_DRILL"))
-	if model == "" {
-		model = strings.TrimSpace(cfg.ArkReviewRefineEP)
-	}
+	model := strings.TrimSpace(cfg.ArkReviewRefineEP)
 	
 	return &ArkClient{
 		baseURL:    cfg.ArkBaseURL,

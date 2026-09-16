@@ -119,15 +119,10 @@ func run() error {
 	contentSvc := content.NewService(contentStore, content.CorpusBlockSource{Store: corpusStore}, logger)
 	contentHandler := content.NewHandler(contentSvc, accountHandler)
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
-	reviewGenerator := reviewgen.ArkGenerator{
-		BaseURL:  cfg.ArkBaseURL,
-		APIKey:   cfg.ArkAPIKey,
-		Endpoint: cfg.ArkReviewRefineEP,
-		Logger:   logger.With("component", "reviewgen.ark"),
+	reviewGenerator := &reviewgen.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
 	}
-	if reviewGenerator.Enabled() {
-		sessionSvc.SetReviewGenerator(reviewGenerator)
-	}
+	sessionSvc.SetReviewGenerator(reviewGenerator)
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, &reviewpkg.OrchestratorAdapter{
 		Client: orchestrator.NewClient(cfg, costWriter),
