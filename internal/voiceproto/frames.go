@@ -217,13 +217,27 @@ func DecodeAITTSAudio(raw []byte) (AITTSAudio, error) {
 	}, nil
 }
 
+// Turn outcomes carried on ai.turn.end (S→C).
+//
+// They mirror voicepoc.TurnOutcome 1:1, and are declared here rather than
+// imported from there because this is the package that owns the wire value: a
+// consumer that only reads the frame — B8's rescue window, which must not arm a
+// ladder against a question that was never asked — has no business depending on
+// the vendor POC layer to spell "timeout".
+const (
+	TurnOutcomeOK      = "ok"
+	TurnOutcomePartial = "partial"
+	TurnOutcomeTimeout = "timeout"
+	TurnOutcomeError   = "error"
+)
+
 // AITurnEnd marks the explicit end boundary of one assistant turn.
 type AITurnEnd struct {
 	Type   string `json:"type"`
 	TurnID string `json:"turn_id,omitempty"`
 	// B15: explicit terminal status so iOS can distinguish ok/partial/timeout/error
 	// without relying on implicit timing heuristics. Maps 1:1 to voicepoc.TurnOutcome.
-	Outcome string `json:"outcome,omitempty"` // "" | "ok" | "partial" | "timeout" | "error"
+	Outcome string `json:"outcome,omitempty"` // "" | TurnOutcome* above
 	// B15-I3: vendor log_id from Volcengine handshake (X-Tt-Logid) for cross-layer trace.
 	// Allows iOS tracker events to be correlated with vendor-side diagnostic logs.
 	LogID string `json:"log_id,omitempty"`

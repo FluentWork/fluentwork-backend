@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -86,19 +87,28 @@ type Options struct {
 	// connection (see defaultWriteTimeout for why that is the intended
 	// outcome, not a side effect). Zero means defaultWriteTimeout.
 	WriteTimeout time.Duration
+	// RescueTick is how often the B8 silence detector is polled. Zero means
+	// defaultRescueTick. It is configurable so tests can run a rescue window
+	// measured in milliseconds; production has no reason to leave 500ms.
+	RescueTick time.Duration
 }
 
 // Handler serves WSS upgrades and the control-frame loop.
 type Handler struct {
-	consumer           TicketConsumer
-	lifecycle          SessionLifecycle
-	provider           VoiceProvider
-	badgeEmitter       *BadgeEmitter
+	consumer     TicketConsumer
+	lifecycle    SessionLifecycle
+	provider     VoiceProvider
+	badgeEmitter *BadgeEmitter
+	// B8 stuck rescue. Both must be non-nil for the feature to run; see
+	// SetRescueComponents. A nil detector is the feature's off switch.
+	silenceDetector    *SilenceDetector
+	rescueOrchestrator *RescueOrchestrator
 	logger             *slog.Logger
 	now                func() time.Time
 	insecureSkipOrigin bool
 	idleTimeout        time.Duration
 	writeTimeout       time.Duration
+	rescueTick         time.Duration
 	clientASRRequired  bool // B13: gate user.speech.end with empty text when true
 }
 
@@ -124,6 +134,10 @@ func NewHandler(
 	if write <= 0 {
 		write = defaultWriteTimeout
 	}
+	rescueTick := opts.RescueTick
+	if rescueTick <= 0 {
+		rescueTick = defaultRescueTick
+	}
 	return &Handler{
 		consumer:           consumer,
 		lifecycle:          lifecycle,
@@ -133,6 +147,7 @@ func NewHandler(
 		insecureSkipOrigin: opts.InsecureSkipOrigin,
 		idleTimeout:        idle,
 		writeTimeout:       write,
+		rescueTick:         rescueTick,
 	}
 }
 
@@ -146,6 +161,21 @@ func (h *Handler) SetBadgeEmitter(emitter *BadgeEmitter) {
 // text returns an error frame (code: client_asr_required).
 func (h *Handler) SetClientASRRequired(required bool) {
 	h.clientASRRequired = required
+}
+
+// SetRescueComponents wires B8 stuck rescue. Both must be non-nil to enable
+// rescue; passing nil for either disables the feature. Call before Mount.
+//
+// detector is a **template, not the detector sessions use**. A detector holds a
+// live silence window, and sessions run concurrently: one shared instance would
+// let session A's ai.tts.end open a window that session B's ticker then spends,
+// handing A's ladder to B. Handler.loop therefore clones it per session and
+// copies only its thresholds, which is the one part that is genuinely global.
+// Callers who want to observe detection should watch the ai.rescue.ladder frames
+// rather than the detector — that instance never sees a session.
+func (h *Handler) SetRescueComponents(detector *SilenceDetector, orchestrator *RescueOrchestrator) {
+	h.silenceDetector = detector
+	h.rescueOrchestrator = orchestrator
 }
 
 // Mount registers health and voice WSS routes on mux.
@@ -320,6 +350,64 @@ type sessionRuntime struct {
 	// collecting is set while WaitTurnResult is running so a second
 	// user.speech.end cannot start a overlapping collect on the same duplex.
 	collecting atomic.Bool
+	// B8: silence detector for stuck rescue. Per session — see SetRescueComponents
+	// for why sharing one across sessions hands ladders to the wrong user.
+	silenceDetector *SilenceDetector
+	// B8: rescue orchestrator for ladder generation. Unlike the detector this is
+	// stateless and safe to share; it is copied onto the runtime only so the
+	// emission path does not have to reach back to the Handler.
+	rescueOrchestrator *RescueOrchestrator
+	// B8: rescueTick is how often the detector is polled for this session.
+	rescueTick time.Duration
+	// B8: now is the handler's clock, so a session whose rescue window is driven
+	// by a frozen or shifted clock stays consistent with the rest of the handler.
+	now func() time.Time
+	// B8: rescueWG counts the poller plus any ladder generation still in flight.
+	// close waits on it, so a session that ends mid-generation does not leave a
+	// goroutine writing to a connection nobody owns.
+	rescueWG sync.WaitGroup
+	// B8: rescueInFlight is set while a ladder is being generated. The poller is
+	// the only writer, so this is a "busy" flag rather than a lock; the next
+	// rung is simply left unconsumed and picked up on a later tick.
+	rescueInFlight atomic.Bool
+	// B8: rescueStop closes the poller. Nil means the poller never started.
+	rescueStop     chan struct{}
+	rescueStopOnce sync.Once
+	// B8: rescueMu guards the conversation context handed to the generator. Text
+	// deltas arrive on whichever goroutine is relaying provider output — the read
+	// loop, the collect goroutine, or the streaming sink — so this is concurrent.
+	rescueMu sync.Mutex
+	// B8: convCtx accumulates what the generator needs to know about the turn the
+	// user is stuck in. LastAIMessage is rebuilt from the turn's text deltas.
+	convCtx conversation.ConversationContext
+	// B8: rescueTurnID is the turn the ladder belongs to, learned from the AI's
+	// own turn-end markers. Empty falls back to the session id at emission time,
+	// because the rescue fires before the user's turn_id exists on the wire.
+	rescueTurnID string
+}
+
+// clock returns the runtime's clock, defaulting to time.Now so a directly-built
+// sessionRuntime (tests, future callers) is still bounded by real time.
+func (rt *sessionRuntime) clock() time.Time {
+	if rt.now == nil {
+		return time.Now()
+	}
+	return rt.now()
+}
+
+// rescueEnabled reports whether both halves of B8 were wired.
+func (rt *sessionRuntime) rescueEnabled() bool {
+	return rt.silenceDetector != nil && rt.rescueOrchestrator != nil
+}
+
+// stopRescueLoop closes the poller, if one was started. Idempotent: the loop's
+// exit path and close both call it.
+func (rt *sessionRuntime) stopRescueLoop() {
+	rt.rescueStopOnce.Do(func() {
+		if rt.rescueStop != nil {
+			close(rt.rescueStop)
+		}
+	})
 }
 
 // resolveWriteTimeout bounds every write made under writeMu. It is a method
@@ -355,6 +443,14 @@ func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn
 	if !writableOutbound(outbound) {
 		return nil
 	}
+
+	// B8: fold the AI's own output into the rescue state before it goes out.
+	// Done here rather than in writeProviderOutbound because that function is
+	// also called with the runtime out of reach, and after the write lock is
+	// held — and rescue bookkeeping has no business inside a lock that bounds
+	// the wire.
+	rt.noteProviderOutbound(outbound)
+
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
@@ -363,11 +459,20 @@ func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
-	rt := &sessionRuntime{writeTimeout: h.writeTimeout}
+	rt := &sessionRuntime{
+		writeTimeout:       h.writeTimeout,
+		silenceDetector:    h.rescueDetectorForSession(),
+		rescueOrchestrator: h.rescueOrchestrator,
+		rescueTick:         h.rescueTick,
+		now:                h.now,
+	}
 	defer func() {
 		rt.close(ctx)
 		h.persistOnExit(ctx, rt, session, loopErr)
 	}()
+	// B8: the poller outlives any single read, so it is started once here rather
+	// than per frame. It no-ops when rescue was never wired.
+	h.startRescueLoop(ctx, conn, rt, session)
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, h.idleTimeout)
 		typ, data, err := conn.Read(readCtx)
@@ -568,6 +673,12 @@ func (h *Handler) handleControl(
 			"stage", "orchestration",
 		)
 		rt.lastStart = &start
+		// B8: what the rescue generator is told the practice is about. SceneType
+		// is the only scene information this frame carries, and MaterialID stands
+		// in when a client omits it — a ladder generated against no context at
+		// all is generic encouragement, which is the failure mode the level-3
+		// example exists to avoid.
+		rt.noteScenario(start.SceneType, start.MaterialID)
 		// Resolved once, before the first Start, so the reopened path replays
 		// the same context (see rt.continuation). A refusal is not fatal: the
 		// session opens without the tail, which is what it would have done
@@ -627,7 +738,14 @@ func (h *Handler) handleControl(
 				"stage", "orchestration",
 			)
 		}
+		// B8: the user opening their mouth restarts the ladder. It deliberately
+		// does not move the silence window — an utterance that turns out to be
+		// incomplete must not buy another three seconds. See SilenceDetector.
+		if frameType == voiceproto.TypeUserSpeechStart {
+			rt.noteUserSpeechStart()
+		}
 		if frameType == voiceproto.TypeUserSpeechEnd {
+			rt.noteUserSpeechEnd(data)
 			return h.startCollectTurn(ctx, conn, rt, session, data)
 		}
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
@@ -673,6 +791,10 @@ func (h *Handler) handleControl(
 		if !rt.started || rt.provider == nil {
 			return nil
 		}
+		// B8: an abandoned recording is an unfinished utterance, so the ladder
+		// stays armed (docs/78 §5.3 case 2) — but the user has stopped talking,
+		// so rescue must stop being suspended.
+		rt.noteTurnAbort()
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
 		if err != nil {
 			// Do not emit error frames here: iOS maps them to .failed and
@@ -1005,6 +1127,11 @@ func (h *Handler) persistOnExit(
 }
 
 func (rt *sessionRuntime) close(ctx context.Context) {
+	// B8: stop the poller before waiting on it. Its goroutine selects on
+	// rescueStop, so waiting first would deadlock; and a poller left running
+	// after the loop returns would keep reading a detector for a session that no
+	// longer has a connection.
+	rt.stopRescueLoop()
 	if rt.provider != nil {
 		// Close the upstream first so WaitTurnResult unblocks, then wait for
 		// the collect goroutine. Waiting first deadlocks: collect holds the
@@ -1014,4 +1141,7 @@ func (rt *sessionRuntime) close(ctx context.Context) {
 		cancel()
 	}
 	rt.collectWG.Wait()
+	// Rescue generation is bounded by its own context.WithTimeout, so this
+	// cannot outlast one rung's worth of work.
+	rt.rescueWG.Wait()
 }
