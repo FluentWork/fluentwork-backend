@@ -26,9 +26,13 @@ type ArkClient struct {
 // NewArkClient 创建 Ark 客户端
 func NewArkClient(cfg config.Config, costWriter CostWriter) *ArkClient {
 	model := strings.TrimSpace(cfg.ArkReviewRefineEP)
+	baseURL := strings.TrimSpace(cfg.ArkBaseURL)
+	if baseURL == "" {
+		baseURL = "https://ark.cn-beijing.volces.com/api/v3"
+	}
 	
 	return &ArkClient{
-		baseURL:    cfg.ArkBaseURL,
+		baseURL:    baseURL,
 		apiKey:     cfg.ArkAPIKey,
 		model:      model,
 		costWriter: costWriter,
