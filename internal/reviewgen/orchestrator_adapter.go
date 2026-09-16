@@ -14,6 +14,11 @@ type OrchestratorAdapter struct {
 	Client orchestrator.Client
 }
 
+// Enabled reports whether the adapter is ready for use.
+func (a *OrchestratorAdapter) Enabled() bool {
+	return a.Client != nil
+}
+
 // Generate calls orchestrator.Client and validates the review/refine output.
 func (a *OrchestratorAdapter) Generate(ctx context.Context, req Request) (Result, error) {
 	req.SessionID = strings.TrimSpace(req.SessionID)

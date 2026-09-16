@@ -48,8 +48,15 @@ type CostLog struct {
 	LatencyMS    int64
 }
 
+var (
+	defaultClient Client
+)
+
 // NewClient 根据 config 返回配置好的 Client
-// 当前只返回 ArkClient，后续可扩展为工厂模式支持多供应商
+// 使用单例模式，所有调用共享同一个 HTTP 连接池
 func NewClient(cfg config.Config, costWriter CostWriter) Client {
-	return NewArkClient(cfg, costWriter)
+	if defaultClient == nil {
+		defaultClient = NewArkClient(cfg, costWriter)
+	}
+	return defaultClient
 }

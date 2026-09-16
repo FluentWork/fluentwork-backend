@@ -95,6 +95,7 @@ func run() error {
 
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
+	reviewEnabled := reviewGenerator.Enabled()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -103,7 +104,7 @@ func run() error {
 		"service", "worker",
 		"worker_id", workerID,
 		"poll_interval", pollEvery.String(),
-		"ark_review_enabled", arkReviewEnabled,
+		"ark_review_enabled", reviewEnabled,
 		"ark_review_endpoint", cfg.ArkReviewRefineEP,
 		"repository", buildinfo.Repository,
 	)
