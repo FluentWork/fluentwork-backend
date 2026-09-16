@@ -84,8 +84,22 @@ func TestNormalizeModelName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"ep-20260830204651-pffhf", "doubao-pro-32k"},
+		// Exact endpoint mapping (dev)
+		{"ep-20260830204651-pffhf", "doubao-pro-32k"},   // ARK_EP_REVIEW_REFINE
+		{"ep-20260830204818-8kdfr", "doubao-pro-32k"},   // ARK_EP_DAILY_READ
+		{"ep-20260830204912-wtjw9", "doubao-pro-32k"},   // ARK_EP_TOPIC_CARD
+		{"ep-20260830205333-prddb", "doubao-lite-32k"},  // ARK_EP_HIT_MATCH
+		{"ep-20260830205423-xg4pd", "doubao-pro-4k"},    // ARK_EP_DRILL_JUDGE
+		{"ep-20260830205520-d9d8n", "doubao-lite-32k"},  // ARK_EP_TEXT_DEGRADE
+		
+		// Exact endpoint mapping (prod)
+		{"ep-20260830211617-26d79", "doubao-pro-32k"},   // ARK_EP_REVIEW_REFINE (Prod)
+		{"ep-20260830211747-vwtrb", "doubao-lite-32k"},  // ARK_EP_HIT_MATCH (Prod)
+		
+		// Case insensitivity
 		{"EP-20260830204651-PFFHF", "doubao-pro-32k"},
+		
+		// Direct model names
 		{"doubao-pro-32k", "doubao-pro-32k"},
 		{"Doubao-Pro-32K", "doubao-pro-32k"},
 		{"doubao-lite-128k", "doubao-lite-32k"},
@@ -94,6 +108,8 @@ func TestNormalizeModelName(t *testing.T) {
 		{"doubao-pro-128k", "doubao-pro-128k"},
 		{"doubao-pro-256k", "doubao-pro-256k"},
 		{"doubao-pro-search", "doubao-pro-search"},
+		
+		// Unknown models default to pro-32k
 		{"unknown", "doubao-pro-32k"},
 		{"", "doubao-pro-32k"},
 	}
