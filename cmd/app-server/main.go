@@ -144,7 +144,9 @@ func run() error {
 			logger.Error("closing drill record store", "err", closeErr)
 		}
 	}()
-	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: drill.NewArkCompleter(cfg)}, logger)
+	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: &drill.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
+	}}, logger)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 
 	materialStore, materialCloser, err := materials.OpenStore(cfg, logger)
