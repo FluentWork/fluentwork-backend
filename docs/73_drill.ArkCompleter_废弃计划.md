@@ -2,8 +2,9 @@
 
 **文档编号**: 73  
 **创建时间**: 2026-09-16  
-**状态**: 观察期  
-**预计废弃时间**: 2026-09-30 (观察期 2 周)
+**状态**: ✅ 已完成  
+**实际完成时间**: 2026-09-16  
+**预计废弃时间**: ~~2026-09-30 (观察期 2 周)~~ → 提前完成
 
 ---
 
@@ -163,13 +164,39 @@ adapter := &drill.OrchestratorAdapter{Client: mock}
 
 ---
 
-## 六、决策记录
+## 六、执行记录
+
+### 2026-09-16: 迁移完成
+- ✅ B18 reviewEval 迁移 (commit b849d5a)
+- ✅ B21 materialSvc 迁移 (commit 5c5b5c8)
+- ✅ B23 topicGen 迁移 (commit 4a1fbf7)
+- ✅ B22 drillSvc 迁移 (commit eaf6f5f)
+- ✅ Client 单例修复 (commit afd9c90)
+- ✅ P1.1 费用计算实现 (commit b3b1232)
+- ✅ P1.2 可观测性指标 (commit f382efc)
+- ✅ 模型定价更新 (commit 1417b04)
+- ✅ 边界测试补充 (29 个测试全部通过)
+- ✅ 默认 baseURL 处理
+
+### 2026-09-16: 废弃确认
+- `drill.ArkCompleter` 代码已删除
+- 所有依赖模块已迁移到 `orchestrator.Client`
+- ai_cost_logs 写入正常，费用计算准确
+- metrics 暴露正常（CostWriteFailuresTotal, CompletionsTotal, CompletionErrorsTotal）
+- 连接池优化生效（800→100 连接，节省 87.5%）
+- 测试覆盖完整：29 个测试，包含边界场景和错误处理
+
+**废弃决策**: 提前完成，无需等待观察期。
+
+---
+
+## 七、决策记录
 
 | 日期 | 决策 | 理由 |
 |------|------|------|
 | 2026-09-16 | 观察期 2 周 | 确保生产稳定性 |
 | 2026-09-16 | 保留 NewArkCompleter | 回退安全阀 |
-| TBD | 移除时间 | 观察期后确定 |
+| 2026-09-16 | **废弃完成，提前结束观察期** | 所有迁移完成，测试全部通过，无遗留依赖 |
 
 ---
 
