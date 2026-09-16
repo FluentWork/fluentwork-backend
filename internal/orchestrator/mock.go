@@ -29,6 +29,7 @@ func NewMockClient(content string) *MockClient {
 			Model:        "mock-model",
 			LatencyMS:    10,
 		},
+		Calls: []CompletionRequest{},
 	}
 }
 

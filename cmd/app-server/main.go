@@ -156,7 +156,9 @@ func run() error {
 			logger.Error("closing materials store", "err", closeErr)
 		}
 	}()
-	materialSvc := materials.NewService(materialStore, corpusStore, drill.NewArkCompleter(cfg), logger)
+	materialSvc := materials.NewService(materialStore, corpusStore, &materials.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
+	}, logger)
 	materialHandler := materials.NewHandler(materialSvc, accountHandler)
 
 	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)
