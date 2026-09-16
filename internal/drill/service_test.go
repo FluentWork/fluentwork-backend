@@ -83,12 +83,26 @@ func TestApplyJudge_PassFailAutomated(t *testing.T) {
 	if !auto.NextDueAt.Equal(now.Add(30 * 24 * time.Hour)) {
 		t.Fatalf("auto due = %s", auto.NextDueAt)
 	}
+	// 已自动化的块复验成功不再累加 streak（PRD §5.3.2："不变"）。不钉住这条，
+	// 一个"顺手 +1"的改动会让 streak 无限增长而没人发现。
+	if auto.SuccessStreak != p3.SuccessStreak {
+		t.Fatalf("auto streak = %d, want unchanged %d", auto.SuccessStreak, p3.SuccessStreak)
+	}
 	fail := ApplyJudge(p1, false, now)
 	if fail.SuccessStreak != 0 || fail.State != corpus.StateTraining {
 		t.Fatalf("fail = %+v", fail)
 	}
 	if !fail.NextDueAt.Equal(now.Add(time.Hour)) {
 		t.Fatalf("fail due = %s", fail.NextDueAt)
+	}
+	// 从已自动化回退（PRD §5.3.2：失败含从 automated 回退）。这是唯一一条
+	// 会"降级"的路径，也是用户最能感知到的一条（绿灯掉回黄灯）。
+	demoted := ApplyJudge(p3, false, now)
+	if demoted.State != corpus.StateTraining || demoted.SuccessStreak != 0 {
+		t.Fatalf("automated block did not fall back to training: %+v", demoted)
+	}
+	if !demoted.NextDueAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("demoted due = %s", demoted.NextDueAt)
 	}
 }
 

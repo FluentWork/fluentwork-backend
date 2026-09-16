@@ -40,16 +40,21 @@ var validFunctionTags = map[string]struct{}{
 
 // PhraseBlock is the persisted refine/corpus row for one user expression.
 type PhraseBlock struct {
-	ID              string
-	UserID          string
-	IntentZH        string
-	ExpressionEN    string
-	AnchorUserSaid  string
-	SceneTag        string
-	FunctionTag     string
-	State           string
-	SuccessStreak   int
-	NextDueAt       time.Time
+	ID             string
+	UserID         string
+	IntentZH       string
+	ExpressionEN   string
+	AnchorUserSaid string
+	SceneTag       string
+	FunctionTag    string
+	State          string
+	SuccessStreak  int
+	NextDueAt      time.Time
+	// EaseFactor is 预留，不参与计算。表列与字段都建好了，但 MVP 的调度是
+	// 固定阶梯（drill.ApplyJudge：24h / 7d / 30d 三档 + 失败 1h），没有任何
+	// 实现读它——它恒为建块时的默认值 2.5。保留是为了 V1.1 可能启用的简化
+	// SM-2（见 §33_/§39_，已在 PRD §5.5 定案为 "MVP 不启用"）。
+	// 谁要启用它，必须同时改 drill.ApplyJudge 并补测试；只改这里等于没改。
 	EaseFactor      float64
 	RealUseCount    int
 	TotalUses       int
