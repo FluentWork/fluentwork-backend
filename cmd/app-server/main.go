@@ -170,7 +170,9 @@ func run() error {
 			logger.Error("closing topic store", "err", closeErr)
 		}
 	}()
-	topicGen := topic.NewGenerator(topicStore, drill.NewArkCompleter(cfg), topic.PracticeSignals{Blocks: corpusStore, Sessions: sessionStore})
+	topicGen := topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
+	}, topic.PracticeSignals{Blocks: corpusStore, Sessions: sessionStore})
 	topicSvc := topic.NewService(topicStore, topicGen, logger)
 	topicHandler := topic.NewHandler(topicSvc, accountHandler)
 	topicSched := topic.NewScheduler(topicGen, sessionStore, logger)

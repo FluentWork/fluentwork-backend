@@ -14,7 +14,6 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
-	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
@@ -96,7 +95,9 @@ func run() error {
 			logger.Error("closing topic store", "err", closeErr)
 		}
 	}()
-	topicSched := topic.NewScheduler(topic.NewGenerator(topicStore, drill.NewArkCompleter(cfg), topic.PracticeSignals{Blocks: corpusStore, Sessions: store}), store, logger)
+	topicSched := topic.NewScheduler(topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, nil),
+	}, topic.PracticeSignals{Blocks: corpusStore, Sessions: store}), store, logger)
 
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
