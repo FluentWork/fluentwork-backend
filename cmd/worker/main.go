@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
@@ -59,6 +60,18 @@ func run() error {
 		}
 	}()
 
+	costStore, costCloser, err := aicost.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := costCloser(); closeErr != nil {
+			logger.Error("closing aicost store", "err", closeErr)
+		}
+	}()
+	costSvc := aicost.NewService(costStore, logger)
+	costWriter := orchestrator.NewAICostWriterAdapter(costSvc)
+
 	svc := session.NewService(store, cfg, logger)
 	reviewGenerator := reviewgen.ArkGenerator{
 		BaseURL:  cfg.ArkBaseURL,
@@ -71,7 +84,7 @@ func run() error {
 		svc.SetReviewGenerator(reviewGenerator)
 	}
 	svc.SetEvalProcessor(review.NewService(store, corpusStore, &review.OrchestratorAdapter{
-		Client: orchestrator.NewClient(cfg, nil), // TODO: wire CostWriter
+		Client: orchestrator.NewClient(cfg, costWriter),
 	}, logger))
 
 	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)

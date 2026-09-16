@@ -106,6 +106,7 @@ func run() error {
 	}()
 	costSvc := aicost.NewService(costStore, logger)
 	costHandler := aicost.NewHandler(costSvc)
+	costWriter := orchestrator.NewAICostWriterAdapter(costSvc)
 
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},
@@ -129,7 +130,7 @@ func run() error {
 	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, &reviewpkg.OrchestratorAdapter{
-		Client: orchestrator.NewClient(cfg, nil), // TODO: wire CostWriter
+		Client: orchestrator.NewClient(cfg, costWriter),
 	}, logger)
 	sessionSvc.SetEvalProcessor(reviewEval)
 	ttsHandler := tts.NewHandler(newTTSProvider(logger))
