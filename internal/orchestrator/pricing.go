@@ -11,6 +11,11 @@ type ModelPricing struct {
 // 火山 Ark 模型定价表（2026-09 数据）
 // 参考：https://www.volcengine.com/docs/82379/1099320
 var arkPricing = map[string]ModelPricing{
+	// Doubao-mini 系列（Ark Mini，最经济的模型）
+	// 0.3元/M input tokens = 3分/1K tokens
+	// 0.6元/M output tokens = 6分/1K tokens
+	"doubao-mini-32k": {InputPricePerKToken: 3, OutputPricePerKToken: 6},
+
 	// Doubao-pro 系列
 	"doubao-pro-4k":     {InputPricePerKToken: 8, OutputPricePerKToken: 8},
 	"doubao-pro-32k":    {InputPricePerKToken: 5, OutputPricePerKToken: 9},
@@ -30,22 +35,24 @@ var arkPricing = map[string]ModelPricing{
 }
 
 // Endpoint ID 到模型映射表（基于 configs/volc.env.example 实际使用的 endpoints）
+// 注：根据文档 docs/24_B8_followup 和 meta/docs/30_技术方案/47_API契约冻结，
+// 实际使用的是 Ark Mini (doubao-mini-32k)，定价 0.3元/M input, 0.6元/M output
 var endpointToModel = map[string]string{
-	// Dev/POC Endpoints (项目 default)
-	"ep-20260830204651-pffhf": "doubao-pro-32k",    // ARK_EP_REVIEW_REFINE
-	"ep-20260830204818-8kdfr": "doubao-pro-32k",    // ARK_EP_DAILY_READ
-	"ep-20260830204912-wtjw9": "doubao-pro-32k",    // ARK_EP_TOPIC_CARD
-	"ep-20260830205333-prddb": "doubao-lite-32k",   // ARK_EP_HIT_MATCH
-	"ep-20260830205423-xg4pd": "doubao-pro-4k",     // ARK_EP_DRILL_JUDGE
-	"ep-20260830205520-d9d8n": "doubao-lite-32k",   // ARK_EP_TEXT_DEGRADE
-	
-	// Prod Endpoints (项目 FluentWork-Prod)
-	"ep-20260830211617-26d79": "doubao-pro-32k",    // ARK_EP_REVIEW_REFINE (Prod)
-	"ep-20260830211650-vkdj2": "doubao-pro-32k",    // ARK_EP_DAILY_READ (Prod)
-	"ep-20260830211715-q79x9": "doubao-pro-32k",    // ARK_EP_TOPIC_CARD (Prod)
-	"ep-20260830211747-vwtrb": "doubao-lite-32k",   // ARK_EP_HIT_MATCH (Prod)
-	"ep-20260830211815-pmkg6": "doubao-pro-4k",     // ARK_EP_DRILL_JUDGE (Prod)
-	"ep-20260830211850-pf2ts": "doubao-lite-32k",   // ARK_EP_TEXT_DEGRADE (Prod)
+	// Dev/POC Endpoints (项目 default) - 使用 Ark Mini
+	"ep-20260830204651-pffhf": "doubao-mini-32k",   // ARK_EP_REVIEW_REFINE
+	"ep-20260830204818-8kdfr": "doubao-mini-32k",   // ARK_EP_DAILY_READ
+	"ep-20260830204912-wtjw9": "doubao-mini-32k",   // ARK_EP_TOPIC_CARD
+	"ep-20260830205333-prddb": "doubao-mini-32k",   // ARK_EP_HIT_MATCH
+	"ep-20260830205423-xg4pd": "doubao-mini-32k",   // ARK_EP_DRILL_JUDGE
+	"ep-20260830205520-d9d8n": "doubao-mini-32k",   // ARK_EP_TEXT_DEGRADE
+
+	// Prod Endpoints (项目 FluentWork-Prod) - 使用 Ark Mini
+	"ep-20260830211617-26d79": "doubao-mini-32k",   // ARK_EP_REVIEW_REFINE (Prod)
+	"ep-20260830211650-vkdj2": "doubao-mini-32k",   // ARK_EP_DAILY_READ (Prod)
+	"ep-20260830211715-q79x9": "doubao-mini-32k",   // ARK_EP_TOPIC_CARD (Prod)
+	"ep-20260830211747-vwtrb": "doubao-mini-32k",   // ARK_EP_HIT_MATCH (Prod)
+	"ep-20260830211815-pmkg6": "doubao-mini-32k",   // ARK_EP_DRILL_JUDGE (Prod)
+	"ep-20260830211850-pf2ts": "doubao-mini-32k",   // ARK_EP_TEXT_DEGRADE (Prod)
 }
 
 // CalculateCost 计算 LLM 调用费用（单位：分）
@@ -81,6 +88,9 @@ func normalizeModelName(model string) string {
 	}
 
 	// 2. 通用模型名称匹配（用于 Ark 直接返回的 model 字段）
+	if strings.Contains(model, "mini") {
+		return "doubao-mini-32k"
+	}
 	if strings.Contains(model, "lite") {
 		return "doubao-lite-32k"
 	}
@@ -103,5 +113,6 @@ func normalizeModelName(model string) string {
 		return "doubao-pro-32k"
 	}
 
-	return "doubao-pro-32k"
+	// 3. 默认回退到 mini（最经济的模型）
+	return "doubao-mini-32k"
 }

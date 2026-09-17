@@ -63,7 +63,7 @@ func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
 	log := CostLog{
 		UserID:       "user-cost-test",
 		Operation:    "review.eval",
-		Model:        "ep-20260830204651-pffhf",
+		Model:        "ep-20260830204651-pffhf", // 映射到 doubao-mini-32k
 		PromptTokens: 1000,
 		OutputTokens: 500,
 	}
@@ -83,9 +83,12 @@ func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
 	}
 
 	recorded := logs[0]
-	expectedCost := 9
+	// endpoint ep-20260830204651-pffhf 映射到 doubao-mini-32k
+	// doubao-mini-32k: 3分/1K input, 6分/1K output
+	// Cost = 1000*3/1000 + 500*6/1000 = 3 + 3 = 6 分
+	expectedCost := 6
 	if recorded.CostFen != expectedCost {
-		t.Errorf("CostFen = %d; want %d (1000*5/1000 + 500*9/1000)", recorded.CostFen, expectedCost)
+		t.Errorf("CostFen = %d; want %d (doubao-mini-32k: 1000*3/1000 + 500*6/1000)", recorded.CostFen, expectedCost)
 	}
 }
 
