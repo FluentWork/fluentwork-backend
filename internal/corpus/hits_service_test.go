@@ -49,8 +49,48 @@ func TestHitsService_RecordHits_SingleTurn(t *testing.T) {
 	if block.TotalUses != 1 {
 		t.Fatalf("total_uses = %d", block.TotalUses)
 	}
+	if block.RealUseCount != 1 {
+		t.Fatalf("real_use_count = %d, want 1 (§5.2.3 回写)", block.RealUseCount)
+	}
 	if block.LastUsedAt == nil || block.LastUsedAt.UnixMilli() != 1_000 {
 		t.Fatalf("last_used_at = %v", block.LastUsedAt)
+	}
+	// 视同一次成功：§5.3.2 首发命中即 new → training，+24h 重排。
+	usedAt := time.UnixMilli(1_000).UTC()
+	if block.State != StateTraining || block.SuccessStreak != 1 {
+		t.Fatalf("state=%s streak=%d, want training/1", block.State, block.SuccessStreak)
+	}
+	if !block.NextDueAt.Equal(usedAt.Add(24 * time.Hour)) {
+		t.Fatalf("next_due_at = %v, want %v", block.NextDueAt, usedAt.Add(24*time.Hour))
+	}
+}
+
+// §5.3.2 实战命中视同一次成功：连续三个话轮命中应当把块推到绿灯。
+func TestHitsService_RecordHits_PromotesToAutomated(t *testing.T) {
+	store := NewMemoryStore()
+	seedBlock(t, store, "block-1", "user-1", "推动上线", "Let's ship it.")
+	svc := NewHitsService(store)
+
+	for turn, ms := range map[string]int64{"turn-1": 1_000, "turn-2": 2_000, "turn-3": 3_000} {
+		if _, err := svc.RecordHits(context.Background(), "user-1", "session-1", turn, []Hit{
+			{BlockID: "block-1", DetectedAtMs: ms},
+		}); err != nil {
+			t.Fatalf("%s: %v", turn, err)
+		}
+	}
+	block, err := store.GetBlock(context.Background(), "user-1", "block-1")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if block.State != StateAutomated || block.SuccessStreak != 3 {
+		t.Fatalf("state=%s streak=%d, want automated/3", block.State, block.SuccessStreak)
+	}
+	if block.RealUseCount != 3 || block.TotalUses != 3 {
+		t.Fatalf("real_use_count=%d total_uses=%d, want 3/3", block.RealUseCount, block.TotalUses)
+	}
+	usedAt := time.UnixMilli(3_000).UTC()
+	if !block.NextDueAt.Equal(usedAt.Add(7 * 24 * time.Hour)) {
+		t.Fatalf("next_due_at = %v, want %v", block.NextDueAt, usedAt.Add(7*24*time.Hour))
 	}
 }
 
@@ -76,6 +116,9 @@ func TestHitsService_RecordHits_CrossTurnAccumulates(t *testing.T) {
 	if block.TotalUses != 2 {
 		t.Fatalf("total_uses = %d, want 2", block.TotalUses)
 	}
+	if block.RealUseCount != 2 || block.SuccessStreak != 2 {
+		t.Fatalf("real_use_count=%d streak=%d, want 2/2", block.RealUseCount, block.SuccessStreak)
+	}
 }
 
 func TestHitsService_RecordHits_DuplicateSameTurnDoesNotDoubleCount(t *testing.T) {
@@ -98,6 +141,10 @@ func TestHitsService_RecordHits_DuplicateSameTurnDoesNotDoubleCount(t *testing.T
 	}
 	if block.TotalUses != 1 {
 		t.Fatalf("total_uses = %d, want 1 after duplicate UPSERT", block.TotalUses)
+	}
+	// 幂等：同一 (session, turn, block) 的重复上报不得二次回写。
+	if block.RealUseCount != 1 || block.SuccessStreak != 1 {
+		t.Fatalf("real_use_count=%d streak=%d, want 1/1", block.RealUseCount, block.SuccessStreak)
 	}
 	hits, err := store.ListSessionHits(context.Background(), "session-1")
 	if err != nil {

@@ -39,27 +39,10 @@ func SelectBlocksForRound(ctx context.Context, store corpus.Store, userID string
 }
 
 // ApplyJudge advances SM-2 state after one drill attempt (D-4 / T-B22-4).
+//
+// The ladder is implemented in corpus.ApplyJudge so that B7 hit writeback —
+// which runs inside the corpus store transaction, where drill cannot be
+// imported — shares the exact same rules. This delegate keeps drill's API.
 func ApplyJudge(block corpus.PhraseBlock, pass bool, now time.Time) corpus.PhraseBlock {
-	out := block
-	now = now.UTC()
-	out.UpdatedAt = now
-	if !pass {
-		out.SuccessStreak = 0
-		out.State = corpus.StateTraining
-		out.NextDueAt = now.Add(time.Hour)
-		return out
-	}
-	if block.State == corpus.StateAutomated {
-		out.NextDueAt = now.Add(30 * 24 * time.Hour)
-		return out
-	}
-	out.SuccessStreak = block.SuccessStreak + 1
-	if out.SuccessStreak >= 3 {
-		out.State = corpus.StateAutomated
-		out.NextDueAt = now.Add(7 * 24 * time.Hour)
-		return out
-	}
-	out.State = corpus.StateTraining
-	out.NextDueAt = now.Add(24 * time.Hour)
-	return out
+	return corpus.ApplyJudge(block, pass, now)
 }

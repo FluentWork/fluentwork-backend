@@ -344,12 +344,16 @@ func (s *MySQLStore) RestoreDeletedForUser(ctx context.Context, userID string) (
 	return int(n), err
 }
 
-// RecordHits implements Store. One transaction UPSERTs the ledger and
-// increments total_uses only when MySQL reports a fresh insert (RowsAffected==1).
+// RecordHits implements Store. One transaction UPSERTs the ledger; on a fresh
+// insert (RowsAffected==1) it also writes back the hit per PRD §5.2.3:
+// real_use_count/total_uses +1, last_used_at, and 视同一次成功 — the shared
+// ladder advances state/success_streak/next_due_at. Rows are locked FOR UPDATE
+// in block_id order (see sortedHits) so concurrent reports cannot deadlock.
 func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {
 	if len(hits) == 0 {
 		return 0, nil
 	}
+	hits = sortedHits(hits)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -374,11 +378,33 @@ func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID s
 			continue
 		}
 		usedAt := time.UnixMilli(hit.DetectedAtMs).UTC()
+		var state string
+		var streak int
+		var dueAt time.Time
+		err = tx.QueryRowContext(ctx, `
+                        SELECT state, success_streak, next_due_at
+                        FROM phrase_blocks
+                        WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+                        FOR UPDATE
+                `, hit.BlockID, userID).Scan(&state, &streak, &dueAt)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return 0, err
+		}
+		updated := ApplyJudge(PhraseBlock{State: state, SuccessStreak: streak, NextDueAt: dueAt}, true, usedAt)
 		if _, err := tx.ExecContext(ctx, `
                         UPDATE phrase_blocks
-                        SET total_uses = total_uses + 1, last_used_at = ?
+                        SET total_uses = total_uses + 1,
+                            real_use_count = real_use_count + 1,
+                            last_used_at = ?,
+                            state = ?,
+                            success_streak = ?,
+                            next_due_at = ?,
+                            updated_at = ?
                         WHERE id = ? AND user_id = ? AND deleted_at IS NULL
-                `, usedAt, hit.BlockID, userID); err != nil {
+                `, usedAt, updated.State, updated.SuccessStreak, updated.NextDueAt, updated.UpdatedAt, hit.BlockID, userID); err != nil {
 			return 0, err
 		}
 	}

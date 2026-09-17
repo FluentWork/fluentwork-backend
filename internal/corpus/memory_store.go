@@ -343,11 +343,13 @@ func useKey(sessionID, turnID, blockID string) string {
 }
 
 // RecordHits implements Store. Duplicate (session, turn, block) rows update
-// used_at_ms only; total_uses increments on first insert.
+// used_at_ms only; a first insert also applies the PRD §5.2.3 hit writeback
+// (counters + 视同一次成功), mirroring MySQLStore.
 func (s *MemoryStore) RecordHits(_ context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recorded := 0
+	hits = sortedHits(hits)
 	for _, hit := range hits {
 		key := useKey(sessionID, turnID, hit.BlockID)
 		_, exists := s.uses[key]
@@ -366,10 +368,11 @@ func (s *MemoryStore) RecordHits(_ context.Context, userID, sessionID, turnID st
 		if !ok || block.UserID != userID || block.DeletedAt != nil {
 			continue
 		}
-		block.TotalUses++
 		usedAt := time.UnixMilli(hit.DetectedAtMs).UTC()
+		block.RealUseCount++
+		block.TotalUses++
 		block.LastUsedAt = &usedAt
-		s.blocks[hit.BlockID] = block
+		s.blocks[hit.BlockID] = ApplyJudge(block, true, usedAt)
 	}
 	return recorded, nil
 }

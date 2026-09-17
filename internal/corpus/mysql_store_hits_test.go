@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"context"
+	"database/sql"
 	"regexp"
 	"testing"
 	"time"
@@ -17,12 +18,17 @@ func TestMySQLStore_RecordHits_InsertThenDuplicate(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	store := NewMySQLStore(db)
 
+	usedAt := time.UnixMilli(1000).UTC()
 	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO phrase_block_uses`).
 		WithArgs("user-1", "session-1", "turn-1", "block-1", int64(1000)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT state, success_streak, next_due_at`).
+		WithArgs("block-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
+			AddRow(StateNew, 0, usedAt))
 	mock.ExpectExec(`UPDATE phrase_blocks`).
-		WithArgs(time.UnixMilli(1000).UTC(), "block-1", "user-1").
+		WithArgs(usedAt, StateTraining, 1, usedAt.Add(24*time.Hour), usedAt, "block-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -50,6 +56,71 @@ func TestMySQLStore_RecordHits_InsertThenDuplicate(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("duplicate recorded = %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+// §5.3.2: an automated block re-hit keeps 绿灯 and pushes +30d.
+func TestMySQLStore_RecordHits_AutomatedBlockReschedules30d(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+
+	usedAt := time.UnixMilli(5_000).UTC()
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO phrase_block_uses`).
+		WithArgs("user-1", "session-1", "turn-1", "block-1", int64(5_000)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT state, success_streak, next_due_at`).
+		WithArgs("block-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
+			AddRow(StateAutomated, 3, usedAt))
+	mock.ExpectExec(`UPDATE phrase_blocks`).
+		WithArgs(usedAt, StateAutomated, 3, usedAt.Add(30*24*time.Hour), usedAt, "block-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if _, err := store.RecordHits(context.Background(), "user-1", "session-1", "turn-1", []Hit{
+		{BlockID: "block-1", DetectedAtMs: 5_000},
+	}); err != nil {
+		t.Fatalf("RecordHits: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+// A hit for a soft-deleted (or foreign) block writes no counters and no error.
+func TestMySQLStore_RecordHits_SkipsMissingBlock(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO phrase_block_uses`).
+		WithArgs("user-1", "session-1", "turn-1", "block-gone", int64(7_000)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT state, success_streak, next_due_at`).
+		WithArgs("block-gone", "user-1").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectCommit()
+
+	n, err := store.RecordHits(context.Background(), "user-1", "session-1", "turn-1", []Hit{
+		{BlockID: "block-gone", DetectedAtMs: 7_000},
+	})
+	if err != nil {
+		t.Fatalf("RecordHits: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("recorded = %d, want 1", n)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)

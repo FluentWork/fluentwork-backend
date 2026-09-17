@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
@@ -49,8 +50,10 @@ func NewHitsService(store Store) *HitsService {
 	return &HitsService{store: store}
 }
 
-// RecordHits UPSERTs ledger rows for one turn and increments phrase_blocks.total_uses
-// only on first insert of (session_id, turn_id, block_id).
+// RecordHits UPSERTs ledger rows for one turn and, only on first insert of
+// (session_id, turn_id, block_id), applies the PRD §5.2.3 writeback: the block
+// counts the hit (real_use_count / total_uses / last_used_at) and treats it as
+// one successful extraction drill (§5.3.2), which reschedules it.
 func (s *HitsService) RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error) {
 	userID = strings.TrimSpace(userID)
 	sessionID = strings.TrimSpace(sessionID)
@@ -119,6 +122,15 @@ func (s *Service) RecentHits(ctx context.Context, sessionID string, lookbackTurn
 		return RecentHitsResult{}, apierr.Internal("corpus service is not configured")
 	}
 	return NewHitsService(s.store).RecentHits(ctx, sessionID, lookbackTurns, minScore)
+}
+
+// sortedHits returns a copy ordered by block ID: both stores lock phrase_blocks
+// rows for the writeback, and two concurrent reports carrying the same hits in
+// different orders would otherwise deadlock.
+func sortedHits(hits []Hit) []Hit {
+	out := append([]Hit(nil), hits...)
+	sort.Slice(out, func(i, j int) bool { return out[i].BlockID < out[j].BlockID })
+	return out
 }
 
 func dedupeHits(turnID string, hits []Hit) []Hit {
