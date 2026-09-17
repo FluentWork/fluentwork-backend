@@ -1,0 +1,5625 @@
+{
+  "samples": [
+    {
+      "id": "s001-deploy_migration-clean",
+      "scene": "standup",
+      "profile": "clean",
+      "topic": "deploy_migration",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is the release looking?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The deploy is waiting because the database migration is not finished."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "deploy",
+          "migration"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The rollout is on hold until the database migration lands.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would like to order a coffee before the meeting.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The rollout is on hold until the database migration lands.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would like to order a coffee before the meeting.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s002-deploy_migration-filler_heavy",
+      "scene": "standup",
+      "profile": "filler_heavy",
+      "topic": "deploy_migration",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is the release looking?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The deploy is waiting because you know, the database migration is not I mean, finished."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "deploy",
+          "migration"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The rollout is on hold until the database migration lands.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would like to order a coffee before the meeting.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The rollout is on hold until the database migration lands.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would like to order a coffee before the meeting.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s003-deploy_migration-incomplete",
+      "scene": "standup",
+      "profile": "incomplete",
+      "topic": "deploy_migration",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is the release looking?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The deploy is waiting because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "The deploy is waiting because the database migration is not finished.",
+          "user_opened": true,
+          "anchor": "The deploy is waiting because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "deploy",
+          "migration"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The rollout is on hold until the database migration lands.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would like to order a coffee before the meeting.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The rollout is on hold until the database migration lands.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would like to order a coffee before the meeting.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s004-deploy_migration-silent_rescued",
+      "scene": "standup",
+      "profile": "silent_rescued",
+      "topic": "deploy_migration",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is the release looking?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The deploy is waiting because the database migration is not finished."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "The deploy is waiting because the database migration is not finished.",
+          "user_opened": true,
+          "anchor": "The deploy is waiting because the database migration is not finished."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "deploy",
+          "migration"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The rollout is on hold until the database migration lands.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would like to order a coffee before the meeting.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The rollout is on hold until the database migration lands.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would like to order a coffee before the meeting.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s005-deploy_migration-l1_transfer",
+      "scene": "standup",
+      "profile": "l1_transfer",
+      "topic": "deploy_migration",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is the release looking?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The deploy is by migration waiting because the database migration is not finished."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "deploy",
+          "migration"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The rollout is on hold until the database migration lands.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would like to order a coffee before the meeting.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The rollout is on hold until the database migration lands.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would like to order a coffee before the meeting.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s006-api_review-clean",
+      "scene": "standup",
+      "profile": "clean",
+      "topic": "api_review",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any blockers today?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am blocked on the API review because nobody has looked at my pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "api",
+          "review"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Yesterday I went hiking with my family.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Yesterday I went hiking with my family.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s007-api_review-filler_heavy",
+      "scene": "standup",
+      "profile": "filler_heavy",
+      "topic": "api_review",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any blockers today?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am blocked on the you know, API review because nobody has I mean, looked at my pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "api",
+          "review"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Yesterday I went hiking with my family.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Yesterday I went hiking with my family.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s008-api_review-incomplete",
+      "scene": "standup",
+      "profile": "incomplete",
+      "topic": "api_review",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any blockers today?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am blocked on the API review because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I am blocked on the API review because nobody has looked at my pull request.",
+          "user_opened": true,
+          "anchor": "I am blocked on the API review because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "api",
+          "review"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Yesterday I went hiking with my family.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Yesterday I went hiking with my family.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s009-api_review-silent_rescued",
+      "scene": "standup",
+      "profile": "silent_rescued",
+      "topic": "api_review",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any blockers today?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am blocked on the API review because nobody has looked at my pull request."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I am blocked on the API review because nobody has looked at my pull request.",
+          "user_opened": true,
+          "anchor": "I am blocked on the API review because nobody has looked at my pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "api",
+          "review"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Yesterday I went hiking with my family.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Yesterday I went hiking with my family.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s010-api_review-l1_transfer",
+      "scene": "standup",
+      "profile": "l1_transfer",
+      "topic": "api_review",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any blockers today?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I very blocked by the API review because nobody has looked at my pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "api",
+          "review"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Yesterday I went hiking with my family.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am stuck waiting for someone to review the API pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Yesterday I went hiking with my family.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s011-oncall_handover-clean",
+      "scene": "standup",
+      "profile": "clean",
+      "topic": "oncall_handover",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do yesterday?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I finished the on-call handover and wrote down the incidents from last week."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "on-call",
+          "handover"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The weather in Beijing is getting colder.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The weather in Beijing is getting colder.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s012-oncall_handover-filler_heavy",
+      "scene": "standup",
+      "profile": "filler_heavy",
+      "topic": "oncall_handover",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do yesterday?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I finished the on-call handover you know, and wrote down the incidents I mean, from last week."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "on-call",
+          "handover"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The weather in Beijing is getting colder.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The weather in Beijing is getting colder.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s013-oncall_handover-incomplete",
+      "scene": "standup",
+      "profile": "incomplete",
+      "topic": "oncall_handover",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do yesterday?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I finished the on-call handover because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I finished the on-call handover and wrote down the incidents from last week.",
+          "user_opened": true,
+          "anchor": "I finished the on-call handover because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "on-call",
+          "handover"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The weather in Beijing is getting colder.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The weather in Beijing is getting colder.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s014-oncall_handover-silent_rescued",
+      "scene": "standup",
+      "profile": "silent_rescued",
+      "topic": "oncall_handover",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do yesterday?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I finished the on-call handover and wrote down the incidents from last week."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I finished the on-call handover and wrote down the incidents from last week.",
+          "user_opened": true,
+          "anchor": "I finished the on-call handover and wrote down the incidents from last week."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "on-call",
+          "handover"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The weather in Beijing is getting colder.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The weather in Beijing is getting colder.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s015-oncall_handover-l1_transfer",
+      "scene": "standup",
+      "profile": "l1_transfer",
+      "topic": "oncall_handover",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do yesterday?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I finished the on-call handover and wrote down the incidents from last week."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "on-call",
+          "handover"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The weather in Beijing is getting colder.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I wrapped up the on-call handover and documented last week's incidents.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The weather in Beijing is getting colder.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s016-test_flakiness-clean",
+      "scene": "standup",
+      "profile": "clean",
+      "topic": "test_flakiness",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Anything to flag?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The integration tests are failing sometimes and I do not know the reason yet."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "flaky"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am learning to play the guitar on weekends.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am learning to play the guitar on weekends.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s017-test_flakiness-filler_heavy",
+      "scene": "standup",
+      "profile": "filler_heavy",
+      "topic": "test_flakiness",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Anything to flag?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The integration tests are failing you know, sometimes and I do not I mean, know the reason yet."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "flaky"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am learning to play the guitar on weekends.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am learning to play the guitar on weekends.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s018-test_flakiness-incomplete",
+      "scene": "standup",
+      "profile": "incomplete",
+      "topic": "test_flakiness",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Anything to flag?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The integration tests are failing sometimes because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "The integration tests are failing sometimes and I do not know the reason yet.",
+          "user_opened": true,
+          "anchor": "The integration tests are failing sometimes because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "flaky"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am learning to play the guitar on weekends.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am learning to play the guitar on weekends.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s019-test_flakiness-silent_rescued",
+      "scene": "standup",
+      "profile": "silent_rescued",
+      "topic": "test_flakiness",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Anything to flag?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The integration tests are failing sometimes and I do not know the reason yet."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "The integration tests are failing sometimes and I do not know the reason yet.",
+          "user_opened": true,
+          "anchor": "The integration tests are failing sometimes and I do not know the reason yet."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "flaky"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am learning to play the guitar on weekends.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am learning to play the guitar on weekends.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s020-test_flakiness-l1_transfer",
+      "scene": "standup",
+      "profile": "l1_transfer",
+      "topic": "test_flakiness",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Anything to flag?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "The integration tests are failing sometimes and I do not know the reason yet."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "flaky"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am learning to play the guitar on weekends.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The integration tests are flaky and I have not found the cause yet.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am learning to play the guitar on weekends.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s021-naming-clean",
+      "scene": "review",
+      "profile": "clean",
+      "topic": "naming",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What do you think of this function name?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I think the name is not clear and we should choose a longer name for it."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "name",
+          "clear"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us book the meeting room for Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us book the meeting room for Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s022-naming-filler_heavy",
+      "scene": "review",
+      "profile": "filler_heavy",
+      "topic": "naming",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What do you think of this function name?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I think the name is you know, not clear and we should I mean, choose a longer name for like, it."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "name",
+          "clear"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us book the meeting room for Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us book the meeting room for Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s023-naming-incomplete",
+      "scene": "review",
+      "profile": "incomplete",
+      "topic": "naming",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What do you think of this function name?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I think the name is not clear because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I think the name is not clear and we should choose a longer name for it.",
+          "user_opened": true,
+          "anchor": "I think the name is not clear because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "name",
+          "clear"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us book the meeting room for Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us book the meeting room for Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s024-naming-silent_rescued",
+      "scene": "review",
+      "profile": "silent_rescued",
+      "topic": "naming",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What do you think of this function name?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I think the name is not clear and we should choose a longer name for it."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I think the name is not clear and we should choose a longer name for it.",
+          "user_opened": true,
+          "anchor": "I think the name is not clear and we should choose a longer name for it."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "name",
+          "clear"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us book the meeting room for Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us book the meeting room for Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s025-naming-l1_transfer",
+      "scene": "review",
+      "profile": "l1_transfer",
+      "topic": "naming",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What do you think of this function name?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I think that is the name is not clear and we should choose a longer name for it."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "name",
+          "clear"
+        ],
+        "judge_cases": [
+          {
+            "answer": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us book the meeting room for Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "The name is unclear, so I would pick something more descriptive.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us book the meeting room for Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s026-error_handling-clean",
+      "scene": "review",
+      "profile": "clean",
+      "topic": "error_handling",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How should we handle this error?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "We should not ignore this error and return it to the caller with more information."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "error",
+          "caller"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The design document needs a new diagram.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The design document needs a new diagram.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s027-error_handling-filler_heavy",
+      "scene": "review",
+      "profile": "filler_heavy",
+      "topic": "error_handling",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How should we handle this error?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "We should not ignore this you know, error and return it to I mean, the caller with more information."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "error",
+          "caller"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The design document needs a new diagram.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The design document needs a new diagram.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s028-error_handling-incomplete",
+      "scene": "review",
+      "profile": "incomplete",
+      "topic": "error_handling",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How should we handle this error?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "We should not ignore this error because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "We should not ignore this error and return it to the caller with more information.",
+          "user_opened": true,
+          "anchor": "We should not ignore this error because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "error",
+          "caller"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The design document needs a new diagram.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The design document needs a new diagram.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s029-error_handling-silent_rescued",
+      "scene": "review",
+      "profile": "silent_rescued",
+      "topic": "error_handling",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How should we handle this error?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "We should not ignore this error and return it to the caller with more information."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "We should not ignore this error and return it to the caller with more information.",
+          "user_opened": true,
+          "anchor": "We should not ignore this error and return it to the caller with more information."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "error",
+          "caller"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The design document needs a new diagram.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The design document needs a new diagram.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s030-error_handling-l1_transfer",
+      "scene": "review",
+      "profile": "l1_transfer",
+      "topic": "error_handling",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How should we handle this error?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "We should not ignore this error and return it to the caller with more information."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "error",
+          "caller"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The design document needs a new diagram.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Rather than swallowing the error, we should return it to the caller with context.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The design document needs a new diagram.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s031-scope_creep-clean",
+      "scene": "review",
+      "profile": "clean",
+      "topic": "scope_creep",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "This pull request is getting big."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I agree it is too big and we should move the refactor to another pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "pull request",
+          "refactor"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My laptop battery drains very fast.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My laptop battery drains very fast.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s032-scope_creep-filler_heavy",
+      "scene": "review",
+      "profile": "filler_heavy",
+      "topic": "scope_creep",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "This pull request is getting big."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I agree it is too you know, big and we should move I mean, the refactor to another pull like, request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "pull request",
+          "refactor"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My laptop battery drains very fast.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My laptop battery drains very fast.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s033-scope_creep-incomplete",
+      "scene": "review",
+      "profile": "incomplete",
+      "topic": "scope_creep",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "This pull request is getting big."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I agree it is too big because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I agree it is too big and we should move the refactor to another pull request.",
+          "user_opened": true,
+          "anchor": "I agree it is too big because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "pull request",
+          "refactor"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My laptop battery drains very fast.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My laptop battery drains very fast.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s034-scope_creep-silent_rescued",
+      "scene": "review",
+      "profile": "silent_rescued",
+      "topic": "scope_creep",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "This pull request is getting big."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I agree it is too big and we should move the refactor to another pull request."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I agree it is too big and we should move the refactor to another pull request.",
+          "user_opened": true,
+          "anchor": "I agree it is too big and we should move the refactor to another pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "pull request",
+          "refactor"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My laptop battery drains very fast.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My laptop battery drains very fast.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s035-scope_creep-l1_transfer",
+      "scene": "review",
+      "profile": "l1_transfer",
+      "topic": "scope_creep",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "This pull request is getting big."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I agree it is too big and we must should move the refactor to another pull request."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "pull request",
+          "refactor"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My laptop battery drains very fast.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Agreed — the refactor belongs in a separate pull request.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My laptop battery drains very fast.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s036-test_coverage-clean",
+      "scene": "review",
+      "profile": "clean",
+      "topic": "test_coverage",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Should we ask for more tests?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Yes, I think this change needs a test for the empty input case."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "edge case"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Yes — this change needs a test covering the empty input case.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The cafeteria closes at eight in the evening.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Yes — this change needs a test covering the empty input case.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The cafeteria closes at eight in the evening.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s037-test_coverage-filler_heavy",
+      "scene": "review",
+      "profile": "filler_heavy",
+      "topic": "test_coverage",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Should we ask for more tests?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Yes, I think this change you know, needs a test for the I mean, empty input case."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "edge case"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Yes — this change needs a test covering the empty input case.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The cafeteria closes at eight in the evening.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Yes — this change needs a test covering the empty input case.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The cafeteria closes at eight in the evening.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s038-test_coverage-incomplete",
+      "scene": "review",
+      "profile": "incomplete",
+      "topic": "test_coverage",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Should we ask for more tests?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Yes, I think this change and"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "Yes, I think this change needs a test for the empty input case.",
+          "user_opened": true,
+          "anchor": "Yes, I think this change and"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "edge case"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Yes — this change needs a test covering the empty input case.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The cafeteria closes at eight in the evening.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Yes — this change needs a test covering the empty input case.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The cafeteria closes at eight in the evening.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s039-test_coverage-silent_rescued",
+      "scene": "review",
+      "profile": "silent_rescued",
+      "topic": "test_coverage",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Should we ask for more tests?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Yes, I think this change needs a test for the empty input case."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "Yes, I think this change needs a test for the empty input case.",
+          "user_opened": true,
+          "anchor": "Yes, I think this change needs a test for the empty input case."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "edge case"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Yes — this change needs a test covering the empty input case.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The cafeteria closes at eight in the evening.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Yes — this change needs a test covering the empty input case.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The cafeteria closes at eight in the evening.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s040-test_coverage-l1_transfer",
+      "scene": "review",
+      "profile": "l1_transfer",
+      "topic": "test_coverage",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Should we ask for more tests?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Yes, I think that is this change needs a test for the empty input case."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "test",
+          "edge case"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Yes — this change needs a test covering the empty input case.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The cafeteria closes at eight in the evening.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Yes — this change needs a test covering the empty input case.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The cafeteria closes at eight in the evening.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s041-growth_plan-clean",
+      "scene": "1on1",
+      "profile": "clean",
+      "topic": "growth_plan",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What would you like to grow into this half?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to grow into a tech lead and I need more chances to design systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "tech lead",
+          "design"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am planning a trip to Yunnan next month.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am planning a trip to Yunnan next month.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s042-growth_plan-filler_heavy",
+      "scene": "1on1",
+      "profile": "filler_heavy",
+      "topic": "growth_plan",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What would you like to grow into this half?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to grow into you know, a tech lead and I I mean, need more chances to design like, systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "tech lead",
+          "design"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am planning a trip to Yunnan next month.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am planning a trip to Yunnan next month.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s043-growth_plan-incomplete",
+      "scene": "1on1",
+      "profile": "incomplete",
+      "topic": "growth_plan",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What would you like to grow into this half?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to grow into a tech lead because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I want to grow into a tech lead and I need more chances to design systems.",
+          "user_opened": true,
+          "anchor": "I want to grow into a tech lead because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "tech lead",
+          "design"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am planning a trip to Yunnan next month.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am planning a trip to Yunnan next month.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s044-growth_plan-silent_rescued",
+      "scene": "1on1",
+      "profile": "silent_rescued",
+      "topic": "growth_plan",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What would you like to grow into this half?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to grow into a tech lead and I need more chances to design systems."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I want to grow into a tech lead and I need more chances to design systems.",
+          "user_opened": true,
+          "anchor": "I want to grow into a tech lead and I need more chances to design systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "tech lead",
+          "design"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am planning a trip to Yunnan next month.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am planning a trip to Yunnan next month.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s045-growth_plan-l1_transfer",
+      "scene": "1on1",
+      "profile": "l1_transfer",
+      "topic": "growth_plan",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What would you like to grow into this half?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want grow into a tech lead and I need more chances to design systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "tech lead",
+          "design"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I am planning a trip to Yunnan next month.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to move toward tech lead, which means more chances to own system design.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I am planning a trip to Yunnan next month.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s046-workload-clean",
+      "scene": "1on1",
+      "profile": "clean",
+      "topic": "workload",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is your workload lately?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I feel the workload is too much and I cannot finish everything in the sprint."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "workload",
+          "sprint"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The new keyboard I bought is very quiet.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The new keyboard I bought is very quiet.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s047-workload-filler_heavy",
+      "scene": "1on1",
+      "profile": "filler_heavy",
+      "topic": "workload",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is your workload lately?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I feel the workload is you know, too much and I cannot I mean, finish everything in the sprint."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "workload",
+          "sprint"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The new keyboard I bought is very quiet.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The new keyboard I bought is very quiet.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s048-workload-incomplete",
+      "scene": "1on1",
+      "profile": "incomplete",
+      "topic": "workload",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is your workload lately?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I feel the workload is too much because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I feel the workload is too much and I cannot finish everything in the sprint.",
+          "user_opened": true,
+          "anchor": "I feel the workload is too much because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "workload",
+          "sprint"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The new keyboard I bought is very quiet.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The new keyboard I bought is very quiet.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s049-workload-silent_rescued",
+      "scene": "1on1",
+      "profile": "silent_rescued",
+      "topic": "workload",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is your workload lately?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I feel the workload is too much and I cannot finish everything in the sprint."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I feel the workload is too much and I cannot finish everything in the sprint.",
+          "user_opened": true,
+          "anchor": "I feel the workload is too much and I cannot finish everything in the sprint."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "workload",
+          "sprint"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The new keyboard I bought is very quiet.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The new keyboard I bought is very quiet.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s050-workload-l1_transfer",
+      "scene": "1on1",
+      "profile": "l1_transfer",
+      "topic": "workload",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How is your workload lately?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I feel the workload is too much and I cannot finish everything in the sprint."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "workload",
+          "sprint"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The new keyboard I bought is very quiet.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My plate is too full — I cannot finish everything within the sprint.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The new keyboard I bought is very quiet.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s051-feedback-clean",
+      "scene": "1on1",
+      "profile": "clean",
+      "topic": "feedback",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you have any feedback for me?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I hope we can have more regular feedback because I do not know if I am doing well."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "feedback",
+          "regular"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us have lunch at the new noodle place.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us have lunch at the new noodle place.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s052-feedback-filler_heavy",
+      "scene": "1on1",
+      "profile": "filler_heavy",
+      "topic": "feedback",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you have any feedback for me?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I hope we can have you know, more regular feedback because I I mean, do not know if I like, am doing well."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "feedback",
+          "regular"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us have lunch at the new noodle place.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us have lunch at the new noodle place.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s053-feedback-incomplete",
+      "scene": "1on1",
+      "profile": "incomplete",
+      "topic": "feedback",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you have any feedback for me?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I hope we can have more regular feedback because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I hope we can have more regular feedback because I do not know if I am doing well.",
+          "user_opened": true,
+          "anchor": "I hope we can have more regular feedback because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "feedback",
+          "regular"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us have lunch at the new noodle place.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us have lunch at the new noodle place.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s054-feedback-silent_rescued",
+      "scene": "1on1",
+      "profile": "silent_rescued",
+      "topic": "feedback",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you have any feedback for me?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I hope we can have more regular feedback because I do not know if I am doing well."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I hope we can have more regular feedback because I do not know if I am doing well.",
+          "user_opened": true,
+          "anchor": "I hope we can have more regular feedback because I do not know if I am doing well."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "feedback",
+          "regular"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us have lunch at the new noodle place.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us have lunch at the new noodle place.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s055-feedback-l1_transfer",
+      "scene": "1on1",
+      "profile": "l1_transfer",
+      "topic": "feedback",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you have any feedback for me?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I hope we can have more regular feedback because I do not know if I am doing well."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "feedback",
+          "regular"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Let us have lunch at the new noodle place.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would benefit from more regular feedback — right now I cannot tell how I am doing.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Let us have lunch at the new noodle place.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s056-transfer_request-clean",
+      "scene": "1on1",
+      "profile": "clean",
+      "topic": "transfer_request",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any change you want to discuss?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to move to the platform team because I am more interested in infrastructure."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "platform team",
+          "infrastructure"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My phone screen has a small scratch.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My phone screen has a small scratch.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s057-transfer_request-filler_heavy",
+      "scene": "1on1",
+      "profile": "filler_heavy",
+      "topic": "transfer_request",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any change you want to discuss?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to move to you know, the platform team because I I mean, am more interested in infrastructure."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "platform team",
+          "infrastructure"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My phone screen has a small scratch.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My phone screen has a small scratch.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s058-transfer_request-incomplete",
+      "scene": "1on1",
+      "profile": "incomplete",
+      "topic": "transfer_request",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any change you want to discuss?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to move to the platform team because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I want to move to the platform team because I am more interested in infrastructure.",
+          "user_opened": true,
+          "anchor": "I want to move to the platform team because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "platform team",
+          "infrastructure"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My phone screen has a small scratch.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My phone screen has a small scratch.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s059-transfer_request-silent_rescued",
+      "scene": "1on1",
+      "profile": "silent_rescued",
+      "topic": "transfer_request",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any change you want to discuss?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to move to the platform team because I am more interested in infrastructure."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I want to move to the platform team because I am more interested in infrastructure.",
+          "user_opened": true,
+          "anchor": "I want to move to the platform team because I am more interested in infrastructure."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "platform team",
+          "infrastructure"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My phone screen has a small scratch.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My phone screen has a small scratch.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s060-transfer_request-l1_transfer",
+      "scene": "1on1",
+      "profile": "l1_transfer",
+      "topic": "transfer_request",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Any change you want to discuss?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want move to the platform team because I am more interested in infrastructure."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "platform team",
+          "infrastructure"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "pass"
+          },
+          {
+            "answer": "My phone screen has a small scratch.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I would like to transfer to the platform team — infrastructure is where my interest is.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "My phone screen has a small scratch.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s061-self_intro-clean",
+      "scene": "interview",
+      "profile": "clean",
+      "topic": "self_intro",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about yourself."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am a backend engineer with four years of experience and I work on payment systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "backend",
+          "experience"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Could you repeat the question a bit slower?",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Could you repeat the question a bit slower?",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s062-self_intro-filler_heavy",
+      "scene": "interview",
+      "profile": "filler_heavy",
+      "topic": "self_intro",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about yourself."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am a backend engineer you know, with four years of experience I mean, and I work on payment like, systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "backend",
+          "experience"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Could you repeat the question a bit slower?",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Could you repeat the question a bit slower?",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s063-self_intro-incomplete",
+      "scene": "interview",
+      "profile": "incomplete",
+      "topic": "self_intro",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about yourself."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am a backend engineer with four years of experience because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I am a backend engineer with four years of experience and I work on payment systems.",
+          "user_opened": true,
+          "anchor": "I am a backend engineer with four years of experience because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "backend",
+          "experience"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Could you repeat the question a bit slower?",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Could you repeat the question a bit slower?",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s064-self_intro-silent_rescued",
+      "scene": "interview",
+      "profile": "silent_rescued",
+      "topic": "self_intro",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about yourself."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am a backend engineer with four years of experience and I work on payment systems."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I am a backend engineer with four years of experience and I work on payment systems.",
+          "user_opened": true,
+          "anchor": "I am a backend engineer with four years of experience and I work on payment systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "backend",
+          "experience"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Could you repeat the question a bit slower?",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Could you repeat the question a bit slower?",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s065-self_intro-l1_transfer",
+      "scene": "interview",
+      "profile": "l1_transfer",
+      "topic": "self_intro",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about yourself."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I am a backend engineer with four years of experience and I work on payment systems."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "backend",
+          "experience"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Could you repeat the question a bit slower?",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am a backend engineer with four years of experience, mostly on payment systems.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Could you repeat the question a bit slower?",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s066-system_design-clean",
+      "scene": "interview",
+      "profile": "clean",
+      "topic": "system_design",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How would you design a rate limiter?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I would use a token bucket and store the counters in Redis with a short expire time."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "token bucket",
+          "redis"
+        ],
+        "judge_cases": [
+          {
+            "answer": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I have never used a database before.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I have never used a database before.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s067-system_design-filler_heavy",
+      "scene": "interview",
+      "profile": "filler_heavy",
+      "topic": "system_design",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How would you design a rate limiter?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I would use a token you know, bucket and store the counters I mean, in Redis with a short like, expire time."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "token bucket",
+          "redis"
+        ],
+        "judge_cases": [
+          {
+            "answer": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I have never used a database before.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I have never used a database before.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s068-system_design-incomplete",
+      "scene": "interview",
+      "profile": "incomplete",
+      "topic": "system_design",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How would you design a rate limiter?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I would use a token bucket because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I would use a token bucket and store the counters in Redis with a short expire time.",
+          "user_opened": true,
+          "anchor": "I would use a token bucket because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "token bucket",
+          "redis"
+        ],
+        "judge_cases": [
+          {
+            "answer": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I have never used a database before.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I have never used a database before.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s069-system_design-silent_rescued",
+      "scene": "interview",
+      "profile": "silent_rescued",
+      "topic": "system_design",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How would you design a rate limiter?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I would use a token bucket and store the counters in Redis with a short expire time."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I would use a token bucket and store the counters in Redis with a short expire time.",
+          "user_opened": true,
+          "anchor": "I would use a token bucket and store the counters in Redis with a short expire time."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "token bucket",
+          "redis"
+        ],
+        "judge_cases": [
+          {
+            "answer": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I have never used a database before.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I have never used a database before.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s070-system_design-l1_transfer",
+      "scene": "interview",
+      "profile": "l1_transfer",
+      "topic": "system_design",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How would you design a rate limiter?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I will want to use a token bucket and store the counters in Redis with a short expire time."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "token bucket",
+          "redis"
+        ],
+        "judge_cases": [
+          {
+            "answer": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I have never used a database before.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "A token bucket with counters in Redis and a short expiry is how I would build it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I have never used a database before.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s071-conflict-clean",
+      "scene": "interview",
+      "profile": "clean",
+      "topic": "conflict",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about a disagreement with a colleague."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Once my teammate and I disagreed about the API shape and we solved it with a design doc."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "disagree",
+          "design doc"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I usually avoid talking to my colleagues.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I usually avoid talking to my colleagues.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s072-conflict-filler_heavy",
+      "scene": "interview",
+      "profile": "filler_heavy",
+      "topic": "conflict",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about a disagreement with a colleague."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Once my teammate and I you know, disagreed about the API shape I mean, and we solved it with like, a design doc."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "disagree",
+          "design doc"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I usually avoid talking to my colleagues.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I usually avoid talking to my colleagues.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s073-conflict-incomplete",
+      "scene": "interview",
+      "profile": "incomplete",
+      "topic": "conflict",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about a disagreement with a colleague."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Once my teammate because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "Once my teammate and I disagreed about the API shape and we solved it with a design doc.",
+          "user_opened": true,
+          "anchor": "Once my teammate because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "disagree",
+          "design doc"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I usually avoid talking to my colleagues.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I usually avoid talking to my colleagues.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s074-conflict-silent_rescued",
+      "scene": "interview",
+      "profile": "silent_rescued",
+      "topic": "conflict",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about a disagreement with a colleague."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Once my teammate and I disagreed about the API shape and we solved it with a design doc."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "Once my teammate and I disagreed about the API shape and we solved it with a design doc.",
+          "user_opened": true,
+          "anchor": "Once my teammate and I disagreed about the API shape and we solved it with a design doc."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "disagree",
+          "design doc"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I usually avoid talking to my colleagues.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I usually avoid talking to my colleagues.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s075-conflict-l1_transfer",
+      "scene": "interview",
+      "profile": "l1_transfer",
+      "topic": "conflict",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Tell me about a disagreement with a colleague."
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "Once my teammate and I disagreed about the API shape and we solved it with a design doc."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "disagree",
+          "design doc"
+        ],
+        "judge_cases": [
+          {
+            "answer": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I usually avoid talking to my colleagues.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "My teammate and I disagreed on the API shape; a design doc settled it.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I usually avoid talking to my colleagues.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s076-why_leaving-clean",
+      "scene": "interview",
+      "profile": "clean",
+      "topic": "why_leaving",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Why are you looking for a change?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to work on bigger scale systems and my current team is very small."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "scale",
+          "team"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would rather not answer any questions today.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would rather not answer any questions today.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s077-why_leaving-filler_heavy",
+      "scene": "interview",
+      "profile": "filler_heavy",
+      "topic": "why_leaving",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Why are you looking for a change?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to work on you know, bigger scale systems and my I mean, current team is very small."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "scale",
+          "team"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would rather not answer any questions today.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would rather not answer any questions today.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s078-why_leaving-incomplete",
+      "scene": "interview",
+      "profile": "incomplete",
+      "topic": "why_leaving",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Why are you looking for a change?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to work on bigger scale systems because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I want to work on bigger scale systems and my current team is very small.",
+          "user_opened": true,
+          "anchor": "I want to work on bigger scale systems because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "scale",
+          "team"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would rather not answer any questions today.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would rather not answer any questions today.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s079-why_leaving-silent_rescued",
+      "scene": "interview",
+      "profile": "silent_rescued",
+      "topic": "why_leaving",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Why are you looking for a change?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want to work on bigger scale systems and my current team is very small."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I want to work on bigger scale systems and my current team is very small.",
+          "user_opened": true,
+          "anchor": "I want to work on bigger scale systems and my current team is very small."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "scale",
+          "team"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would rather not answer any questions today.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would rather not answer any questions today.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s080-why_leaving-l1_transfer",
+      "scene": "interview",
+      "profile": "l1_transfer",
+      "topic": "why_leaving",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Why are you looking for a change?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I want work on bigger scale systems and my current team is very small."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "scale",
+          "team"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I would rather not answer any questions today.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I am looking for larger-scale systems; my current team stays small.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I would rather not answer any questions today.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s081-weekend-clean",
+      "scene": "casual",
+      "profile": "clean",
+      "topic": "weekend",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do last weekend?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I went to a small village near the city and walked around the old streets."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "weekend",
+          "village"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I deployed three services on Saturday night.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I deployed three services on Saturday night.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s082-weekend-filler_heavy",
+      "scene": "casual",
+      "profile": "filler_heavy",
+      "topic": "weekend",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do last weekend?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I went to a small you know, village near the city and I mean, walked around the old streets."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "weekend",
+          "village"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I deployed three services on Saturday night.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I deployed three services on Saturday night.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s083-weekend-incomplete",
+      "scene": "casual",
+      "profile": "incomplete",
+      "topic": "weekend",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do last weekend?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I went to a small village near the city because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I went to a small village near the city and walked around the old streets.",
+          "user_opened": true,
+          "anchor": "I went to a small village near the city because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "weekend",
+          "village"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I deployed three services on Saturday night.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I deployed three services on Saturday night.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s084-weekend-silent_rescued",
+      "scene": "casual",
+      "profile": "silent_rescued",
+      "topic": "weekend",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do last weekend?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I went to a small village near the city and walked around the old streets."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I went to a small village near the city and walked around the old streets.",
+          "user_opened": true,
+          "anchor": "I went to a small village near the city and walked around the old streets."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "weekend",
+          "village"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I deployed three services on Saturday night.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I deployed three services on Saturday night.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s085-weekend-l1_transfer",
+      "scene": "casual",
+      "profile": "l1_transfer",
+      "topic": "weekend",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "What did you do last weekend?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I went to a small village near the city and walked around the old streets."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "weekend",
+          "village"
+        ],
+        "judge_cases": [
+          {
+            "answer": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I deployed three services on Saturday night.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "I spent the weekend in a small village outside the city, wandering the old streets.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I deployed three services on Saturday night.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s086-coffee_chat-clean",
+      "scene": "casual",
+      "profile": "clean",
+      "topic": "coffee_chat",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you drink coffee?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I drink two cups every day but I am trying to drink less now."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "coffee",
+          "less"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Our sprint review is scheduled for Thursday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Our sprint review is scheduled for Thursday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s087-coffee_chat-filler_heavy",
+      "scene": "casual",
+      "profile": "filler_heavy",
+      "topic": "coffee_chat",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you drink coffee?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I drink two cups every you know, day but I am trying I mean, to drink less now."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "coffee",
+          "less"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Our sprint review is scheduled for Thursday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Our sprint review is scheduled for Thursday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s088-coffee_chat-incomplete",
+      "scene": "casual",
+      "profile": "incomplete",
+      "topic": "coffee_chat",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you drink coffee?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I drink two cups every and"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I drink two cups every day but I am trying to drink less now.",
+          "user_opened": true,
+          "anchor": "I drink two cups every and"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "coffee",
+          "less"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Our sprint review is scheduled for Thursday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Our sprint review is scheduled for Thursday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s089-coffee_chat-silent_rescued",
+      "scene": "casual",
+      "profile": "silent_rescued",
+      "topic": "coffee_chat",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you drink coffee?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I drink two cups every day but I am trying to drink less now."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I drink two cups every day but I am trying to drink less now.",
+          "user_opened": true,
+          "anchor": "I drink two cups every day but I am trying to drink less now."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "coffee",
+          "less"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Our sprint review is scheduled for Thursday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Our sprint review is scheduled for Thursday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s090-coffee_chat-l1_transfer",
+      "scene": "casual",
+      "profile": "l1_transfer",
+      "topic": "coffee_chat",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you drink coffee?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I very like drink two cups every day but I am trying to drink less now."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "coffee",
+          "less"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "pass"
+          },
+          {
+            "answer": "Our sprint review is scheduled for Thursday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Two cups a day for me, though I am trying to cut back.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "Our sprint review is scheduled for Thursday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s091-commute-clean",
+      "scene": "casual",
+      "profile": "clean",
+      "topic": "commute",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How long is your commute?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "My commute takes forty minutes by subway and I listen to podcasts on the way."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "commute",
+          "podcast"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The production database is running out of disk.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The production database is running out of disk.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s092-commute-filler_heavy",
+      "scene": "casual",
+      "profile": "filler_heavy",
+      "topic": "commute",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How long is your commute?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "My commute takes forty minutes you know, by subway and I listen I mean, to podcasts on the way."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "commute",
+          "podcast"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The production database is running out of disk.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The production database is running out of disk.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s093-commute-incomplete",
+      "scene": "casual",
+      "profile": "incomplete",
+      "topic": "commute",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How long is your commute?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "My commute takes forty minutes by subway because"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "My commute takes forty minutes by subway and I listen to podcasts on the way.",
+          "user_opened": true,
+          "anchor": "My commute takes forty minutes by subway because"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "commute",
+          "podcast"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The production database is running out of disk.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The production database is running out of disk.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s094-commute-silent_rescued",
+      "scene": "casual",
+      "profile": "silent_rescued",
+      "topic": "commute",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How long is your commute?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "My commute takes forty minutes by subway and I listen to podcasts on the way."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "My commute takes forty minutes by subway and I listen to podcasts on the way.",
+          "user_opened": true,
+          "anchor": "My commute takes forty minutes by subway and I listen to podcasts on the way."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "commute",
+          "podcast"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The production database is running out of disk.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The production database is running out of disk.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s095-commute-l1_transfer",
+      "scene": "casual",
+      "profile": "l1_transfer",
+      "topic": "commute",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "How long is your commute?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "My commute takes forty minutes by subway and I listen to podcasts on the way."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "commute",
+          "podcast"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "pass"
+          },
+          {
+            "answer": "The production database is running out of disk.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Forty minutes by subway, which I spend listening to podcasts.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "The production database is running out of disk.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s096-sports-clean",
+      "scene": "casual",
+      "profile": "clean",
+      "topic": "sports",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you play any sports?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I play badminton twice a week with friends from my old company."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "badminton",
+          "friends"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Badminton twice a week with friends from my previous company.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I need to finish the quarterly report by Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Badminton twice a week with friends from my previous company.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I need to finish the quarterly report by Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s097-sports-filler_heavy",
+      "scene": "casual",
+      "profile": "filler_heavy",
+      "topic": "sports",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you play any sports?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I play badminton twice a you know, week with friends from my I mean, old company."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "badminton",
+          "friends"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Badminton twice a week with friends from my previous company.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I need to finish the quarterly report by Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Badminton twice a week with friends from my previous company.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I need to finish the quarterly report by Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s098-sports-incomplete",
+      "scene": "casual",
+      "profile": "incomplete",
+      "topic": "sports",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you play any sports?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I play badminton twice a and"
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "incomplete",
+          "ladder": "I play badminton twice a week with friends from my old company.",
+          "user_opened": true,
+          "anchor": "I play badminton twice a and"
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "badminton",
+          "friends"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Badminton twice a week with friends from my previous company.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I need to finish the quarterly report by Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Badminton twice a week with friends from my previous company.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I need to finish the quarterly report by Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s099-sports-silent_rescued",
+      "scene": "casual",
+      "profile": "silent_rescued",
+      "topic": "sports",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you play any sports?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I play badminton twice a week with friends from my old company."
+        }
+      ],
+      "rescue_events": [
+        {
+          "seq": 1,
+          "turn_id": "turn-1",
+          "level": 1,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 2,
+          "turn_id": "turn-1",
+          "level": 2,
+          "path": "silent",
+          "user_opened": false
+        },
+        {
+          "seq": 3,
+          "turn_id": "turn-1",
+          "level": 3,
+          "path": "silent",
+          "ladder": "I play badminton twice a week with friends from my old company.",
+          "user_opened": true,
+          "anchor": "I play badminton twice a week with friends from my old company."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "badminton",
+          "friends"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Badminton twice a week with friends from my previous company.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I need to finish the quarterly report by Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Badminton twice a week with friends from my previous company.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I need to finish the quarterly report by Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s100-sports-l1_transfer",
+      "scene": "casual",
+      "profile": "l1_transfer",
+      "topic": "sports",
+      "language": "en",
+      "utterances": [
+        {
+          "seq": 1,
+          "speaker": "ai",
+          "text": "Do you play any sports?"
+        },
+        {
+          "seq": 2,
+          "speaker": "user",
+          "text": "I very like play badminton twice a week with friends from my old company."
+        }
+      ],
+      "expectations": {
+        "min_blocks": 1,
+        "max_blocks": 5,
+        "topics": [
+          "badminton",
+          "friends"
+        ],
+        "judge_cases": [
+          {
+            "answer": "Badminton twice a week with friends from my previous company.",
+            "expect": "pass"
+          },
+          {
+            "answer": "I need to finish the quarterly report by Friday.",
+            "expect": "fail"
+          }
+        ],
+        "hit_cases": [
+          {
+            "text": "Badminton twice a week with friends from my previous company.",
+            "expect": "hit",
+            "kind": "paraphrase"
+          },
+          {
+            "text": "I need to finish the quarterly report by Friday.",
+            "expect": "miss",
+            "kind": "offtopic"
+          }
+        ]
+      }
+    }
+  ],
+  "version": 1
+}

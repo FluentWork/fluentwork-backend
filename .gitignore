@@ -10,3 +10,4 @@ coverage.out
 
 # .scratch/ is intentionally tracked (W3 issue planning artifacts)
 .tmp-issues/
+eval-out/
