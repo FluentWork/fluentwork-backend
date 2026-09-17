@@ -165,6 +165,16 @@ func run() error {
 		DailyNewBlockLimit: cfg.DrillDailyNewBlockLimit,
 		OverdueWindow:      cfg.DrillOverdueWindow,
 	})
+	// Which deployment each task lands on: the console configures one per task,
+	// and an operator should be able to see the routing this process will use.
+	logger.Info("ark endpoint routing",
+		"review_refine", cfg.ArkReviewRefineEP,
+		"drill_judge", cfg.ArkDrillJudgeEP,
+		"topic_card", cfg.ArkTopicCardEP,
+		"hit_match", cfg.ArkHitMatchEP,
+		"daily_read", cfg.ArkDailyReadEP,
+		"text_degrade", cfg.ArkTextDegradeEP,
+	)
 	logger.Info("drill schedule configured",
 		"promote_streak", cfg.DrillPromoteStreak,
 		"training_interval", cfg.DrillTrainingInterval,

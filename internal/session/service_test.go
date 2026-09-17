@@ -451,11 +451,13 @@ func TestBuildReviewArtifactsUsesGeneratorWhenPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if artifacts.Generator != "ark-review-refine-v1" || artifacts.Cost == nil || artifacts.Cost.Model != "ep-review" {
+	if artifacts.Generator != "ark-review-refine-v1" {
 		t.Fatalf("unexpected artifacts: %+v", artifacts)
 	}
-	if artifacts.Cost.TaskType != "review.eval" {
-		t.Fatalf("Cost.TaskType = %q, want review.eval", artifacts.Cost.TaskType)
+	// No cost row from the session: the orchestrator records the call, attributed
+	// to the user. A second row here would double-count it.
+	if artifacts.Cost != nil {
+		t.Fatalf("the session must not build its own cost row: %+v", artifacts.Cost)
 	}
 	var reviewDoc map[string]any
 	if err := json.Unmarshal(artifacts.ReviewJSON, &reviewDoc); err != nil {
@@ -741,66 +743,17 @@ func TestBuildReviewArtifacts_SucceedsOnSecondAttempt(t *testing.T) {
 	if artifacts.Generator != "ark-review-refine-v1" {
 		t.Fatalf("expected successful generator result, got %q", artifacts.Generator)
 	}
-	if artifacts.Cost == nil || artifacts.Cost.TokensIn != 100 || artifacts.Cost.TokensOut != 200 {
-		t.Fatalf("unexpected cost: %+v", artifacts.Cost)
+	// Accounting belongs to the call, not to the session: the orchestrator
+	// records it (with the token counts from the response) so nothing here needs
+	// to reconstruct it.
+	if artifacts.Cost != nil {
+		t.Fatalf("the session must not build its own cost row: %+v", artifacts.Cost)
 	}
 }
-
-// #21 (B8 followup) — Ark Mini pricing math.
-// Table-driven: 0.3 CNY/M input + 0.6 CNY/M output → 分/token.
 
 // The review row is priced by the same function as every other LLM call — it
 // used to have its own hardcoded Ark Mini rate that ignored result.Model and
 // disagreed with the orchestrator's table by orders of magnitude.
-func TestBuildCostLog_PricesThroughTheSharedTable(t *testing.T) {
-	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	artifacts := reviewArtifacts{Cost: &aicost.RecordRequest{
-		TaskType:  arkReviewTaskType,
-		Model:     "doubao-mini-32k",
-		TokensIn:  1000,
-		TokensOut: 2000,
-	}}
-	log := buildCostLog(Session{ID: "sess-1", UserID: "user-7"}, artifacts, at)
-	// 0.3 CNY/1M in, 0.6 CNY/1M out → 300000/600000 微元/1M.
-	// (1000*300000 + 2000*600000)/1_000_000 = 300 + 1200 = 1500 微元 = 0.0015 元.
-	if log.CostMicroYuan != 1500 {
-		t.Fatalf("CostMicroYuan = %d, want 1500", log.CostMicroYuan)
-	}
-}
-
-// A model the table cannot price records 0 rather than a guessed rate.
-func TestBuildCostLog_UnpricedModelRecordsZero(t *testing.T) {
-	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	artifacts := reviewArtifacts{Cost: &aicost.RecordRequest{
-		TaskType:  arkReviewTaskType,
-		Model:     "doubao-seed-2-1-pro-260628",
-		TokensIn:  1000,
-		TokensOut: 2000,
-	}}
-	log := buildCostLog(Session{ID: "sess-1", UserID: "user-7"}, artifacts, at)
-	if log.CostMicroYuan != 0 {
-		t.Fatalf("CostMicroYuan = %d, want 0 for a model with no rate", log.CostMicroYuan)
-	}
-	if log.TokensIn != 1000 || log.TokensOut != 2000 {
-		t.Fatalf("usage must still be recorded: %+v", log)
-	}
-}
-
-func TestBuildCostLog_KeepsExplicitUserID(t *testing.T) {
-	session := Session{ID: "sess-1", UserID: "user-7"}
-	artifacts := reviewArtifacts{
-		Cost: &aicost.RecordRequest{
-			TaskType: arkReviewTaskType,
-			UserID:   "user-9",
-			TokensIn: 100, TokensOut: 200,
-		},
-	}
-	log := buildCostLog(session, artifacts, time.Now().UTC())
-	if log.UserID == nil || *log.UserID != "user-9" {
-		t.Fatalf("UserID should be preserved when explicit, got %+v", log.UserID)
-	}
-}
-
 func TestNullableUserID(t *testing.T) {
 	if nullableUserID("") != nil {
 		t.Fatal("expected nil for empty id")
@@ -825,7 +778,7 @@ func TestMarkSessionReviewedWithCost_Memory_BothWritesLand(t *testing.T) {
 	review := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[]}`)
 	costLog := aicost.Log{
 		ID:        "cost-1",
-		TaskType:  arkReviewTaskType,
+		TaskType:  "review.eval",
 		Model:     "ep-review",
 		TokensIn:  100,
 		TokensOut: 200,
@@ -858,7 +811,7 @@ func TestMarkSessionReviewedWithCost_Memory_IdempotentNoDoubleBill(t *testing.T)
 	review := []byte(`{"goal_achievement":{"met":true},"issues":[],"suggestions":[],"comparisons":[]}`)
 	costLog := aicost.Log{
 		ID:       "cost-dup",
-		TaskType: arkReviewTaskType,
+		TaskType: "review.eval",
 		TokensIn: 10, TokensOut: 20,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -886,7 +839,7 @@ func TestMarkSessionReviewedWithCost_Memory_RejectsNonEnded(t *testing.T) {
 	raw.Status = StatusCreated
 	store.sessions[created.SessionID] = raw
 
-	_, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, []byte(`{}`), time.Now().UTC(), aicost.Log{ID: "x", TaskType: arkReviewTaskType, CreatedAt: time.Now().UTC()})
+	_, err := store.MarkSessionReviewedWithCost(context.Background(), created.SessionID, []byte(`{}`), time.Now().UTC(), aicost.Log{ID: "x", TaskType: "review.eval", CreatedAt: time.Now().UTC()})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected ErrConflict for non-ended session, got %v", err)
 	}

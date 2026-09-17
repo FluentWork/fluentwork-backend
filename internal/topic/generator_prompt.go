@@ -6,10 +6,14 @@ import (
 )
 
 // GeneratePrompt asks the LLM for three workplace speaking prompts.
-func GeneratePrompt(sig Signals, forDate string) string {
+func GeneratePrompt(sig Signals, forDate string, recentTitles []string) string {
 	scenes := joinCounts(sig.SceneCounts)
 	fns := joinCounts(sig.FunctionCounts)
 	titles := strings.Join(sig.RecentTitles, "; ")
+	already := "(none)"
+	if len(recentTitles) > 0 {
+		already = strings.Join(recentTitles, " | ")
+	}
 	if scenes == "" {
 		scenes = "(none — use general workplace English)"
 	}
@@ -31,7 +35,10 @@ Scene tag counts (30d): %s
 Function tag counts (30d): %s
 Recent session titles (14d): %s
 
-The learner's own phrase blocks (use these, do not invent other subjects):
+The learner's own phrase blocks (the only material you may build a card from):
+%s
+
+Cards the learner already has (do not repeat these topics or titles):
 %s
 
 Reply with JSON only:
@@ -39,11 +46,12 @@ Reply with JSON only:
 Exactly 3 cards.
 
 Rules:
-- every card must be about the learner's own work, drawn from the block list above; a topic that would suit any learner is a failed card
+- every card must copy at least one of the learner's phrases above **verbatim** into prompt_en; a card that shares no wording with those phrases is discarded by the server
+- do not repeat any topic or title from the "cards the learner already has" list
 - seed_tags must be scene or function tags that appear in the counts above, and each card must be one the learner's blocks can serve
 - prompt_en is 2-3 opening sentences the learner can say out loud, using their kind of phrasing
 - card_type must be one of warmup, practice, stretch
-- keep prompts speakable in under 45 seconds`, forDate, level, scenes, fns, titles, blockLines(sig.Blocks))
+- keep prompts speakable in under 45 seconds`, forDate, level, scenes, fns, titles, blockLines(sig.Blocks), already)
 }
 
 // blockLines renders a bounded slice of the learner's expressions for the

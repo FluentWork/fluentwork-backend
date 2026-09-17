@@ -36,48 +36,6 @@ type sceneDuplicate struct {
 	Sessions   int    `json:"sessions"`
 }
 
-// refereeCorpusSample caps how much of the learner's corpus the referee reads.
-const refereeCorpusSample = 24
-
-// sampleBlocksForReferee returns up to limit blocks, taken round-robin across
-// scenes so the referee sees a spread rather than the first scene's output.
-func sampleBlocksForReferee(blocks []corpus.BatchAcceptBlock, limit int) []refineBlock {
-	byScene := map[string][]corpus.BatchAcceptBlock{}
-	order := make([]string, 0, 5)
-	for _, b := range blocks {
-		if _, ok := byScene[b.SceneTag]; !ok {
-			order = append(order, b.SceneTag)
-		}
-		byScene[b.SceneTag] = append(byScene[b.SceneTag], b)
-	}
-	out := make([]refineBlock, 0, limit)
-	for round := 0; len(out) < limit; round++ {
-		added := false
-		for _, scene := range order {
-			rows := byScene[scene]
-			if round >= len(rows) {
-				continue
-			}
-			row := rows[round]
-			out = append(out, refineBlock{
-				IntentZH:       "（该用户的语料）",
-				ExpressionEN:   row.ExpressionEN,
-				AnchorUserSaid: row.AnchorUserSaid,
-				SceneTag:       row.SceneTag,
-				FunctionTag:    row.FunctionTag,
-			})
-			added = true
-			if len(out) == limit {
-				break
-			}
-		}
-		if !added {
-			break
-		}
-	}
-	return out
-}
-
 // topicDays is how many consecutive days of cards the stage generates: three
 // cards a day is the product's rate, and one day's worth is too small a sample
 // for a genericness rate.
@@ -144,13 +102,26 @@ func runTopicStage(ctx context.Context, deps *deps, samples []sample, results []
 		out.Error = "no blocks were produced by any sample"
 		return out
 	}
-	if _, err := svc.BatchAccept(ctx, userID, corpus.BatchAcceptRequest{
+	accept, err := svc.BatchAccept(ctx, userID, corpus.BatchAcceptRequest{
 		SourceSessionID: sessionID, Blocks: blocks,
-	}); err != nil {
+	})
+	if err != nil {
 		out.Error = "accept: " + err.Error()
 		return out
 	}
-	out.CorpusSize = len(blocks)
+	// The corpus is smaller than the input when the accept merged repeats
+	// (86_ M5); the size reported is the corpus the generator actually saw.
+	out.CorpusSize = len(accept.Items)
+	blockByID := make(map[string]refineBlock, len(accept.Items))
+	for _, item := range accept.Items {
+		blockByID[item.ID] = refineBlock{
+			IntentZH:       item.IntentZH,
+			ExpressionEN:   item.ExpressionEN,
+			AnchorUserSaid: item.AnchorUserSaid,
+			SceneTag:       item.SceneTag,
+			FunctionTag:    item.FunctionTag,
+		}
+	}
 
 	topicStore := topic.NewMemoryStore()
 	gen := topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{Client: deps.client},
@@ -184,19 +155,32 @@ func runTopicStage(ctx context.Context, deps *deps, samples []sample, results []
 		return out
 	}
 
-	// The referee must see the learner's own material: asked to judge whether a
-	// topic is grounded in a corpus it cannot see, it can only answer "generic",
-	// which measures the question rather than the cards.
-	//
-	// It sees a sample, not the whole corpus: with all 85 blocks in the prompt
-	// the call timed out before answering, and a judgement needs the shape of
-	// the material, not every row of it. The sample is drawn round-robin across
-	// scenes so no single scene dominates the referee's picture.
-	corpusBlocks := sampleBlocksForReferee(blocks, refereeCorpusSample)
+	// The referee judges each card against **the blocks that card claims**, not
+	// against a corpus sample: H2 asks "is this topic derived from the learner's
+	// material", and the only material a card claims is its block list. Judging
+	// against a sample of the corpus measured the sample — the referee kept
+	// answering "not from learner blocks" for blocks it simply had not been shown.
+	// The referee reads the learner's whole corpus — expressions only, which keeps
+	// the prompt small — because the question is whether the card's *subject*
+	// comes from this learner or is a template their material was fitted into.
+	// Judging against the card's own claimed blocks made the answer near-tautological
+	// (the server guarantees the quote); judging against a sample measured the
+	// sample. The whole corpus is the only view that can tell the two apart.
+	claimed := make([]refineBlock, 0, len(accept.Items))
+	for _, item := range accept.Items {
+		claimed = append(claimed, refineBlock{
+			IntentZH:       "",
+			ExpressionEN:   item.ExpressionEN,
+			AnchorUserSaid: "",
+			SceneTag:       "standup",
+			FunctionTag:    "report",
+		})
+	}
+
 	verdict, err := deps.referee.score(ctx, refereeInput{
 		Scene:      "(pooled across scenes)",
 		Transcript: "(evaluation corpus: this learner's own phrase blocks are listed below)",
-		Blocks:     corpusBlocks,
+		Blocks:     claimed,
 		Topics:     out.Cards,
 	})
 	if err != nil {

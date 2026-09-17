@@ -42,6 +42,9 @@ func (a *OrchestratorAdapter) Generate(ctx context.Context, req Request) (Result
 	}
 
 	resp, err := a.Client.Complete(ctx, orchestrator.CompletionRequest{
+		// The user travels with the call so the cost row is attributed by the
+		// generic writer, instead of the session writing a second row of its own.
+		UserID:         req.UserID,
 		SystemPrompt:   systemPrompt(),
 		Prompt:         userPrompt(req),
 		MaxTokens:      800,

@@ -37,11 +37,12 @@ func (p PracticeSignals) Snapshot(ctx context.Context, userID string, now time.T
 				out.FunctionCounts[b.FunctionTag]++
 			}
 			out.Blocks = append(out.Blocks, BlockRef{
-				ID:           b.ID,
-				ExpressionEN: b.ExpressionEN,
-				IntentZH:     b.IntentZH,
-				SceneTag:     b.SceneTag,
-				FunctionTag:  b.FunctionTag,
+				ID:             b.ID,
+				ExpressionEN:   b.ExpressionEN,
+				IntentZH:       b.IntentZH,
+				SceneTag:       b.SceneTag,
+				FunctionTag:    b.FunctionTag,
+				AnchorUserSaid: b.AnchorUserSaid,
 			})
 		}
 		n := len(blocks)

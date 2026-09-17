@@ -38,8 +38,10 @@ func TestBatchAcceptIsIdempotentAndSupportsSoftDeleteRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BatchAccept second: %v", err)
 	}
-	if second.AcceptedCount != 1 || second.Items[0].ID != first.Items[0].ID {
-		t.Fatalf("expected idempotent result, got %+v", second)
+	// Idempotence now comes from the expression, not from the unique key: the
+	// same phrase is the same block, and the response says it was merged.
+	if second.AcceptedCount != 0 || second.MergedCount != 1 || second.Items[0].ID != first.Items[0].ID {
+		t.Fatalf("expected a merged result, got %+v", second)
 	}
 
 	if err := svc.DeleteBlock(context.Background(), "user-1", first.Items[0].ID); err != nil {
@@ -319,5 +321,89 @@ func TestListBlocksIncrementalSupportsCursorPagination(t *testing.T) {
 	}
 	if len(second.Items) != 1 || second.Items[0].ID == first.Items[0].ID {
 		t.Fatalf("unexpected second delta page: %+v", second)
+	}
+}
+
+// 86_ M5: the same phrase refined from a *different* session is the same asset,
+// not a near-duplicate. Measured on the flow eval at 15% of refined expressions.
+func TestBatchAccept_MergesAcrossSessions(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc.now = func() time.Time { return time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) }
+
+	block := BatchAcceptBlock{
+		IntentZH:       "说明卡点",
+		ExpressionEN:   "The deploy is blocked on the migration.",
+		AnchorUserSaid: "the deploy is waiting",
+		SceneTag:       "standup",
+		FunctionTag:    "report",
+	}
+	first, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{
+		SourceSessionID: "session-1", Blocks: []BatchAcceptBlock{block},
+	})
+	if err != nil {
+		t.Fatalf("first accept: %v", err)
+	}
+
+	// A later session refines the same sentence with different punctuation and
+	// casing: same block.
+	second, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{
+		SourceSessionID: "session-2",
+		Blocks: []BatchAcceptBlock{{
+			IntentZH:       "说明卡点（重述）",
+			ExpressionEN:   "the deploy is blocked on the migration",
+			AnchorUserSaid: "deploy blocked because migration",
+			SceneTag:       "standup",
+			FunctionTag:    "report",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("second accept: %v", err)
+	}
+	if second.AcceptedCount != 0 || second.MergedCount != 1 {
+		t.Fatalf("expected a merge, got %+v", second)
+	}
+	if second.Items[0].ID != first.Items[0].ID {
+		t.Fatalf("merge must return the existing block: %+v", second.Items[0])
+	}
+
+	blocks, err := svc.ListBlocks(context.Background(), ListBlocksRequest{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("ListBlocks: %v", err)
+	}
+	if len(blocks.Items) != 1 {
+		t.Fatalf("corpus = %d blocks, want the phrase stored once", len(blocks.Items))
+	}
+
+	// A different phrase is still a different asset.
+	third, err := svc.BatchAccept(context.Background(), "user-1", BatchAcceptRequest{
+		SourceSessionID: "session-3",
+		Blocks: []BatchAcceptBlock{{
+			IntentZH: "另一个表达", ExpressionEN: "I'll touch base with the team.",
+			AnchorUserSaid: "sync up", SceneTag: "standup", FunctionTag: "commit",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("third accept: %v", err)
+	}
+	if third.AcceptedCount != 1 || third.MergedCount != 0 {
+		t.Fatalf("a distinct phrase must be accepted: %+v", third)
+	}
+}
+
+func TestNormalizeExpression(t *testing.T) {
+	same := []string{
+		"The deploy is blocked on the migration.",
+		"the deploy is blocked on the migration",
+		"  The deploy, is blocked on the migration!  ",
+	}
+	want := NormalizeExpression(same[0])
+	for _, variant := range same[1:] {
+		if got := NormalizeExpression(variant); got != want {
+			t.Errorf("NormalizeExpression(%q) = %q, want %q", variant, got, want)
+		}
+	}
+	if NormalizeExpression("The deploy is blocked") == want {
+		t.Error("different sentences must not normalise together")
 	}
 }

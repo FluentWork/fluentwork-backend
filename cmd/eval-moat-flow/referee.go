@@ -102,8 +102,14 @@ Rubric for the review card:
 - authenticity: are the issues it lists real problems in this transcript? 5 = all real and specific; 3 = one is filler; 1 = invented problems.
 
 Rubric for each topic card:
-- grounded: is the topic drawn from this learner's own work and phrase blocks? 5 = clearly theirs; 1 = it could be handed to any learner.
-- generic: true when the topic would suit anybody (a failed card for this product).
+- grounded: judge the card's SUBJECT, not its wording. The server already guarantees each card quotes
+  the learner's material, so a quoted phrase proves nothing here. 5 = this topic is something this
+  learner actually does (their scenes, their work, the things their blocks are about); 3 = the frame is
+  a generic template (standup/interview/1:1 opener) that the learner's material was fitted into;
+  1 = the learner's material plays no part in the topic.
+- generic: true when the topic is a template that would suit any learner — set this even if the card
+  quotes the learner's sentence, because a quoted line stapled onto a stock scenario is exactly the
+  failure this field exists to catch.
 
 Reply with JSON only, no prose:
 {"blocks":[{"index":0,"fidelity":5,"idiomatic":4,"portable":4,"comment":"<=12 words"}],
@@ -120,6 +126,12 @@ func refereeUserPrompt(in refereeInput) string {
 		b.WriteString("(none)\n")
 	}
 	for i, block := range in.Blocks {
+		if block.IntentZH == "" && block.AnchorUserSaid == "" {
+			// The corpus view for a topic judgement: the learner's sentences, one
+			// per line, nothing else.
+			fmt.Fprintf(&b, "%d. %s\n", i, block.ExpressionEN)
+			continue
+		}
 		fmt.Fprintf(&b, "%d. intent_zh=%q expression_en=%q anchor_user_said=%q scene=%s function=%s\n",
 			i, block.IntentZH, block.ExpressionEN, block.AnchorUserSaid, block.SceneTag, block.FunctionTag)
 	}

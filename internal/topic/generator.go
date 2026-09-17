@@ -79,6 +79,8 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 		incGenerated(false)
 		return nil
 	}
+	recentTitles := g.recentTitles(ctx, userID, day)
+
 	sig := Signals{Level: "intermediate", Empty: true, SceneCounts: map[string]int{}, FunctionCounts: map[string]int{}}
 	if g.sig != nil {
 		got, snapErr := g.sig.Snapshot(ctx, userID, g.now())
@@ -97,7 +99,7 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 	var lastErr error
 	for attempt := 1; attempt <= GenerateAttempts; attempt++ {
 		callCtx, cancel := context.WithTimeout(ctx, GenerateTimeout)
-		raw, lastErr = g.llm.Complete(callCtx, GeneratePrompt(sig, day.Format("2006-01-02")))
+		raw, lastErr = g.llm.Complete(callCtx, GeneratePrompt(sig, day.Format("2006-01-02"), recentTitles))
 		cancel()
 		if lastErr == nil {
 			break
@@ -153,7 +155,7 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 	// invented.
 	cards := make([]Card, 0, len(parsed))
 	for _, card := range parsed {
-		grounded, ok := groundCard(card, sig)
+		grounded, ok := groundCard(card, sig, recentTitles)
 		if !ok {
 			incUngrounded()
 			continue
@@ -171,6 +173,24 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 	}
 	incGenerated(true)
 	return nil
+}
+
+// recentTitles returns the titles of the last few days' cards. The store has no
+// range query, and three single-day reads cost nothing next to the model call
+// this feeds.
+func (g *Generator) recentTitles(ctx context.Context, userID string, day time.Time) []string {
+	const lookbackDays = 3
+	var titles []string
+	for i := 1; i <= lookbackDays; i++ {
+		prior, err := g.store.ListTodayCards(ctx, userID, utcDate(day.AddDate(0, 0, -i)))
+		if err != nil {
+			return titles
+		}
+		for _, card := range prior {
+			titles = append(titles, card.Title)
+		}
+	}
+	return titles
 }
 
 func parseGenerateJSON(raw string) (GenerateResult, bool) {

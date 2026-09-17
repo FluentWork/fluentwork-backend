@@ -273,6 +273,32 @@ func (s *Service) DeleteBlock(ctx context.Context, userID, blockID string) error
 }
 
 // BatchAccept idempotently stores refine blocks from one session.
+// dedupeScanLimit bounds the corpus scan one accept performs. Comparison is
+// in-memory on purpose: a normalised-expression column would need a backfill
+// whose SQL normalisation could drift from the Go one, and a user's corpus is
+// bounded by this scan anyway.
+const dedupeScanLimit = 500
+
+// NormalizeExpression is the identity a phrase block is deduplicated by:
+// case, surrounding punctuation and inner spacing folded away, so the same
+// sentence refined from two sessions is one row (86_ M5).
+func NormalizeExpression(expression string) string {
+	fields := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(expression)), func(r rune) bool {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r >= 0x4e00 && r <= 0x9fff:
+			return false
+		default:
+			return true
+		}
+	})
+	return strings.Join(fields, " ")
+}
+
+// BatchAccept admits refine cards into the corpus.
+//
+// A phrase the learner already owns is not admitted again: the existing block is
+// returned instead, because two near-identical rows are two weaker assets, not
+// two assets (86_ M5: 15% of refined expressions repeated across sessions).
 func (s *Service) BatchAccept(ctx context.Context, userID string, req BatchAcceptRequest) (BatchAcceptResponse, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -286,23 +312,53 @@ func (s *Service) BatchAccept(ctx context.Context, userID string, req BatchAccep
 		return BatchAcceptResponse{}, apierr.InvalidArgument("blocks is required")
 	}
 	now := s.now().UTC()
+
+	// What the learner already owns, by normalised expression: a phrase refined
+	// from a later session joins the block that phrase already is, instead of
+	// becoming a near-duplicate that dilutes the corpus (86_ M5).
+	existing, err := s.store.ListBlocks(ctx, ListFilter{UserID: userID, Limit: dedupeScanLimit})
+	if err != nil {
+		return BatchAcceptResponse{}, err
+	}
+	byExpression := make(map[string]PhraseBlock, len(existing))
+	for _, block := range existing {
+		if block.DeletedAt != nil {
+			continue
+		}
+		byExpression[NormalizeExpression(block.ExpressionEN)] = block
+	}
+
 	blocks := make([]PhraseBlock, 0, len(req.Blocks))
+	merged := make([]PhraseBlock, 0, len(req.Blocks))
 	for _, item := range req.Blocks {
 		block, err := newAcceptedBlock(userID, sourceSessionID, now, s.newID(), item)
 		if err != nil {
 			return BatchAcceptResponse{}, err
 		}
+		if prev, ok := byExpression[NormalizeExpression(block.ExpressionEN)]; ok {
+			merged = append(merged, prev)
+			continue
+		}
+		// Two identical expressions inside one request collapse too.
+		byExpression[NormalizeExpression(block.ExpressionEN)] = block
 		blocks = append(blocks, block)
 	}
+
 	saved, err := s.store.SaveAcceptedBlocks(ctx, blocks)
 	if err != nil {
 		return BatchAcceptResponse{}, err
 	}
+	// Merged blocks come back as items as well: the client still wants to reach
+	// them, and MergedCount tells it how many were already there.
 	resp := BatchAcceptResponse{
 		AcceptedCount: len(saved),
-		Items:         make([]PhraseBlockView, 0, len(saved)),
+		MergedCount:   len(merged),
+		Items:         make([]PhraseBlockView, 0, len(saved)+len(merged)),
 	}
 	for _, block := range saved {
+		resp.Items = append(resp.Items, toView(block))
+	}
+	for _, block := range merged {
 		resp.Items = append(resp.Items, toView(block))
 	}
 	return resp, nil

@@ -101,7 +101,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 	costLog := aicost.Log{
 		ID:            "cost-1",
 		UserID:        &userID,
-		TaskType:      arkReviewTaskType,
+		TaskType:      "review.eval", // B18 per-utterance eval: the ledger entry this store's transactional write serves
 		Model:         "ep-review",
 		TokensIn:      1000,
 		TokensOut:     2000,
@@ -158,7 +158,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *
 	costLog := aicost.Log{
 		ID:       "cost-2",
 		UserID:   &userID,
-		TaskType: arkReviewTaskType,
+		TaskType: "review.eval",
 		TokensIn: 10, TokensOut: 20,
 		CreatedAt: at,
 	}
@@ -205,7 +205,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_IdempotentNoDoubleBill(t *testin
 	costLog := aicost.Log{
 		ID:       "cost-dup",
 		UserID:   &userID,
-		TaskType: arkReviewTaskType,
+		TaskType: "review.eval",
 		TokensIn: 10, TokensOut: 20,
 		CreatedAt: at,
 	}
@@ -239,7 +239,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RejectsNonEnded(t *testing.T) {
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	costLog := aicost.Log{
 		ID:        "cost-x",
-		TaskType:  arkReviewTaskType,
+		TaskType:  "review.eval",
 		CreatedAt: at,
 	}
 
@@ -264,7 +264,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_NotFound(t *testing.T) {
 
 	sessionID := "missing"
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
-	costLog := aicost.Log{ID: "cost-x", TaskType: arkReviewTaskType, CreatedAt: at}
+	costLog := aicost.Log{ID: "cost-x", TaskType: "review.eval", CreatedAt: at}
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT ` + sessionColumnsRE + ` FROM practice_sessions WHERE id = \? FOR UPDATE`).
@@ -306,7 +306,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RejectsUnwiredCostTx(t *testing.
 		"any-session",
 		[]byte(`{}`),
 		time.Now().UTC(),
-		aicost.Log{ID: "x", TaskType: arkReviewTaskType, CreatedAt: time.Now().UTC()},
+		aicost.Log{ID: "x", TaskType: "review.eval", CreatedAt: time.Now().UTC()},
 	)
 	if err == nil {
 		t.Fatal("expected error when costTx is not wired")

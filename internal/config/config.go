@@ -40,6 +40,8 @@ const (
 	// defaultDrillJudgeTimeout mirrors drill.JudgeTimeout; the drill package owns
 	// the reasoning, this keeps config free of that import cycle.
 	defaultDrillJudgeTimeout = 6 * time.Second
+	// defaultArkHTTPTimeout is the shipping bound on one provider call.
+	defaultArkHTTPTimeout = 30 * time.Second
 	// defaultTopicMinBlocks is the PRD §7.8 H1 threshold (话术块 ≥ 20).
 	defaultTopicMinBlocks = 20
 )
@@ -58,6 +60,15 @@ type Config struct {
 	ArkBaseURL         string
 	ArkAPIKey          string
 	ArkReviewRefineEP  string
+	ArkDailyReadEP     string
+	ArkTopicCardEP     string
+	ArkHitMatchEP      string
+	ArkDrillJudgeEP    string
+	ArkTextDegradeEP   string
+	// ArkHTTPTimeout bounds one provider call. 30s is the default a chat
+	// completion normally needs; a caller that sends a large prompt (a whole
+	// corpus, say) can raise it without a code change.
+	ArkHTTPTimeout time.Duration
 	// ArkPricingFile, when set, replaces the built-in model price table
 	// (doc 79). P2-2's "以账单为准" then lands as a data change; a file that does
 	// not parse fails startup instead of silently billing at the old rates.
@@ -110,7 +121,13 @@ func Load() Config {
 		ArkBaseURL:         envOr("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
 		ArkAPIKey:          firstNonEmpty(strings.TrimSpace(os.Getenv("ARK_API_KEY")), strings.TrimSpace(os.Getenv("ARK_API_KEY_DEV"))),
 		ArkReviewRefineEP:  strings.TrimSpace(os.Getenv("ARK_EP_REVIEW_REFINE")),
+		ArkDailyReadEP:     strings.TrimSpace(os.Getenv("ARK_EP_DAILY_READ")),
+		ArkTopicCardEP:     strings.TrimSpace(os.Getenv("ARK_EP_TOPIC_CARD")),
+		ArkHitMatchEP:      strings.TrimSpace(os.Getenv("ARK_EP_HIT_MATCH")),
+		ArkDrillJudgeEP:    strings.TrimSpace(os.Getenv("ARK_EP_DRILL_JUDGE")),
+		ArkTextDegradeEP:   strings.TrimSpace(os.Getenv("ARK_EP_TEXT_DEGRADE")),
 		ArkPricingFile:     strings.TrimSpace(os.Getenv("ARK_PRICING_FILE")),
+		ArkHTTPTimeout:     durationOr("ARK_HTTP_TIMEOUT", defaultArkHTTPTimeout),
 
 		DrillPromoteStreak:           intOr("DRILL_PROMOTE_STREAK", defaultDrillPromoteStreak),
 		DrillTrainingInterval:        durationOr("DRILL_TRAINING_INTERVAL", defaultDrillTrainingInterval),

@@ -176,6 +176,10 @@ type BatchAcceptBlock struct {
 
 // BatchAcceptResponse reports how many blocks were accepted.
 type BatchAcceptResponse struct {
-	AcceptedCount int               `json:"accepted_count"`
-	Items         []PhraseBlockView `json:"items"`
+	AcceptedCount int `json:"accepted_count"`
+	// MergedCount counts incoming blocks that matched an expression the learner
+	// already owned: they were not inserted, and they come back inside Items as
+	// the existing block (86_ M5).
+	MergedCount int               `json:"merged_count"`
+	Items       []PhraseBlockView `json:"items"`
 }

@@ -12,68 +12,79 @@ func testSignals() Signals {
 		SceneCounts:    map[string]int{"standup": 4, "review": 2},
 		FunctionCounts: map[string]int{"report": 5, "propose": 1},
 		Blocks: []BlockRef{
-			{ID: "b1", ExpressionEN: "The deploy is blocked on the migration.", SceneTag: "standup", FunctionTag: "report"},
-			{ID: "b2", ExpressionEN: "I'll touch base with the team.", SceneTag: "standup", FunctionTag: "commit"},
-			{ID: "b3", ExpressionEN: "Can we park that for now?", SceneTag: "review", FunctionTag: "defer"},
+			{ID: "b1", ExpressionEN: "The deploy is blocked on the migration.", AnchorUserSaid: "the deploy is waiting", SceneTag: "standup", FunctionTag: "report"},
+			{ID: "b2", ExpressionEN: "I'll touch base with the team tomorrow.", AnchorUserSaid: "sync up with the team", SceneTag: "standup", FunctionTag: "commit"},
+			{ID: "b3", ExpressionEN: "Can we park that for now?", AnchorUserSaid: "let us talk later", SceneTag: "review", FunctionTag: "defer"},
 		},
 	}
 }
 
-func TestGroundCard_MatchesSceneAndFunction(t *testing.T) {
-	card, ok := groundCard(Card{Title: "Standup", SeedTags: []string{"Standup", " "}}, testSignals())
+// A card that quotes the learner's own phrase is grounded, and the block it
+// quoted is the one attached — content matching, not a tag guess.
+func TestGroundCard_QuotedPhraseGroundsTheCard(t *testing.T) {
+	card := Card{
+		Title:    "Standup: deploy status",
+		PromptEN: "Hey team, the deploy is blocked on the migration, so I need another day.",
+	}
+	grounded, ok := groundCard(card, testSignals(), nil)
 	if !ok {
-		t.Fatal("a card with the learner's own scene must ground")
+		t.Fatal("a card quoting the learner's phrase must ground")
 	}
-	if len(card.BlockIDs) != 2 || card.BlockIDs[0] != "b1" || card.BlockIDs[1] != "b2" {
-		t.Fatalf("block list = %v", card.BlockIDs)
+	if len(grounded.BlockIDs) != 1 || grounded.BlockIDs[0] != "b1" {
+		t.Fatalf("block list = %v, want the quoted block", grounded.BlockIDs)
 	}
-	if card.SeedTags[0] != "standup" {
-		t.Fatalf("tags must be normalized: %v", card.SeedTags)
-	}
-	if card.SourceNote == "" || !strings.Contains(card.SourceNote, "standup") {
-		t.Fatalf("source note = %q", card.SourceNote)
+	if grounded.SourceNote == "" {
+		t.Fatal("a grounded card carries its provenance")
 	}
 }
 
-// A synonym is a match: "daily standup" names the learner's own "standup".
-func TestGroundCard_MatchesTagSynonyms(t *testing.T) {
-	card, ok := groundCard(Card{Title: "Daily sync", SeedTags: []string{"daily standup"}}, testSignals())
-	if !ok {
-		t.Fatal("a containing tag must ground the card")
-	}
-	if len(card.BlockIDs) == 0 {
-		t.Fatal("synonym match must attach blocks")
+// Quoting the learner's original words counts too: it is still their material.
+func TestGroundCard_QuotingTheAnchorCounts(t *testing.T) {
+	card := Card{Title: "Sync", PromptEN: "Quick one: sync up with the team — when works for you?"}
+	grounded, ok := groundCard(card, testSignals(), nil)
+	if !ok || len(grounded.BlockIDs) != 1 || grounded.BlockIDs[0] != "b2" {
+		t.Fatalf("anchor quote must ground the card: %+v ok=%v", grounded.BlockIDs, ok)
 	}
 }
 
-// But an unrelated tag is not: there is no substitution to the learner's
-// dominant scene, because that would attach standup blocks to a coffee topic.
-func TestGroundCard_NoSubstituteTag(t *testing.T) {
-	if _, ok := groundCard(Card{Title: "Ordering coffee", SeedTags: []string{"travel"}}, testSignals()); ok {
-		t.Fatal("an unrelated tag must not be rewritten into a grounding")
+// The tag-level check this replaces let a generic card through whenever the
+// learner owned a block with a matching tag (86_ F3: 5 of 9 cards).
+func TestGroundCard_GenericCardIsRefusedEvenWithMatchingTags(t *testing.T) {
+	card := Card{
+		Title:    "Technical Interview: Rate Limiter Design",
+		PromptEN: "Thanks for having me. I would use a token bucket stored in Redis.",
+		SeedTags: []string{"interview", "report"},
+	}
+	if _, ok := groundCard(card, testSignals(), nil); ok {
+		t.Fatal("a card sharing no wording with the corpus must be refused")
 	}
 }
 
-func TestGroundCard_RejectsUngroundedCard(t *testing.T) {
-	sig := Signals{
-		SceneCounts: map[string]int{"standup": 3},
-		Blocks:      []BlockRef{{ID: "b1", ExpressionEN: "x", SceneTag: "standup", FunctionTag: "report"}},
+func TestGroundCard_RefusesRepeatedTopics(t *testing.T) {
+	card := Card{Title: "Daily Standup Progress Update", PromptEN: "Hey team, the deploy is blocked on the migration."}
+	if _, ok := groundCard(card, testSignals(), []string{"Daily Standup Progress Update"}); ok {
+		t.Fatal("a card repeating a recent title must be refused")
 	}
-	if _, ok := groundCard(Card{Title: "Ordering coffee", SeedTags: []string{"travel", "social"}}, sig); ok {
-		t.Fatal("a card nothing in the corpus can serve must be refused")
+	// The same title with different punctuation/case is still a repeat.
+	if _, ok := groundCard(card, testSignals(), []string{"daily standup progress update!"}); ok {
+		t.Fatal("title comparison must ignore punctuation and case")
 	}
-	if _, ok := groundCard(Card{Title: "No corpus"}, Signals{}); ok {
-		t.Fatal("no blocks at all means nothing to ground on")
+	if _, ok := groundCard(card, testSignals(), []string{"A different topic"}); !ok {
+		t.Fatal("an unrelated recent title must not block the card")
 	}
 }
 
 func TestGroundCard_CapsTheBlockList(t *testing.T) {
-	sig := Signals{Blocks: nil}
+	sig := Signals{}
 	for i := 0; i < MaxBlocksPerCard+3; i++ {
-		sig.Blocks = append(sig.Blocks, BlockRef{ID: "b" + string(rune('a'+i)), SceneTag: "standup", ExpressionEN: "x"})
+		sig.Blocks = append(sig.Blocks, BlockRef{
+			ID:           "b" + string(rune('a'+i)),
+			ExpressionEN: "the deploy is blocked on the migration",
+			SceneTag:     "standup",
+		})
 	}
 	sig.SceneCounts = map[string]int{"standup": len(sig.Blocks)}
-	card, ok := groundCard(Card{SeedTags: []string{"standup"}}, sig)
+	card, ok := groundCard(Card{Title: "Status", PromptEN: "the deploy is blocked on the migration"}, sig, nil)
 	if !ok {
 		t.Fatal("grounding failed")
 	}
@@ -82,20 +93,36 @@ func TestGroundCard_CapsTheBlockList(t *testing.T) {
 	}
 }
 
+func TestLongestSharedRun(t *testing.T) {
+	cases := []struct {
+		a, b []string
+		want int
+	}{
+		{[]string{"the", "deploy", "is", "blocked"}, []string{"the", "deploy", "is", "blocked"}, 4},
+		{[]string{"hey", "the", "deploy", "is", "blocked", "today"}, []string{"the", "deploy", "is", "blocked"}, 4},
+		{[]string{"the", "deploy", "is", "fine"}, []string{"the", "deploy", "is", "blocked"}, 3},
+		{[]string{"a", "b"}, []string{"c", "d"}, 0},
+		{nil, []string{"a"}, 0},
+	}
+	for _, tc := range cases {
+		if got := longestSharedRun(tc.a, tc.b); got != tc.want {
+			t.Errorf("longestSharedRun(%v, %v) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
 // H2's other half: when nothing grounds, the user is skipped rather than served
 // a plausible-looking generic topic.
 func TestGenerate_AllCardsUngroundedSkipsUser(t *testing.T) {
 	blocks := make([]BlockRef, 0, DefaultMinBlocks)
 	for i := 0; i < DefaultMinBlocks; i++ {
-		blocks = append(blocks, BlockRef{ID: "b-" + itoa(i), ExpressionEN: "x", SceneTag: "standup", FunctionTag: "report"})
+		blocks = append(blocks, BlockRef{ID: "b-" + itoa(i), ExpressionEN: "the deploy is blocked on the migration", SceneTag: "standup"})
 	}
-	// No scene counts and no matching tags: even the fallback has nothing to
-	// match, which is the "user has blocks but none for these topics" case.
 	sig := stubSignals{sig: Signals{Level: "intermediate", Blocks: blocks}}
 	llm := &stubLLM{body: `{"cards":[
-		{"title":"Ordering coffee","prompt_en":"Order a flat white.","prompt_zh":"点咖啡","card_type":"warmup","seed_tags":["travel"]},
-		{"title":"Party small talk","prompt_en":"Ask about hobbies.","prompt_zh":"聊爱好","card_type":"practice","seed_tags":["social"]},
-		{"title":"Weekend","prompt_en":"Describe your weekend.","prompt_zh":"周末","card_type":"stretch","seed_tags":["casual"]}
+		{"title":"Ordering coffee","prompt_en":"Order a flat white please.","prompt_zh":"点咖啡","card_type":"warmup","seed_tags":["travel"]},
+		{"title":"Party small talk","prompt_en":"Ask about hobbies today.","prompt_zh":"聊爱好","card_type":"practice","seed_tags":["social"]},
+		{"title":"Weekend","prompt_en":"Describe your weekend plans.","prompt_zh":"周末","card_type":"stretch","seed_tags":["casual"]}
 	]}`}
 	_, gen, store := testService(t, llm, sig)
 	day := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
@@ -110,25 +137,26 @@ func TestGenerate_AllCardsUngroundedSkipsUser(t *testing.T) {
 	}
 }
 
-// The prompt carries the learner's own expressions, bounded: the request is per
-// user per day and must not grow with corpus size.
-func TestGeneratePrompt_IncludesBoundedBlockList(t *testing.T) {
+// The prompt carries the rules the server enforces: quote the learner verbatim,
+// and do not repeat what they already have.
+func TestGeneratePrompt_StatesQuoteAndRepeatRules(t *testing.T) {
 	blocks := make([]BlockRef, 0, MaxPromptBlocks+10)
 	for i := 0; i < MaxPromptBlocks+10; i++ {
 		blocks = append(blocks, BlockRef{ID: "b", ExpressionEN: "expression " + itoa(i), SceneTag: "standup"})
 	}
-	prompt := GeneratePrompt(Signals{Blocks: blocks}, "2026-09-18")
-	if !strings.Contains(prompt, "- [standup] expression 0") {
-		t.Fatalf("prompt must list the learner's expressions:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "expression "+itoa(MaxPromptBlocks)) {
-		t.Fatal("prompt block list must be bounded")
-	}
-	// The grounding rule travels with the request, so a compliant model can
-	// avoid the drop entirely.
-	for _, want := range []string{"learner's own phrase blocks", "failed card", "seed_tags must be"} {
+	prompt := GeneratePrompt(Signals{Blocks: blocks}, "2026-09-18", []string{"Daily Standup Progress Update"})
+	for _, want := range []string{
+		"learner's own phrase blocks",
+		"verbatim",
+		"discarded by the server",
+		"do not repeat any topic or title",
+		"Daily Standup Progress Update",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
+	}
+	if strings.Contains(prompt, "expression "+itoa(MaxPromptBlocks)) {
+		t.Fatal("prompt block list must be bounded")
 	}
 }

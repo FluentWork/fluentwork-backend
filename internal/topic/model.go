@@ -145,6 +145,10 @@ type BlockRef struct {
 	IntentZH     string
 	SceneTag     string
 	FunctionTag  string
+	// AnchorUserSaid is what the learner originally said. A card may quote
+	// either this or the refined expression; the raw words are often the more
+	// natural opening line.
+	AnchorUserSaid string
 }
 
 // CardView is one card plus the resolved 话术块清单 the client renders.

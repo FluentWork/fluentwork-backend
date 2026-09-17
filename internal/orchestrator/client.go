@@ -13,7 +13,10 @@ type CompletionRequest struct {
 	Temperature    float64
 	SystemPrompt   string
 	ResponseFormat string // "json_object" or ""
-	Operation      string // for ai_cost_logs: "review.eval", "material.refine", "topic.generate"
+	Operation      string // routes the call to an endpoint and labels the cost row
+	// UserID attributes the cost row. Optional: some calls (a shared warm-up, a
+	// batch job) belong to nobody in particular.
+	UserID string
 }
 
 // CompletionResponse 统一的 LLM 响应

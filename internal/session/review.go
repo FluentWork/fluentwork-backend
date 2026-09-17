@@ -8,10 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
-	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -29,8 +26,6 @@ const (
 // answers for the same tokens, and the session one ignored result.Model
 // entirely. Pricing now goes through orchestrator.CalculateCostMicroYuan, the
 // same single path every other LLM call uses.
-const arkReviewTaskType = "review.eval"
-
 // reviewRetryAttempts is the number of times buildReviewArtifacts will retry a
 // failed generator call before falling back to stub artifacts. Acceptance
 // criterion: "失败重试 1 次" — first try plus one retry = 2 total attempts.
@@ -160,18 +155,10 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		return pipelineErr
 	}
 	now := s.now().UTC()
-	// #21 (B8 followup): atomic review + cost. When the generator produced a
-	// real artifact we use MarkSessionReviewedWithCost to commit review_json
-	// and ai_cost_logs in one transaction. When the generator was unavailable
-	// or both attempts failed we fall back to MarkSessionReviewed with no cost
-	// (stub artifacts: Cost == nil) — no cost ledger row should be written for
-	// "no real AI usage" sessions.
-	if artifacts.Cost == nil {
-		_, err = s.store.MarkSessionReviewed(ctx, sessionID, artifacts.ReviewJSON, now)
-	} else {
-		costLog := buildCostLog(session, artifacts, now)
-		_, err = s.store.MarkSessionReviewedWithCost(ctx, sessionID, artifacts.ReviewJSON, now, costLog)
-	}
+	// The review JSON is committed on its own. Accounting happens where the call
+	// happens — the orchestrator records every completion, attributed to this
+	// user — so the session writing its own row would double-count the same call.
+	_, err = s.store.MarkSessionReviewed(ctx, sessionID, artifacts.ReviewJSON, now)
 	if err != nil {
 		pipelineErr = err
 		return pipelineErr
@@ -185,27 +172,6 @@ func (s *Service) processSessionFinished(ctx context.Context, sessionID string) 
 		"cost_recorded", artifacts.Cost != nil,
 	}
 	return nil
-}
-
-// buildCostLog converts a reviewArtifacts.Cost (RecordRequest) into an aicost.Log
-// with a fresh ID and timestamp, ready for atomic insert alongside the review.
-func buildCostLog(session Session, artifacts reviewArtifacts, at time.Time) aicost.Log {
-	req := *artifacts.Cost
-	userID := strings.TrimSpace(req.UserID)
-	if userID == "" {
-		userID = session.UserID
-	}
-	return aicost.Log{
-		ID:            uuid.NewString(),
-		TaskType:      arkReviewTaskType,
-		Model:         strings.TrimSpace(req.Model),
-		TokensIn:      req.TokensIn,
-		TokensOut:     req.TokensOut,
-		AudioSec:      req.AudioSec,
-		CostMicroYuan: orchestrator.CalculateCostMicroYuan(req.Model, req.TokensIn, req.TokensOut),
-		CreatedAt:     at,
-		UserID:        nullableUserID(userID),
-	}
 }
 
 // nullableUserID returns &id only when id is non-empty; otherwise nil.
@@ -315,17 +281,15 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		s.logger.Warn("review generator failed after retries; falling back to stub", attrs...)
 		return buildStubReviewArtifacts(session, utterances)
 	}
+	// No cost row here: the orchestrator writes one per call, attributed to the
+	// user (see reviewgen's adapter). The session used to write a second row for
+	// the same call — two ledger rows per review — and its task_type
+	// ("review.eval") collided with B18's per-utterance eval, so the two kinds of
+	// call were indistinguishable in the ledger.
 	return reviewArtifacts{
 		ReviewJSON: buildReviewPayload(result.Review, result.Refine, session, result.Generator),
 		RefineJSON: append([]byte(nil), result.Refine...),
 		Generator:  result.Generator,
-		Cost: &aicost.RecordRequest{
-			TaskType:      arkReviewTaskType,
-			Model:         result.Model,
-			TokensIn:      result.TokensIn,
-			TokensOut:     result.TokensOut,
-			CostMicroYuan: 0,
-		},
 	}, nil
 }
 

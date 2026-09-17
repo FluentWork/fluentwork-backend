@@ -227,7 +227,7 @@ func runSample(ctx context.Context, deps *deps, s sample) *sampleResult {
 		res.Errors = append(res.Errors, "batch-accept: "+err.Error())
 		return res
 	}
-	res.Corpus = corpusStage{AcceptedCount: accept.AcceptedCount}
+	res.Corpus = corpusStage{AcceptedCount: accept.AcceptedCount, MergedCount: accept.MergedCount}
 	for _, item := range accept.Items {
 		res.Corpus.BlockIDs = append(res.Corpus.BlockIDs, item.ID)
 		res.Corpus.Expressions = append(res.Corpus.Expressions, item.ExpressionEN)

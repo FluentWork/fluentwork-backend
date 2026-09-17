@@ -41,8 +41,11 @@ type refineStage struct {
 }
 
 type corpusStage struct {
-	AcceptedCount int      `json:"accepted_count"`
-	BlockIDs      []string `json:"block_ids"`
+	AcceptedCount int `json:"accepted_count"`
+	// MergedCount counts blocks the corpus already had (86_ M5). Their absence
+	// from the corpus is the point, not a loss.
+	MergedCount int      `json:"merged_count"`
+	BlockIDs    []string `json:"block_ids"`
 	// Expressions feed the scene-group topic stage and let the run measure
 	// cross-session duplication (86_ M5).
 	Expressions []string `json:"expressions"`
@@ -183,16 +186,13 @@ func ruleChecks(s sample, transcript string, blocks []refineBlock, accepted []co
 		}
 	}
 
-	add("corpus_accepted", len(accepted) == len(blocks), fmt.Sprintf("%d accepted of %d", len(accepted), len(blocks)))
+	add("corpus_accepted", len(accepted) > 0, fmt.Sprintf("%d accepted of %d refined blocks", len(accepted), len(blocks)))
 	return checks
 }
 
-func normalizeExpression(s string) string {
-	lower := strings.ToLower(strings.TrimSpace(s))
-	lower = strings.TrimRight(lower, ".!?")
-	replacer := strings.NewReplacer(",", "", ";", "", "  ", " ")
-	return strings.TrimSpace(replacer.Replace(lower))
-}
+// normalizeExpression is the corpus's own identity function, so the harness
+// measures duplication by exactly the rule the product deduplicates by.
+func normalizeExpression(s string) string { return corpus.NormalizeExpression(s) }
 
 // --- aggregation --------------------------------------------------------
 

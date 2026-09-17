@@ -43,6 +43,14 @@ func (s stubSignals) Snapshot(context.Context, string, time.Time) (Signals, erro
 // groundedSignals clears H1's threshold (≥ DefaultMinBlocks) and carries blocks
 // for the tags threeCardJSON uses, so a card can actually be grounded on them.
 func groundedSignals() stubSignals {
+	// The blocks carry the phrases the fixture cards quote: content-level
+	// grounding is what the generator enforces, so a fixture whose cards share
+	// no wording with its corpus would (correctly) produce nothing.
+	phrases := []string{
+		"I shipped the login bug fix yesterday",
+		"Can we park that for now",
+		"Let me walk you through the migration plan",
+	}
 	scenes := []string{"standup", "review", "1on1"}
 	blocks := make([]BlockRef, 0, DefaultMinBlocks)
 	counts := map[string]int{}
@@ -50,11 +58,12 @@ func groundedSignals() stubSignals {
 		scene := scenes[i%len(scenes)]
 		counts[scene]++
 		blocks = append(blocks, BlockRef{
-			ID:           "block-" + itoa(i),
-			ExpressionEN: "expression " + itoa(i),
-			IntentZH:     "意图 " + itoa(i),
-			SceneTag:     scene,
-			FunctionTag:  "report",
+			ID:             "block-" + itoa(i),
+			ExpressionEN:   phrases[i%len(phrases)],
+			AnchorUserSaid: phrases[i%len(phrases)],
+			IntentZH:       "意图 " + itoa(i),
+			SceneTag:       scene,
+			FunctionTag:    "report",
 		})
 	}
 	return stubSignals{sig: Signals{
@@ -73,9 +82,9 @@ func (s stubActive) ListActiveUserIDs(context.Context, time.Time) ([]string, err
 
 func threeCardJSON() string {
 	return `{"cards":[
-		{"title":"Standup sync","prompt_en":"Share yesterday's progress.","prompt_zh":"同步昨天的进度","card_type":"warmup","seed_tags":["standup","report"]},
-		{"title":"Clarify scope","prompt_en":"Ask what is in and out of scope.","prompt_zh":"澄清范围","card_type":"practice","seed_tags":["review","clarify"]},
-		{"title":"Propose next step","prompt_en":"Suggest one concrete next action.","prompt_zh":"提出下一步","card_type":"stretch","seed_tags":["1on1","propose"]}
+		{"title":"Standup sync","prompt_en":"Quick sync: I shipped the login bug fix yesterday.","prompt_zh":"同步昨天的进度","card_type":"warmup","seed_tags":["standup","report"]},
+		{"title":"Clarify scope","prompt_en":"Can we park that for now, or should I keep going?","prompt_zh":"澄清范围","card_type":"practice","seed_tags":["review","clarify"]},
+		{"title":"Propose next step","prompt_en":"Let me walk you through the migration plan.","prompt_zh":"提出下一步","card_type":"stretch","seed_tags":["1on1","propose"]}
 	]}`
 }
 
