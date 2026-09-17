@@ -156,10 +156,12 @@ func (s *Service) UpdateBlock(ctx context.Context, userID, blockID string, req U
 		}
 		return PhraseBlockView{}, err
 	}
+	previousExpression := block.ExpressionEN
 	if err := applyEditableFields(&block, req); err != nil {
 		return PhraseBlockView{}, err
 	}
-	block.UpdatedAt = s.now().UTC()
+	now := s.now().UTC()
+	block.UpdatedAt = now
 	saved, err := s.store.UpdateBlock(ctx, block)
 	if err != nil {
 		if err == ErrNotFound {
@@ -167,7 +169,35 @@ func (s *Service) UpdateBlock(ctx context.Context, userID, blockID string, req U
 		}
 		return PhraseBlockView{}, err
 	}
-	return toView(saved), nil
+	if saved.ExpressionEN == previousExpression {
+		// Intent, anchor and tags refine how a phrase is described, not which
+		// phrase is being recalled — no reset, no new version.
+		return toView(saved), nil
+	}
+
+	// The sentence changed, so this is a different thing to recall (86_ M6).
+	// The edit is recorded for auditability and the schedule goes back to 灰: a
+	// green light earned on the old wording would claim fluency in a sentence
+	// the learner has never said.
+	edit := BlockEdit{
+		ID: s.newID(), UserID: userID, BlockID: saved.ID,
+		Version:       saved.ExpressionVersion + 1,
+		OldExpression: previousExpression,
+		NewExpression: saved.ExpressionEN,
+		CreatedAt:     now,
+	}
+	if err := s.store.SaveBlockEdit(ctx, edit); err != nil {
+		// The text change itself succeeded; losing the audit row is a
+		// bookkeeping problem, and the version staying put is visible evidence
+		// of it.
+		s.logger.Warn("block edit not recorded", "block_id", saved.ID, "user_id", userID, "err", err)
+	}
+	reset, err := s.store.ResetSchedule(ctx, userID, saved.ID, now)
+	if err != nil {
+		s.logger.Warn("block schedule not reset after an edit", "block_id", saved.ID, "err", err)
+		return toView(saved), nil
+	}
+	return toView(reset), nil
 }
 
 // SetFavorite toggles favorite/pinned state for one block.
@@ -509,23 +539,24 @@ func (s *Service) FeedbackSummary(ctx context.Context, userID string) ([]Feedbac
 
 func toView(block PhraseBlock) PhraseBlockView {
 	return PhraseBlockView{
-		ID:              block.ID,
-		IntentZH:        block.IntentZH,
-		ExpressionEN:    block.ExpressionEN,
-		AnchorUserSaid:  block.AnchorUserSaid,
-		SceneTag:        block.SceneTag,
-		FunctionTag:     block.FunctionTag,
-		State:           block.State,
-		SuccessStreak:   block.SuccessStreak,
-		NextDueAt:       block.NextDueAt,
-		EaseFactor:      block.EaseFactor,
-		RealUseCount:    block.RealUseCount,
-		IsFavorite:      block.IsFavorite,
-		PinnedAt:        block.PinnedAt,
-		SourceSessionID: block.SourceSessionID,
-		DeletedAt:       block.DeletedAt,
-		CreatedAt:       block.CreatedAt,
-		UpdatedAt:       block.UpdatedAt,
+		ID:                block.ID,
+		IntentZH:          block.IntentZH,
+		ExpressionEN:      block.ExpressionEN,
+		ExpressionVersion: block.ExpressionVersion,
+		AnchorUserSaid:    block.AnchorUserSaid,
+		SceneTag:          block.SceneTag,
+		FunctionTag:       block.FunctionTag,
+		State:             block.State,
+		SuccessStreak:     block.SuccessStreak,
+		NextDueAt:         block.NextDueAt,
+		EaseFactor:        block.EaseFactor,
+		RealUseCount:      block.RealUseCount,
+		IsFavorite:        block.IsFavorite,
+		PinnedAt:          block.PinnedAt,
+		SourceSessionID:   block.SourceSessionID,
+		DeletedAt:         block.DeletedAt,
+		CreatedAt:         block.CreatedAt,
+		UpdatedAt:         block.UpdatedAt,
 	}
 }
 

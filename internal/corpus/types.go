@@ -40,16 +40,20 @@ var validFunctionTags = map[string]struct{}{
 
 // PhraseBlock is the persisted refine/corpus row for one user expression.
 type PhraseBlock struct {
-	ID             string
-	UserID         string
-	IntentZH       string
-	ExpressionEN   string
-	AnchorUserSaid string
-	SceneTag       string
-	FunctionTag    string
-	State          string
-	SuccessStreak  int
-	NextDueAt      time.Time
+	ID           string
+	UserID       string
+	IntentZH     string
+	ExpressionEN string
+	// ExpressionVersion counts how many times expression_en has been rewritten.
+	// A version bump resets the schedule: the learner now has to recall a
+	// different sentence (86_ M6).
+	ExpressionVersion int
+	AnchorUserSaid    string
+	SceneTag          string
+	FunctionTag       string
+	State             string
+	SuccessStreak     int
+	NextDueAt         time.Time
 	// EaseFactor is 预留，不参与计算。表列与字段都建好了，但 MVP 的调度是
 	// 固定阶梯（corpus.ApplyJudge：24h / 7d / 30d 三档 + 失败 1h），没有任何
 	// 实现读它——它恒为建块时的默认值 2.5。保留是为了 V1.1 可能启用的简化
@@ -99,6 +103,17 @@ func ValidFeedbackReason(reason string) bool {
 	}
 }
 
+// BlockEdit is one rewrite of a block's expression.
+type BlockEdit struct {
+	ID            string
+	UserID        string
+	BlockID       string
+	Version       int
+	OldExpression string
+	NewExpression string
+	CreatedAt     time.Time
+}
+
 // RealUse is one credited real-world use of a phrase block.
 type RealUse struct {
 	ID      string
@@ -146,23 +161,24 @@ type ListBlocksResponse struct {
 
 // PhraseBlockView is the API projection of one phrase block.
 type PhraseBlockView struct {
-	ID              string     `json:"id"`
-	IntentZH        string     `json:"intent_zh"`
-	ExpressionEN    string     `json:"expression_en"`
-	AnchorUserSaid  string     `json:"anchor_user_said"`
-	SceneTag        string     `json:"scene_tag"`
-	FunctionTag     string     `json:"function_tag"`
-	State           string     `json:"state"`
-	SuccessStreak   int        `json:"success_streak"`
-	NextDueAt       time.Time  `json:"next_due_at"`
-	EaseFactor      float64    `json:"ease_factor"`
-	RealUseCount    int        `json:"real_use_count"`
-	IsFavorite      bool       `json:"is_favorite"`
-	PinnedAt        *time.Time `json:"pinned_at,omitempty"`
-	SourceSessionID *string    `json:"source_session_id,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                string     `json:"id"`
+	IntentZH          string     `json:"intent_zh"`
+	ExpressionEN      string     `json:"expression_en"`
+	ExpressionVersion int        `json:"expression_version"`
+	AnchorUserSaid    string     `json:"anchor_user_said"`
+	SceneTag          string     `json:"scene_tag"`
+	FunctionTag       string     `json:"function_tag"`
+	State             string     `json:"state"`
+	SuccessStreak     int        `json:"success_streak"`
+	NextDueAt         time.Time  `json:"next_due_at"`
+	EaseFactor        float64    `json:"ease_factor"`
+	RealUseCount      int        `json:"real_use_count"`
+	IsFavorite        bool       `json:"is_favorite"`
+	PinnedAt          *time.Time `json:"pinned_at,omitempty"`
+	SourceSessionID   *string    `json:"source_session_id,omitempty"`
+	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 // UpdateBlockRequest carries editable phrase block fields.

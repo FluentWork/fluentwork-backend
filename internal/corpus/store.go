@@ -75,6 +75,13 @@ type Store interface {
 	UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error)
 	SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
 	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)
+	// SaveBlockEdit records one rewrite and bumps the block's version. It is the
+	// audit trail behind an expression change, which is also what resets the
+	// schedule (86_ M6).
+	SaveBlockEdit(ctx context.Context, edit BlockEdit) error
+	// ResetSchedule puts a block back to 灰 with a fresh interval, using this
+	// store's configured ladder. Called when the sentence being recalled changes.
+	ResetSchedule(ctx context.Context, userID, blockID string, at time.Time) (PhraseBlock, error)
 	// RecordRealUses credits confirmed real-world uses of the learner's blocks:
 	// a provenance row per (block, source, ref), the counters, and the same
 	// 视同成功 reschedule a B7 hit gets (PRD §5.2.3). Idempotent per ref, so a

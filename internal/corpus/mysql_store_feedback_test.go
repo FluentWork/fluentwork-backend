@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,54 @@ func TestMySQLStore_FeedbackWipeStatements(t *testing.T) {
 	n, err = store.RestoreFeedbackForUser(context.Background(), "user-1")
 	if err != nil || n != 2 {
 		t.Fatalf("restore = %d err = %v", n, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// An expression edit writes the audit row and bumps the version in one
+// transaction; the reset is a separate statement using this store's ladder.
+func TestMySQLStore_SaveBlockEditAndReset(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO phrase_block_edits`).
+		WithArgs("edit-1", "user-1", "block-1", 2, "old text", "new text", now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE phrase_blocks SET expression_version`).
+		WithArgs(2, now, "block-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	if err := store.SaveBlockEdit(context.Background(), BlockEdit{
+		ID: "edit-1", UserID: "user-1", BlockID: "block-1", Version: 2,
+		OldExpression: "old text", NewExpression: "new text", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("SaveBlockEdit: %v", err)
+	}
+
+	// The reset takes its interval from the store's schedule (E3).
+	store.SetSchedule(Schedule{TrainingInterval: 5 * time.Minute, PromoteStreak: 1})
+	mock.ExpectExec(`UPDATE phrase_blocks`).
+		WithArgs(StateNew, now.Add(5*time.Minute), now, "block-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT .* FROM phrase_blocks`).
+		WithArgs("block-1", "user-1").
+		WillReturnRows(sqlmock.NewRows(strings.Split(blockColumns, ", ")).
+			AddRow("block-1", "user-1", "意图", "new text", 2, "anchor", "standup", "report",
+				StateNew, 0, now.Add(5*time.Minute), 2.5, 0, 0, nil, false, nil, nil, nil, now, now))
+	reset, err := store.ResetSchedule(context.Background(), "user-1", "block-1", now)
+	if err != nil {
+		t.Fatalf("ResetSchedule: %v", err)
+	}
+	if reset.State != StateNew || reset.SuccessStreak != 0 || reset.ExpressionVersion != 2 {
+		t.Fatalf("reset = %+v", reset)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)

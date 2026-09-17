@@ -18,6 +18,7 @@ type MemoryStore struct {
 	uses     map[string]phraseBlockUse
 	feedback []Feedback
 	realUses []RealUse
+	edits    []BlockEdit
 }
 
 // SetSchedule replaces the ladder used by the hit writeback (E3). A zero
@@ -129,6 +130,12 @@ func (s *MemoryStore) SaveAcceptedBlocks(_ context.Context, blocks []PhraseBlock
 	defer s.mu.Unlock()
 	saved := make([]PhraseBlock, 0, len(blocks))
 	for _, block := range blocks {
+		if block.ExpressionVersion < 1 {
+			// The database column defaults to 1; the in-memory store has no
+			// defaults, so it sets it here or the two stores would disagree
+			// about a brand-new block's version.
+			block.ExpressionVersion = 1
+		}
 		existingID := ""
 		for id, current := range s.blocks {
 			if sameNaturalKey(current, block) {
@@ -527,6 +534,47 @@ func (s *MemoryStore) CountRealUsesBySource(_ context.Context, userID string, si
 		out[use.Source]++
 	}
 	return out, nil
+}
+
+// Edits returns a copy of the block-edit ledger, for tests and audits.
+func (s *MemoryStore) Edits() []BlockEdit {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]BlockEdit(nil), s.edits...)
+}
+
+// SaveBlockEdit implements Store.
+func (s *MemoryStore) SaveBlockEdit(_ context.Context, edit BlockEdit) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	block, ok := s.blocks[edit.BlockID]
+	if !ok || block.UserID != edit.UserID || block.DeletedAt != nil {
+		return ErrNotFound
+	}
+	s.edits = append(s.edits, edit)
+	block.ExpressionVersion = edit.Version
+	block.UpdatedAt = edit.CreatedAt.UTC()
+	s.blocks[edit.BlockID] = block
+	return nil
+}
+
+// ResetSchedule implements Store.
+func (s *MemoryStore) ResetSchedule(_ context.Context, userID, blockID string, at time.Time) (PhraseBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	block, ok := s.blocks[blockID]
+	if !ok || block.UserID != userID || block.DeletedAt != nil {
+		return PhraseBlock{}, ErrNotFound
+	}
+	now := at.UTC()
+	block.State = StateNew
+	block.SuccessStreak = 0
+	block.NextDueAt = now.Add(s.schedule.Normalize().TrainingInterval)
+	block.UpdatedAt = now
+	// EaseFactor is 预留 (see types.go) and stays untouched; the MVP ladder does
+	// not read it.
+	s.blocks[blockID] = block
+	return cloneBlock(block), nil
 }
 
 // SaveFeedback implements Store. The (user, block, reason) triple is unique, so

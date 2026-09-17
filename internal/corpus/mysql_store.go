@@ -33,7 +33,7 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const blockColumns = `id, user_id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, total_uses, last_used_at, is_favorite, pinned_at, source_session_id, deleted_at, created_at, updated_at`
+const blockColumns = `id, user_id, intent_zh, expression_en, expression_version, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, total_uses, last_used_at, is_favorite, pinned_at, source_session_id, deleted_at, created_at, updated_at`
 
 // ListBlocks implements Store.
 func (s *MySQLStore) ListBlocks(ctx context.Context, filter ListFilter) ([]PhraseBlock, error) {
@@ -149,6 +149,11 @@ func (s *MySQLStore) SaveAcceptedBlocks(ctx context.Context, blocks []PhraseBloc
 	defer func() { _ = tx.Rollback() }()
 	saved := make([]PhraseBlock, 0, len(blocks))
 	for _, block := range blocks {
+		if block.ExpressionVersion < 1 {
+			// Matches the column default, and keeps the value the caller gets
+			// back in step with what the database now holds.
+			block.ExpressionVersion = 1
+		}
 		row := tx.QueryRowContext(ctx, `
                         SELECT `+blockColumns+`
                         FROM phrase_blocks
@@ -531,6 +536,58 @@ func (s *MySQLStore) CountRealUsesBySource(ctx context.Context, userID string, s
 	return out, rows.Err()
 }
 
+// SaveBlockEdit implements Store.
+func (s *MySQLStore) SaveBlockEdit(ctx context.Context, edit BlockEdit) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO phrase_block_edits (id, user_id, block_id, version, old_expression, new_expression, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, edit.ID, edit.UserID, edit.BlockID, edit.Version, edit.OldExpression, edit.NewExpression, edit.CreatedAt.UTC()); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE phrase_blocks SET expression_version = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+	`, edit.Version, edit.CreatedAt.UTC(), edit.BlockID, edit.UserID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
+
+// ResetSchedule implements Store, using this store's configured ladder.
+func (s *MySQLStore) ResetSchedule(ctx context.Context, userID, blockID string, at time.Time) (PhraseBlock, error) {
+	now := at.UTC()
+	dueAt := now.Add(s.schedule.Normalize().TrainingInterval)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE phrase_blocks
+		SET state = ?, success_streak = 0, next_due_at = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+	`, StateNew, dueAt, now, blockID, userID)
+	if err != nil {
+		return PhraseBlock{}, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return PhraseBlock{}, err
+	}
+	if n != 1 {
+		return PhraseBlock{}, ErrNotFound
+	}
+	return s.GetBlock(ctx, userID, blockID)
+}
+
 // SaveFeedback implements Store.
 func (s *MySQLStore) SaveFeedback(ctx context.Context, feedback Feedback) (bool, error) {
 	result, err := s.db.ExecContext(ctx, `
@@ -643,6 +700,7 @@ func scanBlock(row scanner) (PhraseBlock, error) {
 		&block.UserID,
 		&block.IntentZH,
 		&block.ExpressionEN,
+		&block.ExpressionVersion,
 		&block.AnchorUserSaid,
 		&block.SceneTag,
 		&block.FunctionTag,
