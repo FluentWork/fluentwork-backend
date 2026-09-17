@@ -108,6 +108,40 @@ func (s *MemoryStore) InsertCheckin(_ context.Context, row Checkin) error {
 	return nil
 }
 
+// CountCheckinsSince implements Store.
+func (s *MemoryStore) CountCheckinsSince(_ context.Context, userID string, since time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, row := range s.checkins {
+		if row.UserID != userID || row.DeletedAt != nil {
+			continue
+		}
+		if row.CreatedAt.Before(since) {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
+// CountCardsSince implements Store.
+func (s *MemoryStore) CountCardsSince(_ context.Context, userID string, since time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, card := range s.cards {
+		if card.UserID != userID || card.DeletedAt != nil {
+			continue
+		}
+		if card.CreatedAt.Before(since) {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 // GetStreak returns the user streak or a zero row.
 func (s *MemoryStore) GetStreak(_ context.Context, userID string) (Streak, error) {
 	s.mu.Lock()
@@ -143,11 +177,12 @@ func (s *MemoryStore) SoftDeleteAllForUser(_ context.Context, userID string, at 
 		n++
 	}
 	for id, row := range s.checkins {
-		if row.UserID != userID {
+		if row.UserID != userID || row.DeletedAt != nil {
 			continue
 		}
-		// checkins have no DeletedAt on the struct used in memory; drop by hiding via cards.
-		_ = id
+		row.DeletedAt = &ts
+		s.checkins[id] = row
+		n++
 	}
 	if st, ok := s.streaks[userID]; ok && st.DeletedAt == nil {
 		st.DeletedAt = &ts

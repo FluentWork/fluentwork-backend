@@ -127,3 +127,36 @@ func TestOpenAPIContainsCards(t *testing.T) {
 		}
 	}
 }
+
+// T8: 实战转化率 summary over HTTP — the number the moat rests on.
+func TestCardsHTTP_PracticeStats(t *testing.T) {
+	server, _, token := setupTopic(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/topic-cards/stats?days=7", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stats status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var stats topic.PracticeStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	// The harness wires no block lookup, so the counts are the topic half; the
+	// rates must still be numbers, not NaN or an error.
+	if stats.WindowDays != 7 {
+		t.Fatalf("window = %d", stats.WindowDays)
+	}
+	if stats.ConversionRate != 0 || stats.CheckinRate != 0 {
+		t.Fatalf("rates = %+v", stats)
+	}
+
+	// Anonymous callers are rejected like every other topic route.
+	anon := httptest.NewRecorder()
+	anonReq := httptest.NewRequest(http.MethodGet, "/api/v1/topic-cards/stats", nil)
+	server.Handler().ServeHTTP(anon, anonReq)
+	if anon.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d", anon.Code)
+	}
+}

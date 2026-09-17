@@ -1,6 +1,8 @@
 package topic
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
@@ -26,6 +28,7 @@ func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	}
 	rg.GET("/topic-cards", h.accounts.RequireAuth(), h.GetCards)
 	rg.POST("/topic-cards/:id/checkin", h.accounts.RequireAuth(), h.PostCheckin)
+	rg.GET("/topic-cards/stats", h.accounts.RequireAuth(), h.GetStats)
 }
 
 // GetCards handles GET /api/v1/topic-cards.
@@ -59,6 +62,21 @@ func (h *Handler) PostCheckin(c *gin.Context) {
 		return
 	}
 	httpjson.OK(c, result)
+}
+
+// GetStats handles GET /topic-cards/stats — the 实战转化率 summary.
+func (h *Handler) GetStats(c *gin.Context) {
+	userID, ok := actorID(c)
+	if !ok {
+		return
+	}
+	days, _ := strconv.Atoi(c.Query("days"))
+	stats, err := h.svc.PracticeStats(c.Request.Context(), userID, days)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, stats)
 }
 
 func actorID(c *gin.Context) (string, bool) {

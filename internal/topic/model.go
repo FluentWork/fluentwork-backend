@@ -79,7 +79,10 @@ type Checkin struct {
 	CardID     string
 	UserID     string
 	Reflection string
-	CreatedAt  time.Time
+	// DeletedAt follows the module's soft-delete convention so A4's wipe hides
+	// the row — the memory store used to leave checkins visible.
+	DeletedAt *time.Time
+	CreatedAt time.Time
 }
 
 // Streak is the user's checkin streak in UTC days.

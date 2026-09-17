@@ -41,6 +41,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
+	"github.com/FluentWork/fluentwork-backend/internal/topic"
 )
 
 func main() {
@@ -71,7 +72,11 @@ type evidence struct {
 	RecommendationCount int    `json:"recommendation_count"`
 	RecommendationWhy   string `json:"recommendation_reason"`
 	FeedbackRecorded    bool   `json:"feedback_recorded"`
-	ReviewReadyMS       int64  `json:"review_ready_ms"`
+	// T8: the practice→reality summary.
+	StatsBlocksUsed  int     `json:"stats_blocks_used"`
+	StatsGreenBlocks int     `json:"stats_green_blocks"`
+	StatsConversion  float64 `json:"stats_conversion_rate"`
+	ReviewReadyMS    int64   `json:"review_ready_ms"`
 }
 
 func run() error {
@@ -139,9 +144,17 @@ func run() error {
 	})
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 
+	// The topic handler is here for T8's stats route. Its generator has no LLM:
+	// this smoke never asks a model for topic cards, and the stats it does read
+	// come from the corpus the chains above built.
+	topicStore := topic.NewMemoryStore()
+	topicSvc := topic.NewService(topicStore, topic.NewGenerator(topicStore, nil, nil), logger)
+	topicSvc.SetBlockLookup(corpusStore)
+	topicHandler := topic.NewHandler(topicSvc, accountHandler)
+
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, nil, sessionHandler, costHandler,
-		nil, drillHandler, nil, nil, nil, accountStore.Ping)
+		nil, drillHandler, nil, nil, topicHandler, accountStore.Ping)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -614,6 +627,21 @@ func exercise(
 		return ev, fmt.Errorf("appeal next_due_at = %s, want the original %s", ev.AppealDueBackTo, dueBeforeFail)
 	}
 	step("appeal restored the schedule (结算照实算)")
+
+	// --- T8: the summary the moat rests on reads back what the chains did ---
+	// Last on purpose: it counts the hit, the drill attempts, and the appeal's
+	// restore, so it has to run after all of them.
+	stats, err := getJSON(client, baseURL+"/api/v1/topic-cards/stats?days=30", token)
+	if err != nil {
+		return ev, fmt.Errorf("practice stats: %w", err)
+	}
+	ev.StatsBlocksUsed = intField(stats, "blocks_used")
+	ev.StatsGreenBlocks = intField(stats, "green_blocks")
+	ev.StatsConversion, _ = stats["conversion_rate"].(float64)
+	if ev.StatsBlocksUsed < 1 {
+		return ev, fmt.Errorf("the hit from chain 2 must show up as a used block: %#v", stats)
+	}
+	step("practice stats count the used block")
 
 	return ev, nil
 }

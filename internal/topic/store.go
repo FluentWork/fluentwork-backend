@@ -29,6 +29,11 @@ type Store interface {
 	InsertCards(ctx context.Context, cards []Card) error
 	MarkCheckedIn(ctx context.Context, cardID string, at time.Time) error
 	InsertCheckin(ctx context.Context, row Checkin) error
+	// CountCheckinsSince and CountCardsSince are the 实战转化率 accounting
+	// (T8): how many real conversations were reported, and how many topics were
+	// offered, inside a window.
+	CountCheckinsSince(ctx context.Context, userID string, since time.Time) (int, error)
+	CountCardsSince(ctx context.Context, userID string, since time.Time) (int, error)
 	GetStreak(ctx context.Context, userID string) (Streak, error)
 	UpsertStreak(ctx context.Context, streak Streak) error
 	SoftDeleteAllForUser(ctx context.Context, userID string, at time.Time) (int, error)

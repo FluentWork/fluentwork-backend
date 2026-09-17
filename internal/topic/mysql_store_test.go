@@ -90,3 +90,32 @@ func TestMySQLStore_ScanWithoutGroundingColumns(t *testing.T) {
 		t.Fatalf("block ids = %v, want an empty list", got.BlockIDs)
 	}
 }
+
+func TestMySQLStore_CountsSince(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+	since := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM topic_checkins`).
+		WithArgs("user-1", since).
+		WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(3))
+	n, err := store.CountCheckinsSince(context.Background(), "user-1", since)
+	if err != nil || n != 3 {
+		t.Fatalf("checkins = %d err = %v", n, err)
+	}
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM topic_cards`).
+		WithArgs("user-1", since).
+		WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(9))
+	n, err = store.CountCardsSince(context.Background(), "user-1", since)
+	if err != nil || n != 9 {
+		t.Fatalf("cards = %d err = %v", n, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}

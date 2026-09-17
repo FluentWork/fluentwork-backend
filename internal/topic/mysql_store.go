@@ -173,6 +173,32 @@ func (s *MySQLStore) UpsertStreak(ctx context.Context, streak Streak) error {
 	return err
 }
 
+// CountCheckinsSince implements Store.
+func (s *MySQLStore) CountCheckinsSince(ctx context.Context, userID string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM topic_checkins
+		WHERE user_id = ? AND deleted_at IS NULL AND created_at >= ?
+	`, userID, since.UTC()).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// CountCardsSince implements Store.
+func (s *MySQLStore) CountCardsSince(ctx context.Context, userID string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM topic_cards
+		WHERE user_id = ? AND deleted_at IS NULL AND created_at >= ?
+	`, userID, since.UTC()).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // SoftDeleteAllForUser sets deleted_at.
 func (s *MySQLStore) SoftDeleteAllForUser(ctx context.Context, userID string, at time.Time) (int, error) {
 	n := 0
