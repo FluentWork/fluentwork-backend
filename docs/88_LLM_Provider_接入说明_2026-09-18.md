@@ -74,6 +74,8 @@ ARK_THINKING        思考链开关（默认 disabled）
 
 ### 3.2 换到 DeepSeek（或任何 OpenAI 兼容厂商）—— 一个新文件 + 配置
 
+> 具体实施方案（映射表、配置项、灰度步骤、验收门禁）见 `89_OpenAI兼容Provider_实施方案`。
+
 DeepSeek 的 API 是 OpenAI 兼容的：`POST https://api.deepseek.com/chat/completions`，`model = deepseek-chat` / `deepseek-reasoner`。步骤：
 
 1. 新增 `internal/orchestrator/openai.go`（≈120 行）：实现 `Client`，把 `CompletionRequest` 映射成 chat-completions，回填 §2.3 的全部字段。**不要**发 `thinking`；`response_format: {"type":"json_object"}` DeepSeek 支持。
