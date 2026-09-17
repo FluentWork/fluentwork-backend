@@ -52,6 +52,13 @@ type PracticeStats struct {
 	// rate that mixes observation with self-report cannot say which loop works.
 	RealUsesHit     int `json:"real_uses_hit"`
 	RealUsesCheckin int `json:"real_uses_checkin"`
+	// DismissReasons counts why cards went unused, by reason (86_ M11). The
+	// distribution is what decides where the last mile actually breaks:
+	// no_partner → in-app simulated partners; not_confident → a lower first
+	// step; no_time → shorter cards; not_relevant → topic generation.
+	DismissReasons map[string]int `json:"dismiss_reasons,omitempty"`
+	// DismissRate is dismissals/cards served over the same window.
+	DismissRate float64 `json:"dismiss_rate"`
 }
 
 // PracticeStats builds the window summary for one learner.
@@ -112,6 +119,19 @@ func (s *Service) PracticeStats(ctx context.Context, userID string, days int) (P
 		stats.ConversionRate = rate(stats.GreenUsed, stats.GreenBlocks)
 	}
 	stats.CheckinRate = rate(stats.Checkins, stats.CardsServed)
+
+	dismissed, err := s.store.CountDismissReasonsSince(ctx, userID, since)
+	if err != nil {
+		return PracticeStats{}, err
+	}
+	if len(dismissed) > 0 {
+		stats.DismissReasons = dismissed
+		total := 0
+		for _, count := range dismissed {
+			total += count
+		}
+		stats.DismissRate = rate(total, stats.CardsServed)
+	}
 
 	if s.realUses != nil {
 		bySource, err := s.realUses.CountRealUsesBySource(ctx, userID, since)

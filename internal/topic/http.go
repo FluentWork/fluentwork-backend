@@ -29,6 +29,7 @@ func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.GET("/topic-cards", h.accounts.RequireAuth(), h.GetCards)
 	rg.POST("/topic-cards/:id/checkin", h.accounts.RequireAuth(), h.PostCheckin)
 	rg.GET("/topic-cards/stats", h.accounts.RequireAuth(), h.GetStats)
+	rg.POST("/topic-cards/:id/dismiss", h.accounts.RequireAuth(), h.PostDismiss)
 }
 
 // GetCards handles GET /api/v1/topic-cards.
@@ -59,6 +60,25 @@ func (h *Handler) PostCheckin(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.Checkin(c.Request.Context(), userID, c.Param("id"), req)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostDismiss handles POST /api/v1/topic-cards/:id/dismiss (86_ M11).
+func (h *Handler) PostDismiss(c *gin.Context) {
+	userID, ok := actorID(c)
+	if !ok {
+		return
+	}
+	var req DismissRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.Dismiss(c.Request.Context(), userID, c.Param("id"), req.Reason)
 	if err != nil {
 		httpjson.Error(c, err)
 		return

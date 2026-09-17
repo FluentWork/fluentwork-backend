@@ -42,11 +42,11 @@ func TestMySQLStore_InsertAndScanGroundingColumns(t *testing.T) {
 		WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "user_id", "for_date", "title", "prompt_en", "prompt_zh", "card_type",
-			"seed_tags", "block_ids", "source_note", "valid_until", "checked_in_at",
-			"deleted_at", "created_at", "updated_at",
+			"seed_tags", "block_ids", "source_note", "valid_until", "dismissed_at",
+			"dismiss_reason", "checked_in_at", "deleted_at", "created_at", "updated_at",
 		}).AddRow("c1", "u1", day, "Standup sync", "Share progress.", "同步进度", CardTypeWarmup,
 			[]byte(`["standup"]`), []byte(`["b1","b2"]`), card.SourceNote,
-			card.ValidUntil, nil, nil, day, day))
+			card.ValidUntil, nil, "", nil, nil, day, day))
 
 	got, err := store.GetCard(context.Background(), "c1")
 	if err != nil {
@@ -77,10 +77,10 @@ func TestMySQLStore_ScanWithoutGroundingColumns(t *testing.T) {
 		WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "user_id", "for_date", "title", "prompt_en", "prompt_zh", "card_type",
-			"seed_tags", "block_ids", "source_note", "valid_until", "checked_in_at",
-			"deleted_at", "created_at", "updated_at",
+			"seed_tags", "block_ids", "source_note", "valid_until", "dismissed_at",
+			"dismiss_reason", "checked_in_at", "deleted_at", "created_at", "updated_at",
 		}).AddRow("c1", "u1", day, "Old", "text", "", CardTypePractice,
-			[]byte(`["standup"]`), nil, "", day.Add(24*time.Hour), nil, nil, day, day))
+			[]byte(`["standup"]`), nil, "", day.Add(24*time.Hour), nil, "", nil, nil, day, day))
 
 	got, err := store.GetCard(context.Background(), "c1")
 	if err != nil {

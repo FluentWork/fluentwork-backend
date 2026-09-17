@@ -28,6 +28,11 @@ type Store interface {
 	GetCard(ctx context.Context, cardID string) (Card, error)
 	InsertCards(ctx context.Context, cards []Card) error
 	MarkCheckedIn(ctx context.Context, cardID string, at time.Time) error
+	// MarkDismissed records why a card was not acted on. Idempotent: the first
+	// reason wins and a repeat reports false.
+	MarkDismissed(ctx context.Context, cardID, reason string, at time.Time) (bool, error)
+	// CountDismissReasonsSince counts dismissals per reason in a window.
+	CountDismissReasonsSince(ctx context.Context, userID string, since time.Time) (map[string]int, error)
 	InsertCheckin(ctx context.Context, row Checkin) error
 	// CountCheckinsSince and CountCardsSince are the 实战转化率 accounting
 	// (T8): how many real conversations were reported, and how many topics were

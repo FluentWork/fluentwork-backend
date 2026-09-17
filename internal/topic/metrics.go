@@ -2,6 +2,7 @@ package topic
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,8 @@ var (
 	parseErrors   atomic.Int64
 	checkins      atomic.Int64
 	ungrounded    atomic.Int64
+	dismissMu     sync.Mutex
+	dismissals    = map[string]int64{}
 	skipMu        sync.Mutex
 	skips         = map[string]int64{}
 )
@@ -32,6 +35,14 @@ func incCheckin()    { checkins.Add(1) }
 // measure of how often the model proposes a topic the learner's corpus cannot
 // serve (PRD §7.8: 禁止泛话题).
 func incUngrounded() { ungrounded.Add(1) }
+
+// incDismiss counts why cards went unused, by reason. This is the only negative
+// signal about 实战出口 the product can collect (86_ M11).
+func incDismiss(reason string) {
+	dismissMu.Lock()
+	dismissals[reason]++
+	dismissMu.Unlock()
+}
 
 func incSkip(reason string) {
 	skipMu.Lock()
@@ -63,6 +74,22 @@ func PrometheusMetrics() string {
 	b.WriteString("# HELP topic_card_ungrounded_total Cards dropped because no block of the learner's could serve them.\n")
 	b.WriteString("# TYPE topic_card_ungrounded_total counter\n")
 	fmt.Fprintf(&b, "topic_card_ungrounded_total %d\n", ungrounded.Load())
+	b.WriteString("# HELP topic_card_dismissed_total Cards marked as not acted on, by reason.\n")
+	b.WriteString("# TYPE topic_card_dismissed_total counter\n")
+	dismissMu.Lock()
+	if len(dismissals) == 0 {
+		b.WriteString("topic_card_dismissed_total{reason=\"none\"} 0\n")
+	} else {
+		reasons := make([]string, 0, len(dismissals))
+		for reason := range dismissals {
+			reasons = append(reasons, reason)
+		}
+		sort.Strings(reasons)
+		for _, reason := range reasons {
+			fmt.Fprintf(&b, "topic_card_dismissed_total{reason=%q} %d\n", reason, dismissals[reason])
+		}
+	}
+	dismissMu.Unlock()
 	b.WriteString("# HELP topic_card_checkin_total Successful topic card checkins.\n")
 	b.WriteString("# TYPE topic_card_checkin_total counter\n")
 	fmt.Fprintf(&b, "topic_card_checkin_total %d\n", checkins.Load())

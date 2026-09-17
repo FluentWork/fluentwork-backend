@@ -18,7 +18,7 @@ func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
-const cardColumns = `id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, block_ids, source_note, valid_until, checked_in_at, deleted_at, created_at, updated_at`
+const cardColumns = `id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, block_ids, source_note, valid_until, dismissed_at, dismiss_reason, checked_in_at, deleted_at, created_at, updated_at`
 
 // Ping verifies connectivity.
 func (s *MySQLStore) Ping(ctx context.Context) error {
@@ -173,6 +173,54 @@ func (s *MySQLStore) UpsertStreak(ctx context.Context, streak Streak) error {
 	return err
 }
 
+// MarkDismissed implements Store.
+func (s *MySQLStore) MarkDismissed(ctx context.Context, cardID, reason string, at time.Time) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE topic_cards
+		SET dismissed_at = ?, dismiss_reason = ?
+		WHERE id = ? AND dismissed_at IS NULL AND deleted_at IS NULL
+	`, at.UTC(), reason, cardID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 1 {
+		return true, nil
+	}
+	// Nothing updated: the card is missing, deleted, or already dismissed.
+	// Distinguish the first two so the caller can answer 404.
+	if _, err := s.GetCard(ctx, cardID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// CountDismissReasonsSince implements Store.
+func (s *MySQLStore) CountDismissReasonsSince(ctx context.Context, userID string, since time.Time) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT dismiss_reason, COUNT(*) FROM topic_cards
+		WHERE user_id = ? AND dismissed_at IS NOT NULL AND dismissed_at >= ? AND deleted_at IS NULL
+		GROUP BY dismiss_reason
+	`, userID, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int{}
+	for rows.Next() {
+		var reason string
+		var count int
+		if err := rows.Scan(&reason, &count); err != nil {
+			return nil, err
+		}
+		out[reason] = count
+	}
+	return out, rows.Err()
+}
+
 // CountCheckinsSince implements Store.
 func (s *MySQLStore) CountCheckinsSince(ctx context.Context, userID string, since time.Time) (int, error) {
 	var n int
@@ -272,7 +320,8 @@ func scanCard(row cardScanner) (Card, error) {
 	var deleted sql.NullTime
 	var forDate time.Time
 	var blockIDs []byte
-	err := row.Scan(&card.ID, &card.UserID, &forDate, &card.Title, &card.PromptEN, &card.PromptZH, &card.CardType, &tags, &blockIDs, &card.SourceNote, &card.ValidUntil, &checked, &deleted, &card.CreatedAt, &card.UpdatedAt)
+	var dismissed sql.NullTime
+	err := row.Scan(&card.ID, &card.UserID, &forDate, &card.Title, &card.PromptEN, &card.PromptZH, &card.CardType, &tags, &blockIDs, &card.SourceNote, &card.ValidUntil, &dismissed, &card.DismissReason, &checked, &deleted, &card.CreatedAt, &card.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Card{}, ErrNotFound
 	}
@@ -291,6 +340,10 @@ func scanCard(row cardScanner) (Card, error) {
 	}
 	if card.BlockIDs == nil {
 		card.BlockIDs = []string{}
+	}
+	if dismissed.Valid {
+		t := dismissed.Time.UTC()
+		card.DismissedAt = &t
 	}
 	if checked.Valid {
 		t := checked.Time.UTC()

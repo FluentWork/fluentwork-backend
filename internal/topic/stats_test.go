@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/apierr"
+
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
@@ -274,5 +276,119 @@ func TestPracticeStats_SplitsRealUsesBySource(t *testing.T) {
 	}
 	if got.RealUsesHit != 3 || got.RealUsesCheckin != 2 {
 		t.Fatalf("split = %d/%d, want 3/2", got.RealUsesHit, got.RealUsesCheckin)
+	}
+}
+
+// 86_ M11: the only negative signal about the last mile. It must be as easy to
+// record as a checkin, and it must not punish anybody.
+func TestDismiss_RecordsReasonAndIsConsequenceFree(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := store.ListTodayCards(context.Background(), "u1", day)
+	if len(cards) == 0 {
+		t.Fatal("no cards")
+	}
+
+	result, err := svc.Dismiss(context.Background(), "u1", cards[0].ID, DismissNoPartner)
+	if err != nil {
+		t.Fatalf("Dismiss: %v", err)
+	}
+	if result.AlreadyDismissed || result.Reason != DismissNoPartner {
+		t.Fatalf("result = %+v", result)
+	}
+	stored, err := store.GetCard(context.Background(), cards[0].ID)
+	if err != nil {
+		t.Fatalf("GetCard: %v", err)
+	}
+	if stored.DismissedAt == nil || stored.DismissReason != DismissNoPartner {
+		t.Fatalf("card = %+v", stored)
+	}
+	// No penalty: the streak table is untouched by a dismissal.
+	if _, err := store.GetStreak(context.Background(), "u1"); err != nil {
+		t.Fatalf("GetStreak: %v", err)
+	}
+
+	// A repeat reports what happened rather than overwriting the first reason.
+	again, err := svc.Dismiss(context.Background(), "u1", cards[0].ID, DismissNoTime)
+	if err != nil {
+		t.Fatalf("second dismiss: %v", err)
+	}
+	if !again.AlreadyDismissed {
+		t.Fatalf("second dismiss = %+v", again)
+	}
+	stored, _ = store.GetCard(context.Background(), cards[0].ID)
+	if stored.DismissReason != DismissNoPartner {
+		t.Fatalf("the first reason must win: %q", stored.DismissReason)
+	}
+}
+
+func TestDismiss_RejectsBadInputAndForeignCards(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := store.ListTodayCards(context.Background(), "u1", day)
+
+	var apiErr *apierr.Error
+	cases := []struct {
+		name   string
+		user   string
+		card   string
+		reason string
+		want   int
+	}{
+		{"missing user", " ", cards[0].ID, DismissNoPartner, 401},
+		{"missing card", "u1", " ", DismissNoPartner, 400},
+		{"open reason set", "u1", cards[0].ID, "meh", 400},
+		{"unknown card", "u1", "nope", DismissNoPartner, 404},
+		{"another learner's card", "u2", cards[0].ID, DismissNoPartner, 404},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.Dismiss(context.Background(), tc.user, tc.card, tc.reason)
+			if !errors.As(err, &apiErr) || apiErr.HTTPStatus != tc.want {
+				t.Fatalf("err = %v, want %d", err, tc.want)
+			}
+		})
+	}
+}
+
+// The distribution is the deliverable: it decides where the last mile breaks.
+func TestPracticeStats_ReportsDismissReasons(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := store.ListTodayCards(context.Background(), "u1", day)
+	if len(cards) < 2 {
+		t.Fatalf("need two cards, got %d", len(cards))
+	}
+	if _, err := svc.Dismiss(context.Background(), "u1", cards[0].ID, DismissNoPartner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Dismiss(context.Background(), "u1", cards[1].ID, DismissNoPartner); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := svc.PracticeStats(context.Background(), "u1", 30)
+	if err != nil {
+		t.Fatalf("PracticeStats: %v", err)
+	}
+	if stats.DismissReasons[DismissNoPartner] != 2 {
+		t.Fatalf("dismiss reasons = %+v", stats.DismissReasons)
+	}
+	if stats.CardsServed != len(cards) || stats.DismissRate != 2.0/float64(len(cards)) {
+		t.Fatalf("rate = %v over %d cards", stats.DismissRate, stats.CardsServed)
 	}
 }

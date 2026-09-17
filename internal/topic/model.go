@@ -68,9 +68,51 @@ type Card struct {
 	SourceNote  string     `json:"source_note,omitempty"`
 	ValidUntil  time.Time  `json:"valid_until"`
 	CheckedInAt *time.Time `json:"checked_in_at,omitempty"`
-	DeletedAt   *time.Time `json:"-"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// DismissedAt / DismissReason record "I did not get to use this, and why"
+	// (86_ M11). A dismissal carries no penalty: it is the only signal the
+	// product gets about the last mile it cannot otherwise observe.
+	DismissedAt   *time.Time `json:"dismissed_at,omitempty"`
+	DismissReason string     `json:"dismiss_reason,omitempty"`
+	DeletedAt     *time.Time `json:"-"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// Dismissal reasons: a closed set, because the point is a countable signal
+// about the last mile, not free text nobody aggregates.
+const (
+	// DismissNoPartner is "I had nobody to speak English with" — argues for
+	// in-app simulated conversation.
+	DismissNoPartner = "no_partner"
+	// DismissNotConfident is "I did not dare" — argues for a lower first step.
+	DismissNotConfident = "not_confident"
+	// DismissNoTime is "no time" — argues for shorter cards.
+	DismissNoTime = "no_time"
+	// DismissNotRelevant is "this topic was not useful" — argues that topic
+	// generation is still off, and is a quality signal about H1/H2.
+	DismissNotRelevant = "not_relevant"
+)
+
+// ValidDismissReason reports whether reason is one of the closed set.
+func ValidDismissReason(reason string) bool {
+	switch reason {
+	case DismissNoPartner, DismissNotConfident, DismissNoTime, DismissNotRelevant:
+		return true
+	default:
+		return false
+	}
+}
+
+// DismissRequest is the POST /topic-cards/:id/dismiss body.
+type DismissRequest struct {
+	Reason string `json:"reason"`
+}
+
+// DismissResult reports what the dismissal did.
+type DismissResult struct {
+	CardID           string `json:"card_id"`
+	Reason           string `json:"reason"`
+	AlreadyDismissed bool   `json:"already_dismissed"`
 }
 
 // Checkin is one recorded card completion.

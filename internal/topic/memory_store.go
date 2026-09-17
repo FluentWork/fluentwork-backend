@@ -108,6 +108,42 @@ func (s *MemoryStore) InsertCheckin(_ context.Context, row Checkin) error {
 	return nil
 }
 
+// MarkDismissed implements Store.
+func (s *MemoryStore) MarkDismissed(_ context.Context, cardID, reason string, at time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	card, ok := s.cards[cardID]
+	if !ok || card.DeletedAt != nil {
+		return false, ErrNotFound
+	}
+	if card.DismissedAt != nil {
+		return false, nil
+	}
+	stamped := at.UTC()
+	card.DismissedAt = &stamped
+	card.DismissReason = reason
+	card.UpdatedAt = stamped
+	s.cards[cardID] = card
+	return true, nil
+}
+
+// CountDismissReasonsSince implements Store.
+func (s *MemoryStore) CountDismissReasonsSince(_ context.Context, userID string, since time.Time) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, card := range s.cards {
+		if card.UserID != userID || card.DismissedAt == nil || card.DeletedAt != nil {
+			continue
+		}
+		if card.DismissedAt.Before(since) {
+			continue
+		}
+		out[card.DismissReason]++
+	}
+	return out, nil
+}
+
 // CountCheckinsSince implements Store.
 func (s *MemoryStore) CountCheckinsSince(_ context.Context, userID string, since time.Time) (int, error) {
 	s.mu.Lock()
@@ -229,6 +265,10 @@ func cloneCard(card Card) Card {
 	}
 	if card.BlockIDs != nil {
 		out.BlockIDs = append([]string(nil), card.BlockIDs...)
+	}
+	if card.DismissedAt != nil {
+		t := *card.DismissedAt
+		out.DismissedAt = &t
 	}
 	return out
 }

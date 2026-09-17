@@ -129,6 +129,50 @@ func (s *Service) viewCards(ctx context.Context, userID string, cards []Card) []
 	return views
 }
 
+// Dismiss records why a card did not become a real conversation (86_ M11).
+//
+// It is the only negative signal the product can get about the last mile it
+// cannot observe, and it is deliberately consequence-free: no streak change, no
+// penalty, one reason per card. Saying "I did not dare" must be as easy as
+// saying "I did".
+func (s *Service) Dismiss(ctx context.Context, userID, cardID, reason string) (DismissResult, error) {
+	userID = strings.TrimSpace(userID)
+	cardID = strings.TrimSpace(cardID)
+	if userID == "" {
+		return DismissResult{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	if cardID == "" {
+		return DismissResult{}, apierr.InvalidArgument("card_id is required")
+	}
+	reason = strings.TrimSpace(reason)
+	if !ValidDismissReason(reason) {
+		return DismissResult{}, apierr.InvalidArgument("reason must be no_partner, not_confident, no_time or not_relevant")
+	}
+	card, err := s.store.GetCard(ctx, cardID)
+	if err != nil {
+		if err == ErrNotFound {
+			return DismissResult{}, apierr.NotFound("topic card not found")
+		}
+		return DismissResult{}, err
+	}
+	// Another learner's card is NotFound, not Forbidden: saying it exists is the
+	// leak (same rule as checkin, appeal and feedback).
+	if card.UserID != userID || card.DeletedAt != nil {
+		return DismissResult{}, apierr.NotFound("topic card not found")
+	}
+	first, err := s.store.MarkDismissed(ctx, cardID, reason, s.now().UTC())
+	if err != nil {
+		if err == ErrNotFound {
+			return DismissResult{}, apierr.NotFound("topic card not found")
+		}
+		return DismissResult{}, err
+	}
+	if first {
+		incDismiss(reason)
+	}
+	return DismissResult{CardID: cardID, Reason: reason, AlreadyDismissed: !first}, nil
+}
+
 // Checkin records a card completion.
 func (s *Service) Checkin(ctx context.Context, userID, cardID string, req CheckinRequest) (CheckinResult, error) {
 	reflection := req.Reflection
