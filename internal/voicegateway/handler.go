@@ -394,6 +394,16 @@ type sessionRuntime struct {
 	rescueSpeechMu   sync.Mutex
 	rescueSpeechTurn string
 	rescueSpeechGen  uint64
+	// sessionID is this runtime's session, for the paths that report about it
+	// without having the ticket in hand — the provider's outbound hooks, which
+	// run on whichever goroutine is relaying vendor output.
+	sessionID string
+	// warn reports through the handler's deduplicating warn path. It is carried
+	// as a function because those same hooks do not have the *Handler either.
+	warn func(key, msg string, args ...any)
+	// turn is this session's current conversational turn: its identity and the
+	// legal ordering of its events. See turn.go for what it replaced.
+	turn *Turn
 	// audioSeq numbers every binary audio frame this session sends to the client,
 	// whoever sends it: the provider streaming the AI's speech, or the rescue
 	// ladder. One allocator per client session, because the client's barge-in
@@ -493,6 +503,8 @@ func (rt *sessionRuntime) sendWithoutRescueState(ctx context.Context, conn *webs
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
 	rt := &sessionRuntime{
+		sessionID:          session.SessionID,
+		turn:               NewTurn(session.SessionID),
 		audioSeq:           &SeqAllocator{},
 		writeTimeout:       h.writeTimeout,
 		silenceDetector:    h.rescueDetectorForSession(),
@@ -500,6 +512,7 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		rescueTick:         h.rescueTick,
 		now:                h.now,
 	}
+	rt.warn = func(key, msg string, args ...any) { h.logWarn(rt, key, msg, args...) }
 	defer func() {
 		rt.close(ctx)
 		h.persistOnExit(ctx, rt, session, loopErr)
@@ -941,36 +954,41 @@ func (h *Handler) startCollectTurn(
 			)
 			return
 		}
-		if h.clientASRRequired {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				if strings.TrimSpace(end.Text) == "" {
-					_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-						Type:    voiceproto.TypeError,
-						Code:    "client_asr_required",
-						Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
-					})
-				}
-			}
+		// One parse for everything that needs the frame: the ASR gate, the badge,
+		// and the rescue anchor. It used to be unmarshalled three times here and
+		// the "which text is the user's" rule written twice, so a change to one
+		// copy could leave the badge and the anchor disagreeing about the same
+		// utterance — a mismatch that shows up as a bad anchor weeks later.
+		var end voiceproto.UserSpeechEnd
+		_ = json.Unmarshal(data, &end)
+
+		if h.clientASRRequired && strings.TrimSpace(end.Text) == "" {
+			_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "client_asr_required",
+				Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
+			})
+		}
+		// The user's text, resolved once: what they said, or the provider's
+		// server-side transcript when the client sent none.
+		userText := strings.TrimSpace(end.Text)
+		if userText == "" {
+			userText = extractServerASRText(outbound)
+		}
+		// The turn's name, resolved once, by the turn itself. The badge, the
+		// ladder and the end-of-session report all say the same word for the same
+		// turn because they all read it from here.
+		turnID := rt.turn.ID()
+		if turnID == "" {
+			turnID = session.SessionID
 		}
 		if h.badgeEmitter != nil {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				turnID := strings.TrimSpace(end.TurnID)
-				if turnID == "" {
-					turnID = session.SessionID
-				}
-				asrText := strings.TrimSpace(end.Text)
-				if asrText == "" {
-					asrText = extractServerASRText(outbound)
-				}
-				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
-			}
+			h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, userText)
 		}
 		// B8 → D1: the silent path's anchor is whatever the user managed to say
 		// after the ladder, so the rescue log needs the same resolved text the
 		// badge emitter uses. See rescueLog.noteUserText.
-		rt.noteUserUtteranceText(resolvedUserText(data, outbound))
+		rt.noteUserUtteranceText(userText)
 	}()
 	return nil
 }
@@ -1039,15 +1057,6 @@ func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound [
 // client's own text and falling back to the provider's server-side ASR — the
 // same resolution the badge emitter performs. Empty means the turn produced no
 // text we can use as an anchor.
-func resolvedUserText(data []byte, outbound []ProviderOutbound) string {
-	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(data, &end); err == nil {
-		if text := strings.TrimSpace(end.Text); text != "" {
-			return text
-		}
-	}
-	return extractServerASRText(outbound)
-}
 
 func extractServerASRText(outbound []ProviderOutbound) string {
 	for _, item := range outbound {

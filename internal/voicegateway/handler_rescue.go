@@ -274,8 +274,10 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 // rungs, so without this guard an unanswered turn is re-nagged from 33s onward
 // by a feature whose whole purpose is to stop nagging.
 func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string) {
-	switch outcome {
-	case voiceproto.TurnOutcomeTimeout, voiceproto.TurnOutcomeError:
+	// Every outcome closes the turn, including the ones rescue ignores: a
+	// timeout ended the turn as surely as an answer did.
+	rt.applyTurnEvent(EvAIEnd)
+	if !turnOutcomeSpoke(outcome) {
 		return
 	}
 	if tr := strings.TrimSpace(turnID); tr != "" {
@@ -319,9 +321,36 @@ func (rt *sessionRuntime) noteScenario(sceneType, materialID string) {
 	rt.rescueMu.Unlock()
 }
 
+// applyTurnEvent advances the turn and reports a refused event.
+//
+// The reporting is the point of the rejection counter: an event the client sent
+// in an order the machine does not allow is a client bug, and the alternative to
+// counting it is a packet capture. It is deduplicated through the handler's warn
+// path because a client that does this once per turn does it on every turn.
+func (rt *sessionRuntime) applyTurnEvent(ev TurnEvent) {
+	if !rt.turn.Apply(ev) {
+		rt.reportTurnRejection(ev)
+	}
+}
+
+func (rt *sessionRuntime) reportTurnRejection(ev TurnEvent) {
+	if rt.warn == nil {
+		return
+	}
+	rt.warn("turn_transition_rejected",
+		"turn state machine refused an event; the client's ordering is unexpected",
+		"session_id", rt.sessionID,
+		"event", ev.String(),
+		"state", rt.turn.State().String(),
+	)
+}
+
 // noteUserSpeechStart restarts the ladder for a fresh attempt and pushes the
 // user's previous AI message into the history.
 func (rt *sessionRuntime) noteUserSpeechStart() {
+	// The state machine is told first, and unconditionally: a turn's ordering is
+	// session truth, not a rescue concern. Rescue is one consumer of it.
+	rt.applyTurnEvent(EvUserSpeechStart)
 	if !rt.rescueEnabled() {
 		return
 	}
@@ -339,11 +368,20 @@ func (rt *sessionRuntime) noteUserSpeechStart() {
 // user who did answer, and a spurious skeleton prompt is a worse failure than a
 // missing one.
 func (h *Handler) noteUserSpeechEnd(ctx context.Context, conn *websocket.Conn, rt *sessionRuntime, data []byte) {
+	// The turn advances before anything rescue-shaped happens, and even when
+	// rescue is switched off: which turn we are in and what it is called is
+	// session truth that every consumer reads, not a property of one feature.
+	var end voiceproto.UserSpeechEnd
+	parseErr := json.Unmarshal(data, &end)
+	if parseErr == nil {
+		if !rt.turn.ApplySpeechEnd(end.TurnID) {
+			rt.reportTurnRejection(EvUserSpeechEnd)
+		}
+	}
 	if !rt.rescueEnabled() {
 		return
 	}
-	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(data, &end); err != nil {
+	if parseErr != nil {
 		rt.silenceDetector.OnUserSpeechEnd(rt.clock(), true)
 		return
 	}
@@ -401,6 +439,7 @@ func (rt *sessionRuntime) snapshotRescueEvents() []EndRescueEvent {
 // noteTurnAbort handles an abandoned recording: the user stopped talking without
 // finishing, so the ladder stays armed but rescue is no longer suspended.
 func (rt *sessionRuntime) noteTurnAbort() {
+	rt.applyTurnEvent(EvTurnAbort)
 	if !rt.rescueEnabled() {
 		return
 	}
