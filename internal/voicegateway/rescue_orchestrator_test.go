@@ -26,34 +26,29 @@ func (m *mockRescueGenerator) GenerateRescue(
 	return "mock rescue text", nil
 }
 
-// fakeSynthesizer records what it was asked to synthesize. Returns URL/duration
-// when url/err are unset, so a test can exercise the success path without
-// spelling out the values twice.
+// fakeSynthesizer records what it was asked to synthesize. Returns a fixed
+// amount of 16 kHz PCM when pcm/err are unset, so a test can exercise the
+// success path without spelling out the bytes twice.
 type fakeSynthesizer struct {
 	calls    int
 	lastText string
 	lastTurn string
-	url      string
-	duration int64
+	pcm      []byte
 	err      error
 }
 
-func (f *fakeSynthesizer) Synthesize(_ context.Context, text, turnID string) (string, int64, error) {
+func (f *fakeSynthesizer) Synthesize(_ context.Context, text, turnID string) (RescueAudio, error) {
 	f.calls++
 	f.lastText = text
 	f.lastTurn = turnID
 	if f.err != nil {
-		return "", 0, f.err
+		return RescueAudio{}, f.err
 	}
-	url := f.url
-	if url == "" {
-		url = "https://audio.test/rescue.mp3"
+	pcm := f.pcm
+	if pcm == nil {
+		pcm = make([]byte, 3200*3) // 300 ms of 16 kHz mono s16le
 	}
-	duration := f.duration
-	if duration == 0 {
-		duration = 1800
-	}
-	return url, duration, nil
+	return RescueAudio{PCM: pcm, SampleRate: 16000, Codec: "pcm", VoiceID: "test-voice"}, nil
 }
 
 func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
@@ -75,10 +70,11 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 		UserRole:        "Backend Engineer",
 	}
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_123", convCtx)
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_123", convCtx)
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
+	frame := delivery.Frame
 
 	if frame.Type != voiceproto.TypeRescueLadder {
 		t.Errorf("Expected type=%s, got %s", voiceproto.TypeRescueLadder, frame.Type)
@@ -92,11 +88,16 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 	if frame.Text != "I think the main risk is..." {
 		t.Errorf("Expected generated skeleton, got %s", frame.Text)
 	}
-	if frame.AudioURL == "" {
-		t.Error("Expected non-empty audio_url")
+	// Audio rides the ai.tts.* stream, not this frame — the frame's own fields
+	// stay empty so the client is not told to fetch something nobody serves.
+	if frame.AudioURL != "" || frame.DurationMS != 0 {
+		t.Errorf("ladder frame must not carry audio metadata: url=%q duration=%d", frame.AudioURL, frame.DurationMS)
 	}
-	if frame.DurationMS <= 0 {
-		t.Error("Expected positive duration_ms")
+	if delivery.Audio == nil {
+		t.Fatal("Expected synthesized audio on the delivery")
+	}
+	if got := delivery.Audio.DurationMS(); got != 300 {
+		t.Errorf("duration = %dms, want 300", got)
 	}
 	if frame.TS <= 0 {
 		t.Error("Expected a non-zero ts")
@@ -121,12 +122,13 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level2(t *testing.T) {
 
 	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_456", conversation.ConversationContext{
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_456", conversation.ConversationContext{
 		LastAIMessage: "Why do you prefer this approach?",
 	})
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
+	frame := delivery.Frame
 
 	if frame.Level != 2 {
 		t.Errorf("Expected level=2, got %d", frame.Level)
@@ -148,12 +150,13 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level3(t *testing.T) {
 
 	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 3, "t_789", conversation.ConversationContext{
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 3, "t_789", conversation.ConversationContext{
 		LastAIMessage: "How should we handle the deployment?",
 	})
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
+	frame := delivery.Frame
 
 	if frame.Level != 3 {
 		t.Errorf("Expected level=3, got %d", frame.Level)
@@ -182,10 +185,11 @@ func TestRescueOrchestrator_FallbackOnGenerationError(t *testing.T) {
 
 	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_fallback", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_fallback", conversation.ConversationContext{})
 	if err != nil {
 		t.Fatalf("Expected fallback to succeed, got error: %v", err)
 	}
+	frame := delivery.Frame
 
 	// The fallback library must actually be used, not an empty string: a ladder
 	// with no text is a frame the client cannot show.
@@ -224,10 +228,11 @@ func TestRescueOrchestrator_NilSynthesizerEmitsTextOnlyLadder(t *testing.T) {
 		},
 	}, nil, nil)
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_textonly", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_textonly", conversation.ConversationContext{})
 	if err != nil {
 		t.Fatalf("Expected text-only ladder to succeed, got error: %v", err)
 	}
+	frame := delivery.Frame
 	if frame.Text != "The key point is..." {
 		t.Errorf("Expected generated text, got %q", frame.Text)
 	}
@@ -250,10 +255,11 @@ func TestRescueOrchestrator_SynthesisFailureStillEmitsLadder(t *testing.T) {
 		},
 	}, synth, nil)
 
-	frame, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_synthfail", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_synthfail", conversation.ConversationContext{})
 	if err != nil {
 		t.Fatalf("Expected ladder despite synthesis failure, got error: %v", err)
 	}
+	frame := delivery.Frame
 	if frame.Text != "先说结论" {
 		t.Errorf("Expected hint text preserved, got %q", frame.Text)
 	}

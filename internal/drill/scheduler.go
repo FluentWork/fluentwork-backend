@@ -54,12 +54,3 @@ func SelectBlocksForRound(ctx context.Context, store corpus.Store, userID string
 	}
 	return out, nil
 }
-
-// ApplyJudge advances SM-2 state after one drill attempt (D-4 / T-B22-4).
-//
-// The ladder is implemented in corpus.ApplyJudge so that B7 hit writeback —
-// which runs inside the corpus store transaction, where drill cannot be
-// imported — shares the exact same rules. This delegate keeps drill's API.
-func ApplyJudge(block corpus.PhraseBlock, pass bool, now time.Time) corpus.PhraseBlock {
-	return corpus.ApplyJudge(block, pass, now)
-}

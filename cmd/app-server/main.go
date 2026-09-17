@@ -20,6 +20,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
+	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
@@ -229,6 +230,14 @@ func run() error {
 	// corpus side owns the ledger that credit lands in.
 	topicSvc.SetRealUseLedger(corpusSvc)
 	topicHandler := topic.NewHandler(topicSvc, accountHandler)
+	// The voice gateway's rescue ladder is generated here (方案 B), so the model
+	// call, its prompt and its cost row live with every other model call.
+	rescueHandler := conversation.NewHandler(
+		conversation.NewRescueGenerator(conversation.OrchestratorLLM{
+			Client: orchestrator.NewClient(cfg, costWriter),
+		}),
+		logger,
+	)
 	topicSched := topic.NewScheduler(topicGen, sessionStore, logger)
 
 	privacy := account.NewPrivacyService(accountStore, []account.DataWiper{
@@ -243,7 +252,8 @@ func run() error {
 	accountHandler.SetPrivacy(privacy)
 
 	historyHandler := sessionhistory.NewHandler(sessionhistory.NewService(sessionStore, reviewEval, logger), accountHandler)
-	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, materialHandler, topicHandler, accountStore.Ping)
+	server := httpserver.New(cfg, logger, accountHandler, corpusHandler, contentHandler, sessionHandler, costHandler, ttsHandler, drillHandler, historyHandler, materialHandler, topicHandler, accountStore.Ping,
+		httpserver.WithRescueHandler(rescueHandler))
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

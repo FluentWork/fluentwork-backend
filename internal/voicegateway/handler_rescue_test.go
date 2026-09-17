@@ -191,17 +191,43 @@ func (g *rescueTextGenerator) context() conversation.ConversationContext {
 	return g.convCtx
 }
 
-// rescueAudioSynthesizer is a stand-in for the audio path that does not exist yet.
+// rescueAudioSynthesizer stands in for the TTS call. It returns a fixed amount
+// of 16 kHz PCM: three frames' worth, so the emission path has something to
+// chunk rather than one short frame that would hide a chunking bug.
 type rescueAudioSynthesizer struct {
-	mu    sync.Mutex
-	texts []string
+	mu     sync.Mutex
+	texts  []string
+	turns  []string
+	pcm    []byte
+	err    error
+	voice  string
+	frozen chan struct{} // when non-nil, Synthesize blocks until it is closed
 }
 
-func (a *rescueAudioSynthesizer) Synthesize(_ context.Context, text, _ string) (string, int64, error) {
+func (a *rescueAudioSynthesizer) Synthesize(ctx context.Context, text, turnID string) (RescueAudio, error) {
+	if a.frozen != nil {
+		select {
+		case <-a.frozen:
+		case <-ctx.Done():
+			return RescueAudio{}, ctx.Err()
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.texts = append(a.texts, text)
-	return "https://audio.test/rescue.mp3", 2400, nil
+	a.turns = append(a.turns, turnID)
+	if a.err != nil {
+		return RescueAudio{}, a.err
+	}
+	pcm := a.pcm
+	if pcm == nil {
+		pcm = make([]byte, RescueAudioFrameBytes*3)
+	}
+	voice := a.voice
+	if voice == "" {
+		voice = "test-voice"
+	}
+	return RescueAudio{PCM: pcm, SampleRate: 16000, Codec: "pcm", VoiceID: voice}, nil
 }
 
 // rescueRig is one wired gateway plus the knobs the tests drive it with.
@@ -329,6 +355,53 @@ func rescueWaitForType(ctx context.Context, t *testing.T, conn *websocket.Conn, 
 	}
 }
 
+// rescueReadAudioStream consumes one rung's audio: the ai.tts.start, its binary
+// frames, and the ai.tts.end, returning the frames and the end marker.
+//
+// The end marker is returned rather than consumed because it is the only thing
+// that says the rung's audio is over — a reader that swallows it desynchronises
+// on the next rung, which is exactly what happened here: rung 2's ladder frame
+// got skipped as "not the ai.tts.start I was looking for", and the test then read
+// rung 1's leftover ladder instead.
+//
+// Interleaving is not hypothetical: the ladder frame and its audio are separate
+// writes, so a later rung can begin while this one is still being spoken.
+//
+// start is taken as a parameter because it has already been read by the caller,
+// and because re-reading it would consume frames the caller still needs.
+func rescueReadAudioStream(
+	ctx context.Context,
+	t *testing.T,
+	conn *websocket.Conn,
+	start map[string]any,
+) (frames []voiceproto.AITTSAudio, end map[string]any) {
+	t.Helper()
+	if got := start["type"]; got != voiceproto.TypeAITTSStart {
+		t.Fatalf("expected %s, got %v", voiceproto.TypeAITTSStart, start)
+	}
+	for {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read during audio stream: %v", err)
+		}
+		if typ == websocket.MessageBinary {
+			frame, err := voiceproto.DecodeAITTSAudio(data)
+			if err != nil {
+				t.Fatalf("decode binary audio frame: %v", err)
+			}
+			frames = append(frames, frame)
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		if raw["type"] == voiceproto.TypeAITTSEnd {
+			return frames, raw
+		}
+	}
+}
+
 // rescueExpectNoType consumes frames until the connection goes quiet and fails
 // if the unwanted type ever appears.
 func rescueExpectNoType(ctx context.Context, t *testing.T, conn *websocket.Conn, unwanted string) {
@@ -402,8 +475,33 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 		if got := frame["turn_id"]; got != "stub-turn-1" {
 			t.Errorf("level %d turn_id = %v, want stub-turn-1", step.level, got)
 		}
-		if got := frame["audio_url"]; got != "https://audio.test/rescue.mp3" {
-			t.Errorf("level %d audio_url = %v, want the synthesized URL", step.level, got)
+		// The rung is spoken through the client's existing TTS stream, not a URL
+		// (docs/92): the frame stays text-only and the audio follows on the same
+		// turn id, which is what makes the client play it at all.
+		if got := frame["audio_url"]; got != "" {
+			t.Errorf("level %d audio_url = %v, want empty — audio rides ai.tts.*", step.level, got)
+		}
+		start := rescueReadFrame(readCtx, t, conn)
+		frames, end := rescueReadAudioStream(readCtx, t, conn, start)
+		if got := start["turn_id"]; got != "stub-turn-1" {
+			t.Errorf("level %d ai.tts.start turn_id = %v, want stub-turn-1", step.level, got)
+		}
+		if got := start["sample_rate"]; got != float64(16000) || start["codec"] != "pcm" {
+			t.Errorf("level %d ai.tts.start = %#v, want 16000/pcm", step.level, start)
+		}
+		if len(frames) != 3 {
+			t.Fatalf("level %d audio frames = %d, want 3", step.level, len(frames))
+		}
+		for i, audio := range frames {
+			if len(audio.Payload) != RescueAudioFrameBytes {
+				t.Errorf("level %d frame %d payload = %d bytes, want %d", step.level, i, len(audio.Payload), RescueAudioFrameBytes)
+			}
+			if i > 0 && audio.Seq <= frames[i-1].Seq {
+				t.Errorf("level %d frame %d seq = %d, want > %d", step.level, i, audio.Seq, frames[i-1].Seq)
+			}
+		}
+		if got := end["completion_status"]; got != "ok" {
+			t.Errorf("level %d ai.tts.end status = %v, want ok", step.level, got)
 		}
 		if got, ok := frame["ts"].(float64); !ok || got <= 0 {
 			t.Errorf("level %d ts = %v, want a positive millisecond timestamp", step.level, frame["ts"])
@@ -722,5 +820,80 @@ func TestHandler_Rescue_PartialTurnStillOpensWindow(t *testing.T) {
 	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
 	if got := rescueLevelOf(t, frame); got != 1 {
 		t.Fatalf("level = %d, want 1", got)
+	}
+}
+
+// A rung that keeps talking after the learner starts talking is worse than no
+// rung at all: the ladder exists to get them speaking, so the moment they do is
+// exactly when it should stop. The client stops on ai.tts.end, so the stop has to
+// be a frame.
+//
+// The rung has to be *in pieces* for this to prove anything. A 3-second rung is
+// written in one uninterrupted loop of in-memory writes, so a test that sends
+// "the user spoke" afterwards finds the rung already finished and every frame
+// already spent — it would pass on a gateway that never interrupts at all.
+// Reading one frame at a time makes the user's turn arrive while frames are
+// still owed, which is the situation being tested.
+func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
+	t.Parallel()
+
+	const total = 30
+	synth := &rescueAudioSynthesizer{pcm: make([]byte, RescueAudioFrameBytes*total)}
+	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, synth)
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rig.clock.advance(rescueTestLevel1)
+	rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
+	rescueWaitForType(readCtx, t, conn, voiceproto.TypeAITTSStart)
+
+	// Read a couple of frames so the stream is demonstrably under way.
+	frames := 0
+	for frames < 2 {
+		typ, _, err := conn.Read(readCtx)
+		if err != nil {
+			t.Fatalf("read while audio was owed: %v", err)
+		}
+		if typ == websocket.MessageBinary {
+			frames++
+		}
+	}
+
+	// Speak. Everything still owed must be dropped in favour of the learner.
+	rescueSendFrame(readCtx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
+	rescueSendFrame(readCtx, t, conn, voiceproto.UserSpeechEnd{
+		Type: voiceproto.TypeUserSpeechEnd,
+		Text: "I think the main risk is the migration window.",
+	})
+
+	deadline := time.Now().Add(rescueTestWait)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatalf("no ai.tts.end after the user spoke; %d frames were read", frames)
+		}
+		typ, data, err := conn.Read(readCtx)
+		if err != nil {
+			t.Fatalf("read after the user spoke: %v", err)
+		}
+		if typ == websocket.MessageBinary {
+			frames++
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		if raw["type"] != voiceproto.TypeAITTSEnd {
+			continue
+		}
+		if got := raw["completion_status"]; got != "interrupted" {
+			t.Fatalf("ai.tts.end status = %v, want interrupted once the user spoke", got)
+		}
+		if frames >= total {
+			t.Fatalf("all %d frames were spent before the interrupt: the rung finished first, so this proved nothing", frames)
+		}
+		return
 	}
 }

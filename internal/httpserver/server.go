@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/content/tts"
+	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
@@ -32,6 +33,21 @@ var ginOnce sync.Once
 // Server is the HTTP application.
 type Server struct {
 	engine *gin.Engine
+}
+
+// optionalHandlers collects the handlers a caller may or may not have.
+type optionalHandlers struct {
+	rescue *conversation.Handler
+}
+
+// Option configures an optional part of the server. Options exist so that adding
+// a handler does not churn every caller of New, which already takes thirteen
+// positional arguments.
+type Option func(*optionalHandlers)
+
+// WithRescueHandler mounts the voice gateway's ladder-generation endpoint.
+func WithRescueHandler(h *conversation.Handler) Option {
+	return func(o *optionalHandlers) { o.rescue = h }
 }
 
 // New constructs the Gin engine with health checks, account, and session routes.
@@ -51,7 +67,17 @@ func New(
 	materialsHandler *materials.Handler,
 	topicHandler *topic.Handler,
 	ready func(context.Context) error,
+	opts ...Option,
 ) *Server {
+	// Optional handlers arrive through opts so that adding one does not churn
+	// every caller of this constructor (it already takes thirteen positional
+	// arguments, and the twelfth call site is a test).
+	var optional optionalHandlers
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&optional)
+		}
+	}
 	ginOnce.Do(func() {
 		gin.SetMode(gin.ReleaseMode)
 	})
@@ -88,6 +114,9 @@ func New(
 	if drillHandler != nil {
 		drill.RegisterRoutes(apiGroup, drillHandler)
 		drill.RegisterInternalRoutes(engine.Group("/internal/v1"), drillHandler, cfg.InternalAPIToken)
+	}
+	if optional.rescue != nil {
+		conversation.RegisterInternalRoutes(engine.Group("/internal/v1"), optional.rescue, cfg.InternalAPIToken)
 	}
 	if historyHandler != nil {
 		sessionhistory.RegisterRoutes(apiGroup, historyHandler)

@@ -2,13 +2,23 @@ package voiceproto
 
 // RescueLadder represents a rescue prompt sent to the user when they are silent for too long.
 // This frame provides progressively more specific help (3 levels: skeleton, hint, complete).
+//
+// # Audio does not travel in this frame
+//
+// AudioURL stays empty, and that is the design rather than an unfinished part:
+// when a rung is spoken, the audio arrives as an ai.tts.start / ai.tts.audio /
+// ai.tts.end stream on the ladder's own turn_id, which is the channel the client
+// already plays (docs/92 §3). The field is kept — removing a key from a frozen
+// protocol is a client-visible change, and it costs nothing to leave a URL that
+// is never set. DurationMS is likewise unset; the client gets the duration from
+// ai.tts.end.
 type RescueLadder struct {
 	Type       string `json:"type"`        // "ai.rescue.ladder"
 	TurnID     string `json:"turn_id"`     // Current turn identifier
 	Level      int    `json:"level"`       // 1=skeleton, 2=hint, 3=complete
 	Text       string `json:"text"`        // Rescue content (Level 1/3: English, Level 2: Chinese)
-	AudioURL   string `json:"audio_url"`   // TTS audio URL
-	DurationMS int64  `json:"duration_ms"` // Audio duration in milliseconds
+	AudioURL   string `json:"audio_url"`   // Reserved; the spoken rung arrives as ai.tts.*
+	DurationMS int64  `json:"duration_ms"` // Reserved; see ai.tts.end
 	TS         int64  `json:"ts"`          // Unix timestamp in milliseconds
 }
 

@@ -258,3 +258,57 @@ func (c *HTTPSessionClient) postInto(ctx context.Context, path string, payload a
 	}
 	return nil
 }
+
+// recordHitBody is the wire shape of one hit report. It mirrors corpus's
+// RecordHitsRequest rather than reusing it: that type lives in the app-server's
+// packages, and the gateway's build must not grow a dependency on them just to
+// send five fields.
+type recordHitBody struct {
+	UserID    string              `json:"user_id"`
+	SessionID string              `json:"session_id"`
+	TurnID    string              `json:"turn_id"`
+	Hits      []recordHitItemBody `json:"hits"`
+}
+
+// recordHitItemBody is one detected block inside a hit report.
+type recordHitItemBody struct {
+	BlockID      string `json:"block_id"`
+	DetectedAtMs int64  `json:"detected_at_ms"`
+	TurnID       string `json:"turn_id"`
+}
+
+type recordHitResponse struct {
+	RecordedCount int `json:"recorded_count"`
+}
+
+// RecordHit implements HitRecorder against app-server's B7 hit ledger.
+//
+// Why this exists at all: the corpus side has been able to credit a hit since
+// 772ce2a — POST /internal/v1/voicegateway/hits increments real_use_count,
+// advances the shared ladder and writes the L1 provenance row — but nothing in
+// the gateway ever called it. The only caller in the repo was the smoke-moat
+// tool, so in production every B7 hit was detected, badged, and then forgotten:
+// "用上过 N 次" stayed 0 no matter how often the learner used a block. Same
+// shape as the B8 wiring gap, found the same way — by grepping for callers
+// instead of trusting the task list.
+//
+// The detection time comes from the caller rather than time.Now(): the emitter
+// owns the clock (and tests inject a fake one), and the timestamp decides which
+// day's schedule the successful recall lands on.
+func (c *HTTPSessionClient) RecordHit(
+	ctx context.Context,
+	userID, sessionID, turnID, blockID string,
+	detectedAtMs int64,
+) error {
+	var resp recordHitResponse
+	return c.postInto(ctx, "/internal/v1/voicegateway/hits", recordHitBody{
+		UserID:    userID,
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Hits: []recordHitItemBody{{
+			BlockID:      blockID,
+			DetectedAtMs: detectedAtMs,
+			TurnID:       turnID,
+		}},
+	}, &resp)
+}

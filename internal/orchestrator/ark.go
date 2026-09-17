@@ -114,6 +114,10 @@ func endpointRouting(cfg config.Config) map[string]string {
 	set("hit.match", cfg.ArkHitMatchEP)
 	set("drill.judge", cfg.ArkDrillJudgeEP)
 	set("materials.refine", cfg.ArkTextDegradeEP)
+	// A ladder is generated while a learner is sitting in silence with a 3s
+	// budget (voicegateway.DefaultRescueLevel1After), so it belongs on a short
+	// latency endpoint, not on the review model.
+	set("rescue.ladder", cfg.ArkTextDegradeEP)
 	return routes
 }
 

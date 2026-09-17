@@ -53,7 +53,7 @@ func TestVolcStreaming_Stream_Success(t *testing.T) {
 	}
 
 	ch, err := provider.Stream(context.Background(), "  hello fluentwork  ", VoiceConfig{
-		VoiceID: "zh_male_tech_01",
+		VoiceID: VoiceIDAIMaleTech,
 		Speed:   0.9,
 	})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestVolcStreaming_Stream_Success(t *testing.T) {
 	if gotKey != "test-key" || gotResource != "seed-tts-2.0" || gotRequestID != "req-1" {
 		t.Fatalf("headers key=%q resource=%q request=%q", gotKey, gotResource, gotRequestID)
 	}
-	if body.ReqParams.Text != "hello fluentwork" || body.ReqParams.Speaker != "zh_male_tech_01" {
+	if body.ReqParams.Text != "hello fluentwork" || body.ReqParams.Speaker != VoiceIDAIMaleTech {
 		t.Fatalf("body text/speaker = %+v", body.ReqParams)
 	}
 	if body.ReqParams.AudioParams.Format != defaultVolcTTSFormat || body.ReqParams.AudioParams.SampleRate != defaultVolcTTSSampleRate {
@@ -109,7 +109,7 @@ func TestVolcStreaming_Stream_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ch, err := provider.Stream(ctx, "hello", VoiceConfig{VoiceID: "zh_female_vv_jupiter_bigtts"})
+	ch, err := provider.Stream(ctx, "hello", VoiceConfig{VoiceID: VoiceIDAIFemalePro})
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestVolcStreaming_Stream_5xxRetry(t *testing.T) {
 			Endpoint:   srv.URL,
 			HTTPClient: srv.Client(),
 		}
-		ch, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: "v1"})
+		ch, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: VoiceIDAIFemalePro})
 		if err != nil {
 			t.Fatalf("Stream: %v", err)
 		}
@@ -185,7 +185,7 @@ func TestVolcStreaming_Stream_5xxRetry(t *testing.T) {
 			Endpoint:   srv.URL,
 			HTTPClient: srv.Client(),
 		}
-		_, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: "v1"})
+		_, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: VoiceIDAIFemalePro})
 		if !errors.Is(err, ErrHTTPStatus) {
 			t.Fatalf("err = %v, want ErrHTTPStatus", err)
 		}
@@ -207,7 +207,7 @@ func TestVolcStreaming_Stream_5xxRetry(t *testing.T) {
 			Endpoint:   srv.URL,
 			HTTPClient: srv.Client(),
 		}
-		_, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: "v1"})
+		_, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: VoiceIDAIFemalePro})
 		if !errors.Is(err, ErrHTTPStatus) {
 			t.Fatalf("err = %v, want ErrHTTPStatus", err)
 		}

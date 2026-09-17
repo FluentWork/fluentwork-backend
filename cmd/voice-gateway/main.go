@@ -14,22 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
-
-// noRescueLLM is the honest "no model available here" client: the rescue
-// generator is wired, its calls fail fast, and the orchestrator serves the
-// static ladder library. Wiring a real client is a product decision (whose
-// budget pays for it), not a wiring detail.
-type noRescueLLM struct{}
-
-func (noRescueLLM) Complete(context.Context, string, conversation.CompletionOptions) (string, error) {
-	return "", errors.New("rescue LLM is not wired in this deployment")
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -79,22 +68,9 @@ func run() error {
 	// rungs, rescue events for refine) was dark in every deployment.
 	//
 	// Enabled where a ladder can actually reach someone: development today,
-	// production once iOS renders it and TTS is authorized. See
-	// RescueEnabled's comment for why "on everywhere" would be dishonest.
-	if cfg.RescueEnabled {
-		handler.SetRescueComponents(
-			voicegateway.NewSilenceDetector(),
-			voicegateway.NewRescueOrchestrator(
-				// No LLM in the gateway: the ladder falls back to the reviewed
-				// static library (docs/78 §8.1). Tailored ladders need an LLM
-				// seam here, which is a deliberate next step — the gateway has no
-				// provider client today, and adding one without cost accounting
-				// would put model spend outside ai_cost_logs.
-				conversation.NewRescueGenerator(noRescueLLM{}),
-				nil, // synthesizer: TTS is built but not turned on (B17/P2-4)
-				logger,
-			),
-		)
+	// production once iOS renders it and TTS is authorized. See RescueEnabled's
+	// comment for why "on everywhere" would be dishonest.
+	if voicegateway.WireRescue(handler, cfg, logger) {
 		logger.Info("B8 stuck rescue wired", "stage", "b8_rescue", "provider", cfg.Provider)
 	} else {
 		logger.Info("B8 stuck rescue disabled; set VOICE_RESCUE_ENABLED=true to wire it",
@@ -132,12 +108,23 @@ func run() error {
 	} else {
 		source := voicegateway.NewHTTPCorpusSource(cfg.AppServerInternalURL, cfg.InternalAPIToken, logger)
 		detector := session.NewHitDetector(source)
+		// B7 hit write-back (P1-2). The corpus side has credited hits since
+		// 772ce2a — real_use_count, the success ladder, the L1 provenance row —
+		// but nothing ever told it a hit had happened, so every hit was
+		// detected, badged and forgotten. The recorder is the missing caller.
+		//
+		// Wired only on this branch on purpose: the dev-echo branch detects
+		// against a synthetic block ("block-dev-echo") that exists in no ledger,
+		// so reporting it would buy a warning per hit and credit nothing.
 		handler.SetBadgeEmitter(
-			voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{}),
+			voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{
+				Recorder: lifecycle,
+			}),
 		)
 		logger.Info("corpus-backed feedback.badge emitter wired",
 			"provider", cfg.Provider,
 			"corpus_source", "app-server-internal",
+			"hit_writeback", "enabled",
 		)
 	}
 	// B13: enable client ASR gate when VOICE_CLIENT_ASR_REQUIRED is set.

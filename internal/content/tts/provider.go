@@ -1,28 +1,38 @@
 // Package tts implements B17 TTS: Volc unidirectional streaming plus duplex fallback.
 //
-// # Status: built, not turned on
+// # Status: on, for one caller
 //
-// Nothing calls this package in production. The only references are the wiring in
-// cmd/app-server/main.go and the route registration in internal/httpserver;
-// POST /internal/v1/tts/synthesize has no caller. Read this package as "built and
-// tested but unexercised" — not as a capability available to callers.
+// The B8 stuck-rescue ladder speaks through this package (docs/92): the voice
+// gateway asks app-server to synthesize a rung and pushes the resulting PCM to
+// the client as an ai.tts.* stream. The consumer is
+// voicegateway.HTTPRescueSynthesizer; the endpoint it calls is
+// POST /internal/v1/tts/synthesize.
 //
-// Two things are missing before it can be switched on, and neither is a change to
-// the code here:
+// This paragraph used to read "built, not turned on … POST
+// /internal/v1/tts/synthesize has no caller", and that had become false in a way
+// worth naming: a stale "nothing calls this" is not a neutral remark, it is a
+// wrong answer to the question "does this capability exist?" — it sent a reader
+// looking for missing wiring that was already there. TestSynthesizeEndpointHasAConsumer
+// now fails when the last caller goes away, so this text and the code fail together.
 //
-//   - A consumer. The two this was built for — the iOS flash test and daily-read
-//     B20 — do not exist yet. The daily read's AudioURL is stored and served but
-//     nothing generates it.
-//   - Prod authorization. The prod SKU answers 403 / code=55000000 today (meta
-//     77_ P2-4). Wiring a caller now would ship a feature that passes in dev and
-//     fails in prod.
+// Still true, and still worth knowing before relying on it:
 //
-// Keeping the code dormant is only safe while an unconfigured provider degrades
-// cleanly: app-server passes nil whenever VOLC_SPEECH_API_KEY is empty, and
-// synthesize answers UNAVAILABLE (503) rather than panicking. That is pinned by
-// TestPostSynthesize_UnconfiguredProviderIsUnavailable.
+//   - **The remaining callers do not exist.** The two this was originally built
+//     for — the iOS flash test and daily-read B20 — are still unbuilt. The daily
+//     read's AudioURL is stored and served but nothing generates it, because
+//     that needs a fetchable audio path (object storage or an authenticated blob
+//     endpoint), which is a delivery decision rather than a synthesis one.
+//   - **Prod authorization is unresolved** (meta 77_ P2-4). Development works
+//     with the credentials in .env.volc.local; the prod SKU's entitlement is a
+//     separate question, and the ladder degrades to text without audio.
 //
-// See docs/54_B17_TTS_启用决策.md.
+// Degrading is still the contract: app-server passes nil whenever
+// VOLC_SPEECH_API_KEY is empty, and synthesize answers UNAVAILABLE (503) rather
+// than panicking. Pinned by TestPostSynthesize_UnconfiguredProviderIsUnavailable.
+//
+// See docs/92_B8梯子音频投放方案_2026-09-18.md (current) and
+// docs/archive/implementation-details/54_B17_TTS_启用决策.md (the earlier
+// decision to leave it dormant, and why).
 //
 // There is no vendor SDK dependency; the HTTP/2 client uses net/http.
 package tts

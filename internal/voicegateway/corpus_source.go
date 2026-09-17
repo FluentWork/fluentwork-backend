@@ -50,6 +50,11 @@ type corpusCandidatesResponse struct {
 }
 
 // CandidatesForUser fetches up to 50 phrase blocks owned by userID.
+//
+// The 50 is corpus.SourceCandidateLimit on the other side of this call, and it
+// is stated rather than imported because the gateway must not depend on
+// app-server's packages to talk to it. Changing it there changes what this
+// returns; nothing here will notice, which is why the number is written down.
 func (s *HTTPCorpusSource) CandidatesForUser(ctx context.Context, userID string) ([]session.BlockCandidate, error) {
 	if s == nil || strings.TrimSpace(s.BaseURL) == "" {
 		return nil, fmt.Errorf("corpus source: app-server base URL is required")

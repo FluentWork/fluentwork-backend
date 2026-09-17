@@ -387,6 +387,16 @@ type sessionRuntime struct {
 	// own turn-end markers. Empty falls back to the session id at emission time,
 	// because the rescue fires before the user's turn_id exists on the wire.
 	rescueTurnID string
+	// B8: the rung currently being spoken. rescueSpeechTurn is its turn id (empty
+	// when nothing is speaking) and rescueSpeechGen is the token that both the
+	// ladder goroutine and the read loop use to decide whether a rung is still
+	// current. See beginRescueSpeech.
+	rescueSpeechMu   sync.Mutex
+	rescueSpeechTurn string
+	rescueSpeechGen  uint64
+	// B8: nextRescueSeq numbers the ladder's own binary audio frames. It shares a
+	// numbering space with the provider — see nextRescueAudioSeq.
+	nextRescueSeq atomic.Uint32
 }
 
 // clock returns the runtime's clock, defaulting to time.Now so a directly-built
@@ -454,6 +464,24 @@ func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn
 	// the wire.
 	rt.noteProviderOutbound(outbound)
 
+	rt.writeMu.Lock()
+	defer rt.writeMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
+	defer cancel()
+	return writeProviderOutbound(ctx, conn, outbound)
+}
+
+// sendWithoutRescueState writes outbounds that must not feed the B8 rescue state.
+//
+// sendOutbound folds provider output into the silence detector — that is how
+// "the AI stopped talking" opens a rescue window. The ladder's own audio is
+// provider-shaped but is not the AI's turn: feeding it back would open a fresh
+// window and reset the rung sequence, so instead of escalating 1 → 2 → 3 the
+// ladder would say level 1 forever. Same write lock, no bookkeeping.
+func (rt *sessionRuntime) sendWithoutRescueState(ctx context.Context, conn *websocket.Conn, outbound []ProviderOutbound) error {
+	if !writableOutbound(outbound) {
+		return nil
+	}
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
@@ -748,7 +776,7 @@ func (h *Handler) handleControl(
 			rt.noteUserSpeechStart()
 		}
 		if frameType == voiceproto.TypeUserSpeechEnd {
-			rt.noteUserSpeechEnd(data)
+			h.noteUserSpeechEnd(ctx, conn, rt, data)
 			return h.startCollectTurn(ctx, conn, rt, session, data)
 		}
 		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)

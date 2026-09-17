@@ -4,12 +4,18 @@ import "strings"
 
 // D-2 voice catalog. VoiceID is the Volc speaker id passed as req_params.speaker.
 // X-Api-Resource-Id stays the product SKU (seed-tts-2.0) from VolcStreamingProvider.
-// Override a speaker with VOLC_VOICE_* env vars via LookupVoice aliases after C-2 lookup.
+//
+// Every id here must be a speaker the account's resource actually serves. All of
+// them are 2.0 speakers (`*_uranus_bigtts`) because seed-tts-2.0 serves only the
+// 2.0 lineage; a 1.0 name like `en_female_professional` synthesizes nothing and
+// fails as code 55000000, which reads like a missing entitlement rather than a
+// wrong name (docs/92 §2, ErrSpeakerResourceMismatch). The four placeholders
+// that used to be here were never real speakers.
 const (
-	VoiceIDAIMaleTech        = "zh_male_tech_01"
-	VoiceIDAIFemalePro       = "en_female_professional"
-	VoiceIDDailyReadNarrator = "en_male_narrator"
-	VoiceIDDrillCountdown    = "en_female_clear"
+	VoiceIDAIMaleTech        = "zh_male_m191_uranus_bigtts"
+	VoiceIDAIFemalePro       = "zh_female_vv_uranus_bigtts"
+	VoiceIDDailyReadNarrator = "zh_male_shenyeboke_uranus_bigtts"
+	VoiceIDDrillCountdown    = "zh_female_meilinvyou_uranus_bigtts"
 )
 
 var (
@@ -21,15 +27,22 @@ var (
 	VoiceDailyReadNarrator = VoiceConfig{VoiceID: VoiceIDDailyReadNarrator, Speed: 0.85}
 	// VoiceDrillCountdown is the drill countdown voice (D-2).
 	VoiceDrillCountdown = VoiceConfig{VoiceID: VoiceIDDrillCountdown, Speed: 1.0}
+	// VoiceRescueLadder is the stuck-rescue voice: the same speaker as the
+	// default, deliberately. The ladder is the coach leaning in, not a different
+	// person, so the voice stays and only the pace changes (PRD §5.4.3 约束 2).
+	// Speed is a synthesis parameter here because the client cannot slow down PCM
+	// it is already streaming.
+	VoiceRescueLadder = VoiceConfig{VoiceID: VoiceIDAIFemalePro, Speed: 0.9}
 )
 
-// Catalog returns the four frozen D-2 voices.
+// Catalog returns the frozen D-2 voices.
 func Catalog() []VoiceConfig {
 	return []VoiceConfig{
 		VoiceAIMaleTech,
 		VoiceAIFemalePro,
 		VoiceDailyReadNarrator,
 		VoiceDrillCountdown,
+		VoiceRescueLadder,
 	}
 }
 
@@ -48,6 +61,8 @@ func LookupVoice(id string) VoiceConfig {
 		return VoiceDailyReadNarrator
 	case VoiceIDDrillCountdown, "drill_countdown":
 		return VoiceDrillCountdown
+	case "rescue_ladder":
+		return VoiceRescueLadder
 	default:
 		return VoiceConfig{VoiceID: strings.TrimSpace(id)}.WithDefaults()
 	}
