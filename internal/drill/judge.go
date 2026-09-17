@@ -77,6 +77,10 @@ func (j *LLMJudge) Judge(ctx context.Context, target, userSaid string) (JudgeRes
 	return parsed, nil
 }
 
+// Budget is the effective per-call budget. Exported so a caller can tell
+// "the model was slow" apart from "we gave it no time".
+func (j *LLMJudge) Budget() time.Duration { return j.timeout() }
+
 // timeout returns the configured budget, or the measured default.
 func (j *LLMJudge) timeout() time.Duration {
 	if j != nil && j.Timeout > 0 {

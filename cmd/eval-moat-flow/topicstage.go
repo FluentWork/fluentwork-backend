@@ -3,134 +3,206 @@ package main
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/topic"
 )
 
-// sceneTopicResult is one scene group's topic stage.
+// topicStageResult is the topic-card half of the run.
 //
-// Grouping exists because H1 gates topic cards on the learner's corpus size: run
-// per mock session, the generator sees one or two blocks and pads to fill three
-// cards, which measures the padding rather than the product. A scene group is
-// ~20 sessions' worth of blocks — the shape a real active learner has.
-type sceneTopicResult struct {
-	Scene      string `json:"scene"`
-	CorpusSize int    `json:"corpus_size"`
-	// DuplicateExpressions counts blocks whose normalised expression already
-	// existed in the group: the cross-session duplication of 86_ M5, measured
-	// rather than asserted.
-	DuplicateExpressions int            `json:"duplicate_expressions"`
-	Cards                []topicOutcome `json:"cards"`
-	Verdict              *rubricVerdict `json:"rubric,omitempty"`
-	Error                string         `json:"error,omitempty"`
+// The corpus is pooled across every mock session on purpose. H1 gates topic
+// cards on a learner's corpus size (≥20 blocks), and one scene group's worth of
+// mock sessions yields 15–19 unique blocks — just under the gate, so the stage
+// would report "nothing produced" for reasons that say more about the mock than
+// about the product. Pooling all sessions is also the more faithful shape: a
+// real learner's corpus mixes scenes, and that is what the generator reads.
+type topicStageResult struct {
+	CorpusSize int            `json:"corpus_size"`
+	Days       int            `json:"days"`
+	Cards      []topicOutcome `json:"cards"`
+	Verdict    *rubricVerdict `json:"rubric,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	// SceneDuplicates measures 86_ M5 per scene: how many refined expressions a
+	// group of sessions produced twice. It needs no model call, so it is
+	// measured for every scene regardless of the corpus gate.
+	SceneDuplicates []sceneDuplicate `json:"scene_duplicates"`
 }
 
-// runTopicStage groups samples by scene, builds one corpus per scene, and runs
-// the production topic generator over it.
-func runTopicStage(ctx context.Context, deps *deps, samples []sample, results []*sampleResult) []sceneTopicResult {
-	groups := map[string][]int{}
-	order := make([]string, 0, 5)
-	for i, s := range samples {
-		if _, ok := groups[s.Scene]; !ok {
-			order = append(order, s.Scene)
-		}
-		groups[s.Scene] = append(groups[s.Scene], i)
-	}
+type sceneDuplicate struct {
+	Scene      string `json:"scene"`
+	Blocks     int    `json:"blocks"`
+	Duplicates int    `json:"duplicates"`
+	Sessions   int    `json:"sessions"`
+}
 
-	out := make([]sceneTopicResult, len(order))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 3)
-	for gi, scene := range order {
-		wg.Add(1)
-		go func(gi int, scene string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			out[gi] = runSceneTopic(ctx, deps, scene, results, groups[scene])
-		}(gi, scene)
+// refereeCorpusSample caps how much of the learner's corpus the referee reads.
+const refereeCorpusSample = 24
+
+// sampleBlocksForReferee returns up to limit blocks, taken round-robin across
+// scenes so the referee sees a spread rather than the first scene's output.
+func sampleBlocksForReferee(blocks []corpus.BatchAcceptBlock, limit int) []refineBlock {
+	byScene := map[string][]corpus.BatchAcceptBlock{}
+	order := make([]string, 0, 5)
+	for _, b := range blocks {
+		if _, ok := byScene[b.SceneTag]; !ok {
+			order = append(order, b.SceneTag)
+		}
+		byScene[b.SceneTag] = append(byScene[b.SceneTag], b)
 	}
-	wg.Wait()
+	out := make([]refineBlock, 0, limit)
+	for round := 0; len(out) < limit; round++ {
+		added := false
+		for _, scene := range order {
+			rows := byScene[scene]
+			if round >= len(rows) {
+				continue
+			}
+			row := rows[round]
+			out = append(out, refineBlock{
+				IntentZH:       "（该用户的语料）",
+				ExpressionEN:   row.ExpressionEN,
+				AnchorUserSaid: row.AnchorUserSaid,
+				SceneTag:       row.SceneTag,
+				FunctionTag:    row.FunctionTag,
+			})
+			added = true
+			if len(out) == limit {
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
 	return out
 }
 
-func runSceneTopic(ctx context.Context, deps *deps, scene string, results []*sampleResult, idx []int) sceneTopicResult {
-	res := sceneTopicResult{Scene: scene}
-	userID := "eval-scene-user-" + scene
-	sessionID := "eval-scene-session-" + scene
+// topicDays is how many consecutive days of cards the stage generates: three
+// cards a day is the product's rate, and one day's worth is too small a sample
+// for a genericness rate.
+const topicDays = 3
 
-	store := corpus.NewMemoryStore()
-	svc := corpus.NewService(store, nil)
-	seen := map[string]struct{}{}
-	var blocks []corpus.BatchAcceptBlock
-	for _, i := range idx {
+func runTopicStage(ctx context.Context, deps *deps, samples []sample, results []*sampleResult) topicStageResult {
+	out := topicStageResult{Days: topicDays}
+
+	// Per-scene duplication first: it is free and independent of the gate.
+	byScene := map[string]*sceneDuplicate{}
+	bySceneSeen := map[string]map[string]struct{}{}
+	order := make([]string, 0, 5)
+	for i, s := range samples {
+		stat, ok := byScene[s.Scene]
+		if !ok {
+			stat = &sceneDuplicate{Scene: s.Scene}
+			byScene[s.Scene] = stat
+			bySceneSeen[s.Scene] = map[string]struct{}{}
+			order = append(order, s.Scene)
+		}
+		stat.Sessions++
+		// Duplication is measured across the sessions of a scene, so the set
+		// lives on the scene — not on the sample, which would only ever find
+		// duplicates inside one session.
+		seen := bySceneSeen[s.Scene]
 		for _, expr := range results[i].Corpus.Expressions {
 			key := normalizeExpression(expr)
 			if _, dup := seen[key]; dup {
-				res.DuplicateExpressions++
+				stat.Duplicates++
+			}
+			seen[key] = struct{}{}
+			stat.Blocks++
+		}
+	}
+	for _, scene := range order {
+		out.SceneDuplicates = append(out.SceneDuplicates, *byScene[scene])
+	}
+
+	// Now the pooled corpus.
+	userID := "eval-topic-user"
+	sessionID := "eval-topic-session"
+	store := corpus.NewMemoryStore()
+	svc := corpus.NewService(store, nil)
+
+	seen := map[string]struct{}{}
+	var blocks []corpus.BatchAcceptBlock
+	for _, r := range results {
+		for _, expr := range r.Corpus.Expressions {
+			key := normalizeExpression(expr)
+			if _, dup := seen[key]; dup {
 				continue
 			}
 			seen[key] = struct{}{}
+			// The scene tag must come from the closed enum; the block's own tag
+			// is not carried on the accepted view, so the sample's scene is used
+			// and the function tag stays in the enum.
 			blocks = append(blocks, corpus.BatchAcceptBlock{
-				IntentZH: "（场景语料）", ExpressionEN: expr, AnchorUserSaid: expr,
-				SceneTag: scene, FunctionTag: "report",
+				IntentZH: "（评估语料）", ExpressionEN: expr, AnchorUserSaid: expr,
+				SceneTag: r.Sample.Scene, FunctionTag: "report",
 			})
 		}
 	}
 	if len(blocks) == 0 {
-		res.Error = "no blocks in this scene group"
-		return res
+		out.Error = "no blocks were produced by any sample"
+		return out
 	}
-	// BatchAccept validates tags; the compact camera above already uses a valid
-	// scene tag, and "report" is in the closed function set.
 	if _, err := svc.BatchAccept(ctx, userID, corpus.BatchAcceptRequest{
 		SourceSessionID: sessionID, Blocks: blocks,
 	}); err != nil {
-		res.Error = "accept: " + err.Error()
-		return res
+		out.Error = "accept: " + err.Error()
+		return out
 	}
-	res.CorpusSize = len(blocks)
+	out.CorpusSize = len(blocks)
 
 	topicStore := topic.NewMemoryStore()
 	gen := topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{Client: deps.client},
 		topic.PracticeSignals{Blocks: store})
-	// The production threshold (PRD §7.8: 语料库 ≥ 20). A group below it is
-	// reported as such rather than silently lowered: the threshold is part of
-	// what is under test.
+	// The production threshold (PRD §7.8). A corpus below it is reported as such:
+	// the gate is part of what is under test.
 	gen.SetMinBlocks(topic.DefaultMinBlocks)
 
-	day := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
-	if err := gen.GenerateForUser(ctx, userID, day); err != nil {
-		res.Error = "generate: " + err.Error()
-		return res
+	baseDay := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	for day := 0; day < topicDays; day++ {
+		target := baseDay.AddDate(0, 0, day)
+		if err := gen.GenerateForUser(ctx, userID, target); err != nil {
+			out.Error = fmt.Sprintf("generate day %d: %v", day, err)
+			return out
+		}
+		cards, err := topicStore.ListTodayCards(ctx, userID, target)
+		if err != nil {
+			out.Error = fmt.Sprintf("list day %d: %v", day, err)
+			return out
+		}
+		for _, card := range cards {
+			out.Cards = append(out.Cards, topicOutcome{
+				Title: card.Title, CardType: card.CardType, PromptEN: card.PromptEN,
+				BlockIDs: card.BlockIDs, SourceNote: card.SourceNote,
+			})
+		}
 	}
-	cards, err := topicStore.ListTodayCards(ctx, userID, day)
-	if err != nil {
-		res.Error = "list: " + err.Error()
-		return res
-	}
-	for _, card := range cards {
-		res.Cards = append(res.Cards, topicOutcome{
-			Title: card.Title, CardType: card.CardType, PromptEN: card.PromptEN,
-			BlockIDs: card.BlockIDs, SourceNote: card.SourceNote,
-		})
-	}
-	if len(res.Cards) == 0 {
-		res.Error = fmt.Sprintf("no cards produced from a %d-block corpus (threshold %d)",
-			res.CorpusSize, topic.DefaultMinBlocks)
-		return res
+	if len(out.Cards) == 0 {
+		out.Error = fmt.Sprintf("no cards produced from a %d-block corpus (threshold %d)",
+			out.CorpusSize, topic.DefaultMinBlocks)
+		return out
 	}
 
+	// The referee must see the learner's own material: asked to judge whether a
+	// topic is grounded in a corpus it cannot see, it can only answer "generic",
+	// which measures the question rather than the cards.
+	//
+	// It sees a sample, not the whole corpus: with all 85 blocks in the prompt
+	// the call timed out before answering, and a judgement needs the shape of
+	// the material, not every row of it. The sample is drawn round-robin across
+	// scenes so no single scene dominates the referee's picture.
+	corpusBlocks := sampleBlocksForReferee(blocks, refereeCorpusSample)
 	verdict, err := deps.referee.score(ctx, refereeInput{
-		Scene: scene, Transcript: "(scene group: " + scene + ")",
-		Topics: res.Cards,
+		Scene:      "(pooled across scenes)",
+		Transcript: "(evaluation corpus: this learner's own phrase blocks are listed below)",
+		Blocks:     corpusBlocks,
+		Topics:     out.Cards,
 	})
 	if err != nil {
-		res.Error = "referee: " + err.Error()
-		return res
+		out.Error = "referee: " + err.Error()
+		return out
 	}
-	res.Verdict = verdict
-	return res
+	out.Verdict = verdict
+	return out
 }

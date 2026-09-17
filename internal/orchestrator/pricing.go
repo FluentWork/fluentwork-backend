@@ -108,18 +108,34 @@ func LoadPricingFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("read pricing file: %w", err)
 	}
-	var parsed map[string]pricingFileEntry
+	var parsed map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return fmt.Errorf("parse pricing file: %w", err)
 	}
-	table := make(map[string]ModelPricing, len(parsed))
-	for model, entry := range parsed {
-		table[model] = ModelPricing{
+	entries := make(map[string]pricingFileEntry, len(parsed))
+	for key, value := range parsed {
+		if strings.HasPrefix(strings.TrimSpace(key), "_") {
+			continue
+		}
+		var entry pricingFileEntry
+		if err := json.Unmarshal(value, &entry); err != nil {
+			return fmt.Errorf("parse pricing entry %q: %w", key, err)
+		}
+		entries[key] = entry
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("pricing file has no models (only comment keys)")
+	}
+	// A model that ends up without a rate shows in UnpricedModels rather than
+	// being silently mispriced.
+	prices := make(map[string]ModelPricing, len(entries))
+	for model, entry := range entries {
+		prices[model] = ModelPricing{
 			InputMicroYuanPerMillion:  cnyToMicroYuanPerMillion(entry.InputCNYPerMillion),
 			OutputMicroYuanPerMillion: cnyToMicroYuanPerMillion(entry.OutputCNYPerMillion),
 		}
 	}
-	return ConfigurePricing(table)
+	return ConfigurePricing(prices)
 }
 
 // cnyToMicroYuanPerMillion converts the published unit to the internal one.

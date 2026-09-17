@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,6 +50,7 @@ type options struct {
 	outDir      string
 	limit       int
 	concurrency int
+	reuseRun    string
 }
 
 func run() error {
@@ -57,6 +59,8 @@ func run() error {
 	flag.StringVar(&opts.outDir, "out", "eval-out", "directory to write run artifacts into")
 	flag.IntVar(&opts.limit, "limit", 0, "only run the first N samples (0 = all)")
 	flag.IntVar(&opts.concurrency, "concurrency", 6, "parallel samples")
+	flag.StringVar(&opts.reuseRun, "reuse-run", "",
+		"reuse a previous run's samples/ directory and only re-run the topic stage")
 	flag.Parse()
 
 	if strings.TrimSpace(os.Getenv("APP_ENV")) == "" {
@@ -79,14 +83,31 @@ func run() error {
 		samples = samples[:opts.limit]
 	}
 
-	costStore := aicost.NewMemoryStore()
+	// The cost store follows the deployment: with MYSQL_DSN set the run's calls
+	// land in ai_cost_logs where they can be reconciled with SQL, which is the
+	// point of recording them through the production path at all.
+	// Price the run the way a deployment would: with the operator's table when
+	// one is configured, so the money column in the ledger is produced by the
+	// same code path production uses.
+	if cfg.ArkPricingFile != "" {
+		if err := orchestrator.LoadPricingFile(cfg.ArkPricingFile); err != nil {
+			return fmt.Errorf("pricing file: %w", err)
+		}
+		fmt.Printf("pricing table loaded from %s\n", cfg.ArkPricingFile)
+	}
+
+	costStore, closeCost, err := aicost.OpenStore(cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeCost() }()
 	costSvc := aicost.NewService(costStore, nil)
 	client := orchestrator.NewClient(cfg, orchestrator.NewAICostWriterAdapter(costSvc))
 	deps := &deps{
 		client:   client,
 		reviewer: &reviewgen.OrchestratorAdapter{Client: client},
 		judge:    &drill.LLMJudge{LLM: &drill.OrchestratorAdapter{Client: client}},
-		budget:   &judgeBudget{client: client},
+		budget:   newJudgeBudget(client),
 		referee:  &referee{client: client},
 	}
 
@@ -96,9 +117,23 @@ func run() error {
 		return err
 	}
 
-	fmt.Printf("running %d samples (concurrency %d) → %s\n", len(samples), opts.concurrency, outDir)
 	started := time.Now()
-	results := runAll(context.Background(), deps, samples, opts.concurrency)
+	var results []*sampleResult
+	if opts.reuseRun != "" {
+		// Rebuilding from a finished run's artifacts means a stage can be
+		// iterated without re-paying for the others: the per-sample files carry
+		// every stage's input and output.
+		reused, err := loadPreviousResults(opts.reuseRun)
+		if err != nil {
+			return err
+		}
+		results = reused
+		fmt.Printf("reusing %d samples from %s; running the topic stage only → %s\n",
+			len(results), opts.reuseRun, outDir)
+	} else {
+		fmt.Printf("running %d samples (concurrency %d) → %s\n", len(samples), opts.concurrency, outDir)
+		results = runAll(context.Background(), deps, samples, opts.concurrency)
+	}
 	// The topic stage runs per scene group, not per sample: H1 gates topic cards
 	// on a corpus of >= 20 blocks, so judging them from a single mock session's
 	// one or two blocks would measure the generator padding to fill three cards
@@ -215,21 +250,21 @@ func runSample(ctx context.Context, deps *deps, s sample) *sampleResult {
 		}
 		outcome := judgeOutcome{Answer: tc.Answer, Expect: tc.Expect, Target: target.ExpressionEN}
 
-		prod := judgeUnderProductionBudget(ctx, deps.judge, target.ExpressionEN, tc.Answer)
-		outcome.ProdDurationMS = prod.Duration.Milliseconds()
-		outcome.ProdTimedOut = prod.TimedOut
+		prod, prodElapsed := judgeUnderProductionBudget(ctx, deps.judge, target.ExpressionEN, tc.Answer)
+		outcome.ProdDurationMS = prodElapsed.Milliseconds()
+		outcome.ProdTimedOut = !prod.Judged || prodElapsed >= deps.judge.Budget()
 
-		scored, err := deps.budget.judgeWithBudget(ctx, target.ExpressionEN, tc.Answer)
+		scored, judgeElapsed, err := deps.budget.judgeWithRoom(ctx, target.ExpressionEN, tc.Answer)
 		switch {
 		case err != nil:
 			outcome.Error = err.Error()
-		case scored.TimedOut:
-			outcome.Error = "accuracy pass timed out"
+		case !scored.Judged:
+			outcome.Error = "accuracy pass could not judge: " + scored.Reason
 		default:
 			outcome.Got = passFail(scored.Pass)
 			outcome.Reason = scored.Reason
 			outcome.Correct = outcome.Got == tc.Expect
-			outcome.JudgeDurationMS = scored.Duration.Milliseconds()
+			outcome.JudgeDurationMS = judgeElapsed.Milliseconds()
 		}
 		res.Judge = append(res.Judge, outcome)
 	}
@@ -416,6 +451,31 @@ func parseRefineBlocks(raw json.RawMessage) []refineBlock {
 		return nil
 	}
 	return doc.Blocks
+}
+
+// loadPreviousResults reads a finished run's per-sample artifacts.
+func loadPreviousResults(dir string) ([]*sampleResult, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "samples", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no samples found under %s/samples", dir)
+	}
+	sort.Strings(paths)
+	out := make([]*sampleResult, 0, len(paths))
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var res sampleResult
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		out = append(out, &res)
+	}
+	return out, nil
 }
 
 func loadDataset(path string) (dataset, error) {

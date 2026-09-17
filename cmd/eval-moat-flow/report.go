@@ -236,9 +236,23 @@ type costBlock struct {
 	TokensIn  int   `json:"tokens_in"`
 	TokensOut int   `json:"tokens_out"`
 	MicroYuan int64 `json:"cost_micro_yuan"`
+	// ByTaskType is the reconciliation view: what the ledger recorded per
+	// operation, so the rows can be checked against the calls the run made.
+	ByTaskType []costRow `json:"by_task_type"`
+	// ByModel proves which models the ledger attributed the calls to — the
+	// endpoint→model mapping is easy to get wrong and silent when it is.
+	ByModel []costRow `json:"by_model"`
 }
 
-func aggregate(runID string, results []*sampleResult, scenes []sceneTopicResult, elapsed time.Duration, costSvc *aicost.Service) report {
+type costRow struct {
+	Key       string `json:"key"`
+	Calls     int    `json:"calls"`
+	TokensIn  int    `json:"tokens_in"`
+	TokensOut int    `json:"tokens_out"`
+	MicroYuan int64  `json:"cost_micro_yuan"`
+}
+
+func aggregate(runID string, results []*sampleResult, topics topicStageResult, elapsed time.Duration, costSvc *aicost.Service) report {
 	rep := report{RunID: runID, StartedAt: time.Now().UTC().Add(-elapsed), ElapsedMS: elapsed.Milliseconds(), Samples: len(results)}
 
 	// L1 counters.
@@ -400,50 +414,46 @@ func aggregate(runID string, results []*sampleResult, scenes []sceneTopicResult,
 		rep.Metrics = append(rep.Metrics, mean("review_authenticity_mean", authenticitySum, authenticityCount, ">= 3.8"))
 	}
 	// Topic cards: structural expectations (H2's hard constraints) plus the
-	// referee's groundedness read, both measured per scene group.
-	var withBlocks, withNote, cards, sceneErrors, corpusSize, duplicates int
+	// referee's groundedness read, over the pooled corpus.
+	var withBlocks, withNote, cards, corpusSize, duplicates, sessions int
 	var groundedSum, topicScores, genericCount int
-	for _, scene := range scenes {
-		if scene.Error != "" {
-			sceneErrors++
+	for _, stat := range topics.SceneDuplicates {
+		corpusSize += stat.Blocks
+		duplicates += stat.Duplicates
+		sessions += stat.Sessions
+	}
+	for _, t := range topics.Cards {
+		cards++
+		if len(t.BlockIDs) > 0 {
+			withBlocks++
 		}
-		corpusSize += scene.CorpusSize
-		duplicates += scene.DuplicateExpressions
-		for _, t := range scene.Cards {
-			cards++
-			if len(t.BlockIDs) > 0 {
-				withBlocks++
-			}
-			if strings.TrimSpace(t.SourceNote) != "" {
-				withNote++
-			}
+		if strings.TrimSpace(t.SourceNote) != "" {
+			withNote++
 		}
-		if scene.Verdict != nil {
-			for _, t := range scene.Verdict.Topics {
-				topicScores++
-				groundedSum += t.Grounded
-				if t.Generic {
-					genericCount++
-				}
+	}
+	if topics.Verdict != nil {
+		for _, t := range topics.Verdict.Topics {
+			topicScores++
+			groundedSum += t.Grounded
+			if t.Generic {
+				genericCount++
 			}
 		}
 	}
+	produced := metric{
+		Name: "topic_cards_produced", Value: float64(cards), Target: "> 0", Passed: cards > 0,
+		Detail: fmt.Sprintf("pooled corpus %d blocks from %d sessions over %d days", topics.CorpusSize, sessions, topics.Days),
+	}
+	if topics.Error != "" {
+		produced.Passed = false
+		produced.Detail = produced.Detail + " | " + topics.Error
+	}
+	rep.Metrics = append(rep.Metrics, produced)
 	if cards > 0 {
 		rep.Metrics = append(rep.Metrics,
 			ratio("topic_cards_with_blocks_rate", withBlocks, float64(cards), "= 1.0"),
 			ratio("topic_cards_with_source_rate", withNote, float64(cards), "= 1.0"),
 		)
-	} else {
-		rep.Metrics = append(rep.Metrics, metric{
-			Name: "topic_cards_produced", Value: 0, Target: "> 0", Passed: false,
-			Detail: "no topic card was produced for any scene group",
-		})
-	}
-	if sceneErrors > 0 {
-		rep.Metrics = append(rep.Metrics, metric{
-			Name: "topic_scene_errors", Value: float64(sceneErrors),
-			Target: "0", Passed: false, Detail: "scene groups whose topic stage failed",
-		})
 	}
 	if topicScores > 0 {
 		rep.Metrics = append(rep.Metrics,
@@ -451,14 +461,15 @@ func aggregate(runID string, results []*sampleResult, scenes []sceneTopicResult,
 			ratio("topic_generic_rate", genericCount, float64(topicScores), "<= 0.05"),
 		)
 	}
-	// M5: how often two sessions produced the same expression. Only measurable
-	// because the scene groups pool what separate sessions refined.
+	// M5: how often two sessions produced the same expression.
 	if corpusSize > 0 {
 		rep.Metrics = append(rep.Metrics, ratio("corpus_cross_session_duplicate_rate", duplicates, float64(corpusSize), "<= 0.10"))
 	}
 
-	// A run where most samples could not execute is not a measurement. Say that
-	// instead of scoring the wreckage.
+	// A run where most samples could not execute is not a measurement: say that
+	// instead of scoring the wreckage. (An overdue vendor account once rendered
+	// as "quality: 0.000" across the board, which reads as a catastrophic
+	// product rather than a broken run.)
 	if n := float64(len(results)); n > 0 && float64(rep.Errors)/n > invalidRunErrorShare {
 		rep.Valid = false
 		rep.InvalidReason = fmt.Sprintf("%d/%d samples failed before the chain ran (threshold %.0f%%)",
@@ -479,11 +490,41 @@ func aggregate(runID string, results []*sampleResult, scenes []sceneTopicResult,
 	// The eval's own cost, from the ledger every call wrote to.
 	if costSvc != nil {
 		if logs, err := costSvc.ListRecent(contextTODO(), "", 10000); err == nil {
+			byTask := map[string]*costRow{}
+			byModel := map[string]*costRow{}
+			taskOrder := make([]string, 0, 8)
+			modelOrder := make([]string, 0, 8)
 			for _, log := range logs {
 				rep.Cost.Calls++
 				rep.Cost.TokensIn += log.TokensIn
 				rep.Cost.TokensOut += log.TokensOut
 				rep.Cost.MicroYuan += log.CostMicroYuan
+				task, ok := byTask[log.TaskType]
+				if !ok {
+					task = &costRow{Key: log.TaskType}
+					byTask[log.TaskType] = task
+					taskOrder = append(taskOrder, log.TaskType)
+				}
+				model, ok := byModel[log.Model]
+				if !ok {
+					model = &costRow{Key: log.Model}
+					byModel[log.Model] = model
+					modelOrder = append(modelOrder, log.Model)
+				}
+				for _, row := range []*costRow{task, model} {
+					row.Calls++
+					row.TokensIn += log.TokensIn
+					row.TokensOut += log.TokensOut
+					row.MicroYuan += log.CostMicroYuan
+				}
+			}
+			sort.Strings(taskOrder)
+			sort.Strings(modelOrder)
+			for _, key := range taskOrder {
+				rep.Cost.ByTaskType = append(rep.Cost.ByTaskType, *byTask[key])
+			}
+			for _, key := range modelOrder {
+				rep.Cost.ByModel = append(rep.Cost.ByModel, *byModel[key])
 			}
 		}
 	}
@@ -538,6 +579,7 @@ func evaluateGate(metrics []metric) gate {
 		"anchors_in_transcript_rate":   true,
 		"tags_valid_rate":              true,
 		"drill_judge_accuracy":         true,
+		"topic_cards_produced":         true,
 		"topic_cards_with_blocks_rate": true,
 		"topic_cards_with_source_rate": true,
 	}
@@ -553,7 +595,7 @@ func evaluateGate(metrics []metric) gate {
 
 // --- artifacts ----------------------------------------------------------
 
-func writeArtifacts(outDir string, results []*sampleResult, scenes []sceneTopicResult, rep report) error {
+func writeArtifacts(outDir string, results []*sampleResult, topics topicStageResult, rep report) error {
 	for _, r := range results {
 		raw, err := json.MarshalIndent(r, "", "  ")
 		if err != nil {
@@ -563,17 +605,12 @@ func writeArtifacts(outDir string, results []*sampleResult, scenes []sceneTopicR
 			return err
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(outDir, "topics"), 0o755); err != nil {
+	topicRaw, err := json.MarshalIndent(topics, "", "  ")
+	if err != nil {
 		return err
 	}
-	for _, scene := range scenes {
-		raw, err := json.MarshalIndent(scene, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(outDir, "topics", scene.Scene+".json"), append(raw, '\n'), 0o644); err != nil {
-			return err
-		}
+	if err := os.WriteFile(filepath.Join(outDir, "topics.json"), append(topicRaw, '\n'), 0o644); err != nil {
+		return err
 	}
 	raw, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
@@ -582,13 +619,13 @@ func writeArtifacts(outDir string, results []*sampleResult, scenes []sceneTopicR
 	if err := os.WriteFile(filepath.Join(outDir, "report.json"), append(raw, '\n'), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "report.md"), []byte(renderMarkdown(rep, results, scenes)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "report.md"), []byte(renderMarkdown(rep, results, topics)), 0o644); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(outDir, "review-sheet.md"), []byte(renderReviewSheet(results)), 0o644)
 }
 
-func renderMarkdown(rep report, results []*sampleResult, scenes []sceneTopicResult) string {
+func renderMarkdown(rep report, results []*sampleResult, topics topicStageResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# 核心链路质量评估报告 %s\n\n", rep.RunID)
 	fmt.Fprintf(&b, "- 样本数：%d（%d 条有错误）\n- 耗时：%.1fs\n- 评估自身成本：%d 次调用 / %d+%d tokens / %.4f 元\n\n",
@@ -650,20 +687,21 @@ func renderMarkdown(rep report, results []*sampleResult, scenes []sceneTopicResu
 		b.WriteString("（无）\n")
 	}
 
-	b.WriteString("\n## 话题阶段（按场景分组）\n\n")
-	b.WriteString("| 场景 | 语料块 | 跨会话重复 | 卡片 | 泛话题 | 错误 |\n|---|---|---|---|---|---|\n")
-	for _, scene := range scenes {
-		generic, total := 0, 0
-		if scene.Verdict != nil {
-			for _, t := range scene.Verdict.Topics {
-				total++
-				if t.Generic {
-					generic++
-				}
-			}
-		}
-		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d/%d | %s |\n",
-			scene.Scene, scene.CorpusSize, scene.DuplicateExpressions, len(scene.Cards), generic, total, scene.Error)
+	b.WriteString("\n## 记账核对（本次运行产生的 ai_cost_logs 行）\n\n")
+	b.WriteString("| task_type | 调用 | tokens_in | tokens_out | 微元 |\n|---|---|---|---|---|\n")
+	for _, row := range rep.Cost.ByTaskType {
+		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d |\n", row.Key, row.Calls, row.TokensIn, row.TokensOut, row.MicroYuan)
+	}
+	b.WriteString("\n| model | 调用 | tokens_in | tokens_out | 微元 |\n|---|---|---|---|---|\n")
+	for _, row := range rep.Cost.ByModel {
+		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d |\n", row.Key, row.Calls, row.TokensIn, row.TokensOut, row.MicroYuan)
+	}
+
+	b.WriteString("\n## 话题阶段\n\n")
+	fmt.Fprintf(&b, "池化语料 %d 块（%d 天，%d 张卡）%s\n\n", topics.CorpusSize, topics.Days, len(topics.Cards), topics.Error)
+	b.WriteString("| 场景 | 会话数 | 块数 | 跨会话重复 |\n|---|---|---|---|\n")
+	for _, stat := range topics.SceneDuplicates {
+		fmt.Fprintf(&b, "| %s | %d | %d | %d |\n", stat.Scene, stat.Sessions, stat.Blocks, stat.Duplicates)
 	}
 
 	b.WriteString("\n## 质量长尾（裁判低分项）\n\n")

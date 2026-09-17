@@ -58,8 +58,10 @@ func (r *referee) score(ctx context.Context, in refereeInput) (*rubricVerdict, e
 	resp, err := r.client.Complete(ctx, orchestrator.CompletionRequest{
 		SystemPrompt: refereePrompt,
 		Prompt:       refereeUserPrompt(in),
-		MaxTokens:    1500,
-		Temperature:  0,
+		// Room to finish: at 1500 the response was truncated mid-JSON on longer
+		// samples, which surfaced as a parse failure rather than as a budget.
+		MaxTokens:   3000,
+		Temperature: 0,
 		// json_object keeps the shape machine-readable; the rubric itself is in
 		// the system prompt where a model treats it as instructions.
 		ResponseFormat: "json_object",
@@ -104,9 +106,9 @@ Rubric for each topic card:
 - generic: true when the topic would suit anybody (a failed card for this product).
 
 Reply with JSON only, no prose:
-{"blocks":[{"index":0,"fidelity":5,"idiomatic":4,"portable":4,"comment":"<short>"}],
- "review":{"authenticity":4,"comment":"<short>"},
- "topics":[{"index":0,"grounded":5,"generic":false,"comment":"<short>"}]}`
+{"blocks":[{"index":0,"fidelity":5,"idiomatic":4,"portable":4,"comment":"<=12 words"}],
+ "review":{"authenticity":4,"comment":"<=12 words"},
+ "topics":[{"index":0,"grounded":5,"generic":false,"comment":"<=12 words"}]}`
 
 func refereeUserPrompt(in refereeInput) string {
 	var b strings.Builder

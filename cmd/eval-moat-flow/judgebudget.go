@@ -2,90 +2,51 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 )
 
-// The drill judge runs inside a 1.5s budget in production (drill.JudgeTimeout,
-// the D-3 realtime budget). That budget is a latency contract, not a statement
-// about judgement quality — and an eval must not confuse the two: a timed-out
-// judge returns "fail", which would silently score as a verdict.
+// The drill judge runs inside a latency budget in production. That budget is a
+// latency contract, not a statement about judgement quality — and an eval must
+// not confuse the two: a timed-out judge returns "fail", which would silently
+// score as a verdict.
 //
-// So each case is judged twice:
+// So each case is judged twice, through the same production code path:
 //
 //   - under the production budget, to measure how often the realtime path can
-//     even get an answer (prod_timed_out → a health signal);
+//     even get an answer (a health signal about the budget);
 //   - with a generous budget, to measure whether the prompt judges correctly
 //     when it is allowed to finish (that is the accuracy number).
+//
+// Both passes use drill.LLMJudge — same prompt, same parsing, same endpoint —
+// so the only variable between them is time.
 type judgeBudget struct {
-	client orchestrator.Client
-	// accuracyTimeout is far above the production budget on purpose: this pass
-	// asks "is the judgement right", not "is it fast".
-	accuracyTimeout time.Duration
+	slow *drill.LLMJudge
 }
 
-const defaultAccuracyTimeout = 30 * time.Second
-
-// verdict is one judge answer plus how it was obtained.
-type verdict struct {
-	Pass     bool
-	Reason   string
-	TimedOut bool
-	Duration time.Duration
-}
+// defaultAccuracyTimeout is far above the production budget on purpose: this
+// pass asks "is the judgement right", not "is it fast".
+const defaultAccuracyTimeout = 45 * time.Second
 
 // judgeUnderProductionBudget runs the production judge path unchanged.
-func judgeUnderProductionBudget(ctx context.Context, j *drill.LLMJudge, target, answer string) verdict {
+func judgeUnderProductionBudget(ctx context.Context, j *drill.LLMJudge, target, answer string) (drill.JudgeResult, time.Duration) {
 	started := time.Now()
-	result, err := j.Judge(ctx, target, answer)
-	elapsed := time.Since(started)
-	v := verdict{Pass: result.Pass, Reason: result.Reason, Duration: elapsed}
-	// drill.JudgeTimeout is exported, so the sentinel can be read rather than
-	// guessed from the reason string.
-	if err != nil || elapsed >= drill.JudgeTimeout || result.Reason == "judge_timeout" {
-		v.TimedOut = true
-	}
-	return v
+	result, _ := j.Judge(ctx, target, answer)
+	return result, time.Since(started)
 }
 
-// judgeWithBudget asks the same prompt with room to finish.
-func (b *judgeBudget) judgeWithBudget(ctx context.Context, target, answer string) (verdict, error) {
+// judgeWithRoom re-runs the same judge with a budget that lets it finish.
+func (b *judgeBudget) judgeWithRoom(ctx context.Context, target, answer string) (drill.JudgeResult, time.Duration, error) {
 	started := time.Now()
-	timeout := b.accuracyTimeout
-	if timeout <= 0 {
-		timeout = defaultAccuracyTimeout
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	result, err := b.slow.Judge(ctx, target, answer)
+	return result, time.Since(started), err
+}
 
-	prompt := drill.JudgePrompt(target, answer)
-	resp, err := b.client.Complete(callCtx, orchestrator.CompletionRequest{
-		Prompt:         prompt,
-		MaxTokens:      200,
-		Temperature:    0,
-		ResponseFormat: "json_object",
-		Operation:      "eval.moat.judge",
-	})
-	if err != nil {
-		return verdict{}, err
-	}
-	var parsed struct {
-		Pass   bool   `json:"pass"`
-		Reason string `json:"judge_reason"`
-	}
-	content := strings.TrimSpace(resp.Content)
-	if i := strings.Index(content, "{"); i >= 0 {
-		content = content[i:]
-	}
-	if j := strings.LastIndex(content, "}"); j >= 0 {
-		content = content[:j+1]
-	}
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		return verdict{}, err
-	}
-	return verdict{Pass: parsed.Pass, Reason: parsed.Reason, Duration: time.Since(started)}, nil
+func newJudgeBudget(client orchestrator.Client) *judgeBudget {
+	return &judgeBudget{slow: &drill.LLMJudge{
+		LLM:     &drill.OrchestratorAdapter{Client: client},
+		Timeout: defaultAccuracyTimeout,
+	}}
 }
