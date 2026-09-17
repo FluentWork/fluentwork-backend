@@ -66,7 +66,12 @@ type evidence struct {
 	AppealRestored   bool     `json:"appeal_restored"`
 	AppealStreak     int      `json:"appeal_streak"`
 	AppealDueBackTo  string   `json:"appeal_next_due_at"`
-	ReviewReadyMS    int64    `json:"review_ready_ms"`
+	// Chain 4 (T9/T10): the session-open suggestions and the refine-quality
+	// reflux.
+	RecommendationCount int    `json:"recommendation_count"`
+	RecommendationWhy   string `json:"recommendation_reason"`
+	FeedbackRecorded    bool   `json:"feedback_recorded"`
+	ReviewReadyMS       int64  `json:"review_ready_ms"`
 }
 
 func run() error {
@@ -464,6 +469,35 @@ func exercise(
 		return ev, err
 	}
 	step("corpus list shows the block")
+
+	// --- chain 4: the session-open suggestions, and the quality reflux ---
+	recommended, err := getJSON(client, baseURL+"/api/v1/corpus/recommendations?scene=standup", token)
+	if err != nil {
+		return ev, fmt.Errorf("recommendations: %w", err)
+	}
+	recItems, _ := recommended["items"].([]any)
+	ev.RecommendationCount = len(recItems)
+	if ev.RecommendationCount == 0 {
+		return ev, fmt.Errorf("no recommendations for a corpus with one standup block: %#v", recommended)
+	}
+	firstRec, _ := recItems[0].(map[string]any)
+	ev.RecommendationWhy = stringField(firstRec, "reason")
+	if ev.RecommendationWhy != "scene_match" {
+		return ev, fmt.Errorf("recommendation reason = %q, want a scene match", ev.RecommendationWhy)
+	}
+	step("corpus suggestions carry a reason")
+
+	feedback, err := postJSON(client, baseURL+"/api/v1/corpus/blocks/"+blockID+"/feedback", token, map[string]any{
+		"reason": "not_idiomatic",
+	})
+	if err != nil {
+		return ev, fmt.Errorf("block feedback: %w", err)
+	}
+	ev.FeedbackRecorded, _ = feedback["recorded"].(bool)
+	if !ev.FeedbackRecorded {
+		return ev, fmt.Errorf("feedback not recorded: %#v", feedback)
+	}
+	step("refine-quality feedback recorded")
 
 	// --- chain 2: mock gateway reports a B7 hit ---
 	hitPayload := map[string]any{

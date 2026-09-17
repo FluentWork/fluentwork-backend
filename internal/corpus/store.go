@@ -70,6 +70,17 @@ type Store interface {
 	UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error)
 	SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
 	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)
+	// SaveFeedback records one quality signal, idempotent on
+	// (user_id, block_id, reason). It reports whether this call created the row.
+	SaveFeedback(ctx context.Context, feedback Feedback) (bool, error)
+	// CountFeedback returns how many live rows carry each reason, for the
+	// metrics endpoint.
+	CountFeedback(ctx context.Context, userID string) (map[string]int, error)
+	// SoftDeleteFeedbackForUser and RestoreFeedbackForUser keep A4's wipe
+	// complete: feedback text is the user's own judgement, so it goes with the
+	// account.
+	SoftDeleteFeedbackForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
+	RestoreFeedbackForUser(ctx context.Context, userID string) (int, error)
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

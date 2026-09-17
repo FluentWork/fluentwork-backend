@@ -30,6 +30,70 @@ func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.PATCH("/corpus/blocks/:id/favorite", h.accounts.RequireAuth(), h.PatchFavorite)
 	rg.POST("/corpus/blocks/:id/favorite", h.accounts.RequireAuth(), h.PostFavorite)
 	rg.POST("/corpus/blocks/batch-accept", h.accounts.RequireAuth(), h.PostBatchAccept)
+	rg.GET("/corpus/recommendations", h.accounts.RequireAuth(), h.GetRecommendations)
+	rg.POST("/corpus/blocks/:id/feedback", h.accounts.RequireAuth(), h.PostBlockFeedback)
+	rg.GET("/corpus/feedback", h.accounts.RequireAuth(), h.GetFeedbackSummary)
+}
+
+// PostBlockFeedback handles POST /corpus/blocks/:id/feedback — the "this
+// rewrite is not good enough" button (83_ §2.2).
+func (h *Handler) PostBlockFeedback(c *gin.Context) {
+	actorID, ok := mustActorID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.RecordFeedback(c.Request.Context(), FeedbackRequest{
+		UserID:  actorID,
+		BlockID: c.Param("id"),
+		Reason:  body.Reason,
+	})
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// GetFeedbackSummary handles GET /corpus/feedback.
+func (h *Handler) GetFeedbackSummary(c *gin.Context) {
+	actorID, ok := mustActorID(c)
+	if !ok {
+		return
+	}
+	items, err := h.svc.FeedbackSummary(c.Request.Context(), actorID)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, map[string]any{"items": items})
+}
+
+// GetRecommendations handles GET /corpus/recommendations: the blocks worth
+// putting to work in the session the client is about to open.
+func (h *Handler) GetRecommendations(c *gin.Context) {
+	actorID, ok := mustActorID(c)
+	if !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	result, err := h.svc.Recommend(c.Request.Context(), RecommendRequest{
+		UserID:      actorID,
+		SceneTag:    c.Query("scene"),
+		FunctionTag: c.Query("func"),
+		Limit:       limit,
+	})
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
 }
 
 // GetBlocks handles GET /corpus/blocks.

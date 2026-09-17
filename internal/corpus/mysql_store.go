@@ -425,6 +425,76 @@ func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID s
 	return recorded, nil
 }
 
+// SaveFeedback implements Store.
+func (s *MySQLStore) SaveFeedback(ctx context.Context, feedback Feedback) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO phrase_block_feedback (id, user_id, block_id, reason, deleted_at, created_at)
+		VALUES (?, ?, ?, ?, NULL, ?)
+		ON DUPLICATE KEY UPDATE deleted_at = NULL
+	`, feedback.ID, feedback.UserID, feedback.BlockID, feedback.Reason, feedback.CreatedAt.UTC())
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	// MySQL reports 1 for an insert and 2 for an ON DUPLICATE KEY update that
+	// changed a value; a re-tap that changes nothing reports 0.
+	return n == 1, nil
+}
+
+// CountFeedback implements Store.
+func (s *MySQLStore) CountFeedback(ctx context.Context, userID string) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT reason, COUNT(*) FROM phrase_block_feedback
+		WHERE user_id = ? AND deleted_at IS NULL
+		GROUP BY reason
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int{}
+	for rows.Next() {
+		var reason string
+		var count int
+		if err := rows.Scan(&reason, &count); err != nil {
+			return nil, err
+		}
+		out[reason] = count
+	}
+	return out, rows.Err()
+}
+
+// SoftDeleteFeedbackForUser implements Store.
+func (s *MySQLStore) SoftDeleteFeedbackForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE phrase_block_feedback
+		SET deleted_at = ?
+		WHERE user_id = ? AND deleted_at IS NULL
+	`, deletedAt.UTC(), userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+// RestoreFeedbackForUser implements Store.
+func (s *MySQLStore) RestoreFeedbackForUser(ctx context.Context, userID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE phrase_block_feedback
+		SET deleted_at = NULL
+		WHERE user_id = ? AND deleted_at IS NOT NULL
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
 // ListSessionHits implements Store. Soft-deleted blocks are omitted.
 func (s *MySQLStore) ListSessionHits(ctx context.Context, sessionID string) ([]RecentHit, error) {
 	rows, err := s.db.QueryContext(ctx, `

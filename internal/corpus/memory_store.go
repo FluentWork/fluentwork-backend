@@ -16,6 +16,7 @@ type MemoryStore struct {
 	schedule Schedule
 	blocks   map[string]PhraseBlock
 	uses     map[string]phraseBlockUse
+	feedback []Feedback
 }
 
 // SetSchedule replaces the ladder used by the hit writeback (E3). A zero
@@ -467,6 +468,67 @@ func (s *MemoryStore) UpdateSchedule(_ context.Context, userID, blockID, state s
 	block.UpdatedAt = updatedAt.UTC()
 	s.blocks[blockID] = block
 	return cloneBlock(block), nil
+}
+
+// SaveFeedback implements Store. The (user, block, reason) triple is unique, so
+// a second tap of the same button changes nothing.
+func (s *MemoryStore) SaveFeedback(_ context.Context, feedback Feedback) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.feedback {
+		if existing.UserID == feedback.UserID && existing.BlockID == feedback.BlockID &&
+			existing.Reason == feedback.Reason && existing.DeletedAt == nil {
+			return false, nil
+		}
+	}
+	feedback.DeletedAt = nil
+	s.feedback = append(s.feedback, feedback)
+	return true, nil
+}
+
+// CountFeedback implements Store.
+func (s *MemoryStore) CountFeedback(_ context.Context, userID string) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, feedback := range s.feedback {
+		if feedback.UserID != userID || feedback.DeletedAt != nil {
+			continue
+		}
+		out[feedback.Reason]++
+	}
+	return out, nil
+}
+
+// SoftDeleteFeedbackForUser implements Store.
+func (s *MemoryStore) SoftDeleteFeedbackForUser(_ context.Context, userID string, deletedAt time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.feedback {
+		if s.feedback[i].UserID != userID || s.feedback[i].DeletedAt != nil {
+			continue
+		}
+		stamped := deletedAt.UTC()
+		s.feedback[i].DeletedAt = &stamped
+		n++
+	}
+	return n, nil
+}
+
+// RestoreFeedbackForUser implements Store.
+func (s *MemoryStore) RestoreFeedbackForUser(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.feedback {
+		if s.feedback[i].UserID != userID || s.feedback[i].DeletedAt == nil {
+			continue
+		}
+		s.feedback[i].DeletedAt = nil
+		n++
+	}
+	return n, nil
 }
 
 // SoftDeleteAllForUser implements Store.

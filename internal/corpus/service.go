@@ -308,6 +308,95 @@ func (s *Service) BatchAccept(ctx context.Context, userID string, req BatchAccep
 	return resp, nil
 }
 
+// FeedbackRequest is POST /corpus/blocks/:id/feedback.
+type FeedbackRequest struct {
+	UserID  string
+	BlockID string
+	Reason  string
+}
+
+// FeedbackReasonCount is one bucket of the reflux summary.
+type FeedbackReasonCount struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+// FeedbackResponse reports what the tap did. Recorded is false when the same
+// reason had already been reported for this block — the button is idempotent,
+// not a counter of taps.
+type FeedbackResponse struct {
+	BlockID  string `json:"block_id"`
+	Reason   string `json:"reason"`
+	Recorded bool   `json:"recorded"`
+}
+
+// RecordFeedback stores one "this rewrite is not good enough" signal
+// (83_ §2.2 风险 1). The signal is the point: it is what prompt iteration reads
+// when deciding whether a rewrite rule actually landed.
+func (s *Service) RecordFeedback(ctx context.Context, req FeedbackRequest) (FeedbackResponse, error) {
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		return FeedbackResponse{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	blockID := strings.TrimSpace(req.BlockID)
+	if blockID == "" {
+		return FeedbackResponse{}, apierr.InvalidArgument("block_id is required")
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if !ValidFeedbackReason(reason) {
+		return FeedbackResponse{}, apierr.InvalidArgument("reason must be not_idiomatic, not_useful or wrong_meaning")
+	}
+	if s == nil || s.store == nil {
+		return FeedbackResponse{}, apierr.Internal("corpus store is not configured")
+	}
+	block, err := s.store.PeekBlock(ctx, blockID)
+	if err != nil {
+		if err == ErrNotFound {
+			return FeedbackResponse{}, apierr.NotFound("block not found")
+		}
+		return FeedbackResponse{}, err
+	}
+	// Someone else's block is NotFound, not Forbidden: saying it exists is the
+	// leak (same rule as the judge and the appeal paths).
+	if block.UserID != userID || block.DeletedAt != nil {
+		return FeedbackResponse{}, apierr.NotFound("block not found")
+	}
+	first, err := s.store.SaveFeedback(ctx, Feedback{
+		ID:        s.newID(),
+		UserID:    userID,
+		BlockID:   blockID,
+		Reason:    reason,
+		CreatedAt: s.now().UTC(),
+	})
+	if err != nil {
+		return FeedbackResponse{}, err
+	}
+	if first {
+		incFeedback(reason)
+	}
+	return FeedbackResponse{BlockID: blockID, Reason: reason, Recorded: first}, nil
+}
+
+// FeedbackSummary returns the user's live signals per reason.
+func (s *Service) FeedbackSummary(ctx context.Context, userID string) ([]FeedbackReasonCount, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, apierr.Unauthenticated("missing authenticated user")
+	}
+	if s == nil || s.store == nil {
+		return nil, apierr.Internal("corpus store is not configured")
+	}
+	counts, err := s.store.CountFeedback(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FeedbackReasonCount, 0, len(counts))
+	for _, reason := range []string{FeedbackNotIdiomatic, FeedbackNotUseful, FeedbackWrongMeaning} {
+		out = append(out, FeedbackReasonCount{Reason: reason, Count: counts[reason]})
+	}
+	return out, nil
+}
+
 func toView(block PhraseBlock) PhraseBlockView {
 	return PhraseBlockView{
 		ID:              block.ID,

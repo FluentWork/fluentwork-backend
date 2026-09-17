@@ -67,6 +67,42 @@ type PhraseBlock struct {
 	UpdatedAt       time.Time
 }
 
+// Feedback reasons (83_ §2.2). A closed set: the point of the reflux is a
+// countable signal for prompt work, which free text would not give.
+const (
+	// FeedbackNotIdiomatic is "地道版还不够地道".
+	FeedbackNotIdiomatic = "not_idiomatic"
+	// FeedbackNotUseful is "这句话我用不上".
+	FeedbackNotUseful = "not_useful"
+	// FeedbackWrongMeaning is "改写改变了我的原意".
+	FeedbackWrongMeaning = "wrong_meaning"
+)
+
+// ValidFeedbackReason reports whether reason is one of the closed set.
+func ValidFeedbackReason(reason string) bool {
+	switch reason {
+	case FeedbackNotIdiomatic, FeedbackNotUseful, FeedbackWrongMeaning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Feedback is one stored quality signal.
+type Feedback struct {
+	ID      string
+	UserID  string
+	BlockID string
+	Reason  string
+	// DeletedAt follows the corpus soft-delete convention so A4's wipe and
+	// restore cover feedback with the blocks it belongs to.
+	DeletedAt *time.Time
+	CreatedAt time.Time
+	// AlreadyRecorded is set by the service when this (user, block, reason) had
+	// been reported before; the call is idempotent.
+	AlreadyRecorded bool
+}
+
 // ListBlocksRequest is the service input for paginated corpus queries.
 type ListBlocksRequest struct {
 	UserID       string
