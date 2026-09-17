@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/conversation"
@@ -45,15 +44,6 @@ type RescueAudio struct {
 	SampleRate int
 	Codec      string
 	VoiceID    string
-}
-
-// DurationMS is how long the rung takes to speak, from the PCM itself.
-// 16 kHz mono s16le: two bytes per sample.
-func (a RescueAudio) DurationMS() int64 {
-	if a.SampleRate <= 0 {
-		return 0
-	}
-	return int64(len(a.PCM)) / 2 * 1000 / int64(a.SampleRate)
 }
 
 // RescueSynthesizer turns rescue text into audio.
@@ -105,86 +95,6 @@ func NewRescueOrchestrator(
 		logger:      logger.With("component", "rescue_orchestrator"),
 		fallbackLib: buildFallbackLibrary(),
 	}
-}
-
-// RescueAudioFrameBytes is how much PCM one binary frame carries: 100 ms of
-// 16 kHz mono s16le, the same size the provider uses for the AI's own speech.
-//
-// Matching the provider's chunking is not cosmetic. The client drops whole
-// frames at and below the barge-in watermark, so one frame per rung (a 3s rung
-// is 96 KB) would leave nothing to drop — the user would interrupt the ladder
-// and keep hearing it.
-const RescueAudioFrameBytes = 3200
-
-// RescueAudioOutbound turns a synthesized rung into the frames that speak it:
-// an ai.tts.start, one binary frame per 100 ms, and an ai.tts.end.
-//
-// nextSeq is the caller's audio sequence allocator. The rung must be numbered
-// from the same counter the provider draws on, because the client's gate compares
-// every frame against a watermark that lives for the whole WebSocket session:
-// numbering the ladder from zero would put it below a watermark the user's last
-// barge-in set, and every frame would be dropped in silence.
-func RescueAudioOutbound(
-	audio RescueAudio,
-	turnID string,
-	nextSeq func() uint32,
-) []ProviderOutbound {
-	if len(audio.PCM) == 0 || nextSeq == nil {
-		return nil
-	}
-	sampleRate := audio.SampleRate
-	if sampleRate <= 0 {
-		sampleRate = 16000
-	}
-	codec := strings.TrimSpace(audio.Codec)
-	if codec == "" {
-		codec = "pcm"
-	}
-	out := make([]ProviderOutbound, 0, len(audio.PCM)/RescueAudioFrameBytes+2)
-	out = append(out, ProviderOutbound{Control: voiceproto.AITTSStart{
-		Type:       voiceproto.TypeAITTSStart,
-		TurnID:     turnID,
-		VoiceID:    audio.VoiceID,
-		SampleRate: sampleRate,
-		Codec:      codec,
-	}})
-	for offset := 0; offset < len(audio.PCM); offset += RescueAudioFrameBytes {
-		end := offset + RescueAudioFrameBytes
-		if end > len(audio.PCM) {
-			end = len(audio.PCM)
-		}
-		frame, err := (voiceproto.AITTSAudio{
-			Seq:     nextSeq(),
-			Payload: audio.PCM[offset:end],
-		}).Encode()
-		if err != nil {
-			// Payload is non-empty by construction, so this cannot fire; stop
-			// rather than emit a truncated stream the client would wait on.
-			break
-		}
-		out = append(out, ProviderOutbound{Binary: frame})
-	}
-	durationMS := int(audio.DurationMS())
-	out = append(out, ProviderOutbound{Control: voiceproto.AITTSEnd{
-		Type:             voiceproto.TypeAITTSEnd,
-		TurnID:           turnID,
-		CompletionStatus: "ok",
-		DurationMs:       &durationMS,
-	}})
-	return out
-}
-
-// RescueAudioInterrupted is the frame that stops a rung already being spoken.
-//
-// Without it the client keeps playing: its stream stays active until an
-// ai.tts.end arrives, and the ladder's whole purpose is to get the user talking,
-// so the moment they do is exactly when it should stop.
-func RescueAudioInterrupted(turnID string) ProviderOutbound {
-	return ProviderOutbound{Control: voiceproto.AITTSEnd{
-		Type:             voiceproto.TypeAITTSEnd,
-		TurnID:           turnID,
-		CompletionStatus: "interrupted",
-	}}
 }
 
 // GenerateAndSynthesize generates rescue text and, when a synthesizer is wired,

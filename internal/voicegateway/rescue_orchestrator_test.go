@@ -96,8 +96,11 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 	if delivery.Audio == nil {
 		t.Fatal("Expected synthesized audio on the delivery")
 	}
-	if got := delivery.Audio.DurationMS(); got != 300 {
-		t.Errorf("duration = %dms, want 300", got)
+	// The rung's length is not asserted here any more: how long it takes to
+	// speak is what the *writer* reports, and it reports what it actually sent
+	// rather than what was synthesized. That assertion lives with the writer.
+	if got := delivery.Audio.SampleRate; got != 16000 {
+		t.Errorf("sample rate = %d, want 16000", got)
 	}
 	if frame.TS <= 0 {
 		t.Error("Expected a non-zero ts")
