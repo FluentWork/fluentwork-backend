@@ -239,7 +239,7 @@ func (s *MySQLStore) MarkSessionActive(ctx context.Context, sessionID string, at
 }
 
 // EndSession marks a session ended and writes utterances in one transaction.
-func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
+func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, nil, false, err
@@ -285,6 +285,20 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 			return Session{}, nil, false, err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM rescue_events WHERE session_id = ?`, sessionID); err != nil {
+		return Session{}, nil, false, err
+	}
+	for _, event := range rescueEvents {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO rescue_events (
+				id, session_id, user_id, seq, turn_id, level, path,
+				ladder_text, user_opened, anchor_text, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, event.ID, sessionID, event.UserID, event.Seq, event.TurnID, event.Level, event.Path,
+			event.Ladder, event.UserOpened, event.Anchor, event.CreatedAt); err != nil {
+			return Session{}, nil, false, err
+		}
+	}
 	session.Status = StatusEnded
 	session.DurationSec = durationSec
 	session.UpdatedAt = at
@@ -312,6 +326,34 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 		return Session{}, nil, false, err
 	}
 	return session, saved, false, nil
+}
+
+// ListRescueEvents implements Store: the session's B8 ladders ordered by seq.
+func (s *MySQLStore) ListRescueEvents(ctx context.Context, sessionID string) ([]RescueEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, user_id, seq, turn_id, level, path,
+		       ladder_text, user_opened, anchor_text, created_at
+		FROM rescue_events
+		WHERE session_id = ?
+		ORDER BY seq ASC
+	`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	events := make([]RescueEvent, 0)
+	for rows.Next() {
+		var event RescueEvent
+		if err := rows.Scan(
+			&event.ID, &event.SessionID, &event.UserID, &event.Seq, &event.TurnID,
+			&event.Level, &event.Path, &event.Ladder, &event.UserOpened,
+			&event.Anchor, &event.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
 }
 
 // ListUtterances returns transcript rows ordered by seq.

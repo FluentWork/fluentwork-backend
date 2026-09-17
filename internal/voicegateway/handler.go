@@ -330,6 +330,9 @@ type sessionRuntime struct {
 		window   time.Duration
 		interval int // log every Nth occurrence (1, 10, 20, ...)
 	}
+	// rescueLog accumulates this session's B8 stuck points for refine's second
+	// input (PRD §5.4.4), reported with the transcript at session end.
+	rescueLog rescueLog
 	// unknownFrameCount is how many well-formed frames with an unknown
 	// type this session ignored. Forward-compat: a future v3 type must
 	// not kill a v2 gateway the way client.turn.abort once did.
@@ -952,6 +955,10 @@ func (h *Handler) startCollectTurn(
 				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
 			}
 		}
+		// B8 → D1: the silent path's anchor is whatever the user managed to say
+		// after the ladder, so the rescue log needs the same resolved text the
+		// badge emitter uses. See rescueLog.noteUserText.
+		rt.noteUserUtteranceText(resolvedUserText(data, outbound))
 	}()
 	return nil
 }
@@ -1016,6 +1023,20 @@ func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound [
 // extractServerASRText returns the server-side ASR text from provider outbound.
 // B14: The Volcengine provider populates ServerASRText in ProviderOutbound so
 // the handler can use it for badge detection when client ASR text is empty.
+// resolvedUserText returns the user's utterance for this turn, preferring the
+// client's own text and falling back to the provider's server-side ASR — the
+// same resolution the badge emitter performs. Empty means the turn produced no
+// text we can use as an anchor.
+func resolvedUserText(data []byte, outbound []ProviderOutbound) string {
+	var end voiceproto.UserSpeechEnd
+	if err := json.Unmarshal(data, &end); err == nil {
+		if text := strings.TrimSpace(end.Text); text != "" {
+			return text
+		}
+	}
+	return extractServerASRText(outbound)
+}
+
 func extractServerASRText(outbound []ProviderOutbound) string {
 	for _, item := range outbound {
 		if item.ServerASRText != "" {
@@ -1073,7 +1094,10 @@ func (h *Handler) persistSession(
 		DurationSec: durationSec,
 		Reason:      reason,
 		Utterances:  utterances,
-		VoiceUsage:  rt.snapshotVoiceUsage(),
+		// P1-1: refine's second input. Sealed here because this is the last
+		// moment the runtime can still resolve an open episode's anchor.
+		RescueEvents: rt.snapshotRescueEvents(),
+		VoiceUsage:   rt.snapshotVoiceUsage(),
 	})
 }
 

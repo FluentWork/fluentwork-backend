@@ -21,15 +21,19 @@ type MemoryStore struct {
 	// rows written atomically with session review updates. Tests can inspect this
 	// map to verify the review+cost transaction invariant.
 	costLogs map[string]aicost.Log
+	// rescueEvents holds each session's B8 ladders, replaced wholesale on end
+	// exactly like utterances.
+	rescueEvents map[string][]RescueEvent
 }
 
 // NewMemoryStore constructs an empty in-memory session store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:   make(map[string]Session),
-		tickets:    make(map[string]Ticket),
-		utterances: make(map[string][]Utterance),
-		jobs:       make(map[string]Job),
+		sessions:     make(map[string]Session),
+		tickets:      make(map[string]Ticket),
+		utterances:   make(map[string][]Utterance),
+		jobs:         make(map[string]Job),
+		rescueEvents: make(map[string][]RescueEvent),
 	}
 }
 
@@ -198,7 +202,7 @@ func (s *MemoryStore) MarkSessionActive(_ context.Context, sessionID string, at 
 
 // EndSession marks a session ended and replaces its utterances atomically.
 // If already ended, returns the existing rows with alreadyEnded=true.
-func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
+func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]
@@ -225,12 +229,30 @@ func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSe
 		cloned = append(cloned, cloneUtterance(u))
 	}
 	s.utterances[sessionID] = cloned
+	events := make([]RescueEvent, 0, len(rescueEvents))
+	for _, event := range rescueEvents {
+		event.SessionID = sessionID
+		events = append(events, event)
+	}
+	s.rescueEvents[sessionID] = events
 	// No real transaction here; the row is written only on the path that
 	// actually ends the session, so a replayed end cannot double-charge.
 	if costLog != nil {
 		s.costLogs[costLog.ID] = *costLog
 	}
 	return cloneSession(session), cloneUtterances(cloned), false, nil
+}
+
+// ListRescueEvents returns the session's B8 ladders ordered by seq.
+func (s *MemoryStore) ListRescueEvents(_ context.Context, sessionID string) ([]RescueEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, ErrNotFound
+	}
+	out := append([]RescueEvent(nil), s.rescueEvents[sessionID]...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
 }
 
 // ListUtterances returns transcript rows for a session ordered by seq.

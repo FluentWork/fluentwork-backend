@@ -38,10 +38,27 @@ type EndSessionRequest struct {
 	DurationSec int
 	Reason      string
 	Utterances  []EndUtterance
+	// RescueEvents is this session's B8 ladders (PRD §5.4.4). They travel with
+	// the transcript because they are refine's second input, and refine reads
+	// both from the same stored session.
+	RescueEvents []EndRescueEvent
 	// VoiceUsage is the audio this session moved. Nil when the provider cannot
 	// report it (mock, dev-echo); the wire field is omitted then, and the
 	// app-server writes no cost row rather than a zero-valued one.
 	VoiceUsage *VoiceUsage
+}
+
+// EndRescueEvent is one stuck point the ladder was sent for. The anchor is
+// resolved here rather than in app-server because only the gateway saw which
+// utterance followed which ladder (PRD §5.2.2).
+type EndRescueEvent struct {
+	Seq        int    `json:"seq"`
+	TurnID     string `json:"turn_id,omitempty"`
+	Level      int    `json:"level"`
+	Path       string `json:"path,omitempty"`
+	Ladder     string `json:"ladder,omitempty"`
+	UserOpened bool   `json:"user_opened"`
+	Anchor     string `json:"anchor,omitempty"`
 }
 
 // EndUtterance is one transcript turn for B4 persistence.
@@ -68,11 +85,12 @@ type activateBody struct {
 }
 
 type endBody struct {
-	SessionID   string             `json:"session_id"`
-	DurationSec int                `json:"duration_sec"`
-	Reason      string             `json:"reason"`
-	Utterances  []endUtteranceBody `json:"utterances"`
-	VoiceUsage  *endVoiceUsageBody `json:"voice_usage,omitempty"`
+	SessionID    string             `json:"session_id"`
+	DurationSec  int                `json:"duration_sec"`
+	Reason       string             `json:"reason"`
+	Utterances   []endUtteranceBody `json:"utterances"`
+	RescueEvents []EndRescueEvent   `json:"rescue_events,omitempty"`
+	VoiceUsage   *endVoiceUsageBody `json:"voice_usage,omitempty"`
 }
 
 // endVoiceUsageBody is the wire shape for VoiceUsage. A separate type from
@@ -146,10 +164,11 @@ func (c *HTTPSessionClient) Activate(ctx context.Context, sessionID string) erro
 // End persists session end + utterances.
 func (c *HTTPSessionClient) End(ctx context.Context, req EndSessionRequest) error {
 	body := endBody{
-		SessionID:   req.SessionID,
-		DurationSec: req.DurationSec,
-		Reason:      req.Reason,
-		Utterances:  make([]endUtteranceBody, 0, len(req.Utterances)),
+		SessionID:    req.SessionID,
+		DurationSec:  req.DurationSec,
+		Reason:       req.Reason,
+		Utterances:   make([]endUtteranceBody, 0, len(req.Utterances)),
+		RescueEvents: req.RescueEvents,
 	}
 	for _, u := range req.Utterances {
 		body.Utterances = append(body.Utterances, endUtteranceBody(u))

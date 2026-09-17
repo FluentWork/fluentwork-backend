@@ -106,12 +106,50 @@ type Utterance struct {
 	Interrupted bool
 }
 
+// RescuePath names which trigger produced a rescue ladder (PRD §5.4.1). The
+// two paths differ in where the phrase block's anchor comes from (§5.2.2).
+const (
+	// RescuePathIncomplete is a half-finished utterance: the anchor is that
+	// half-sentence, verbatim.
+	RescuePathIncomplete = "incomplete"
+	// RescuePathSilent is a silence of >= 3s: the anchor is the first thing the
+	// user managed to say after the ladder — or nothing, if they never spoke.
+	RescuePathSilent = "silent"
+)
+
+// RescueEvent is one B8 ladder as persisted for a session.
+type RescueEvent struct {
+	ID        string
+	SessionID string
+	UserID    string
+	Seq       int
+	TurnID    string
+	// Level is the deepest rung the ladder reached (1..3).
+	Level int
+	// Path is RescuePathIncomplete or RescuePathSilent. Empty is treated as
+	// silent: an unlabelled ladder came from the silence detector.
+	Path string
+	// Ladder is the last rung's text. Level 3 carries the complete expression
+	// that becomes expression_en for the block this event produces.
+	Ladder string
+	// UserOpened records whether the user spoke after the ladder.
+	UserOpened bool
+	// Anchor is the phrase-block anchor (§5.2.2): the half-sentence for the
+	// incomplete path, the first utterance after the ladder for the silent
+	// path, and empty when the user never opened their mouth.
+	Anchor    string
+	CreatedAt time.Time
+}
+
 // EndRequest is the body of POST /internal/v1/sessions/end.
 type EndRequest struct {
 	SessionID   string             `json:"session_id"`
 	DurationSec int                `json:"duration_sec"`
 	Reason      string             `json:"reason"`
 	Utterances  []EndUtteranceItem `json:"utterances"`
+	// RescueEvents is this session's B8 ladders, in the order they fired.
+	// Absent for sessions the gateway ran without rescue enabled.
+	RescueEvents []RescueEventItem `json:"rescue_events,omitempty"`
 	// VoiceUsage is what the gateway measured for this session. Absent when the
 	// provider cannot report it (mock, dev-echo) — and absent means *no ledger
 	// row*, not a row of zeroes. See buildVoiceCostLog.
@@ -129,6 +167,19 @@ type VoiceUsageItem struct {
 	UplinkMS   int64  `json:"uplink_ms"`
 	DownlinkMS int64  `json:"downlink_ms"`
 	Model      string `json:"model,omitempty"`
+}
+
+// RescueEventItem is one rescue ladder submitted at session end, as measured by
+// the gateway. It is the second input to refine (PRD §5.4.4): without it the
+// silent path's stuck points never reach the corpus.
+type RescueEventItem struct {
+	Seq        int    `json:"seq"`
+	TurnID     string `json:"turn_id,omitempty"`
+	Level      int    `json:"level"`
+	Path       string `json:"path,omitempty"`
+	Ladder     string `json:"ladder,omitempty"`
+	UserOpened bool   `json:"user_opened"`
+	Anchor     string `json:"anchor,omitempty"`
 }
 
 // EndUtteranceItem is a transcript turn submitted at session end.

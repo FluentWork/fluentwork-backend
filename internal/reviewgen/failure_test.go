@@ -230,3 +230,60 @@ func newStubHTTPClient(status int, body string) *http.Client {
 		}),
 	}
 }
+
+// P1-1: the ladder report reaches the model, and the two paths' anchor rules
+// travel with it — the prompt is the only place those rules can be stated.
+func TestUserPrompt_RendersRescueEvents(t *testing.T) {
+	prompt := userPrompt(Request{
+		SessionID:  "s1",
+		SceneType:  "standup",
+		Transcript: "user: I was going to say that the deploy is",
+		StuckEvents: []StuckEvent{
+			{
+				Seq: 1, TurnID: "turn-1", Level: 3, Path: "incomplete",
+				Ladder: "The deploy is blocked on the migration.", UserOpened: true,
+				Anchor: "the deploy is",
+			},
+			{Seq: 2, Level: 1, Path: "silent"},
+		},
+	})
+
+	for _, want := range []string{
+		"rescue_events:",
+		"seq=1 level=3 path=incomplete user_opened=true",
+		"anchor: the deploy is",
+		"ladder: The deploy is blocked on the migration.",
+		"seq=2 level=1 path=silent user_opened=false",
+		"transcript:",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	// A silent event with no anchor must not grow one: §5.2.2 says such an
+	// event produces no block, and an invented anchor would invent a stuck
+	// point the transcript cannot corroborate.
+	if strings.Count(prompt, "anchor:") != 1 {
+		t.Fatalf("silent event must render no anchor:\n%s", prompt)
+	}
+}
+
+func TestUserPrompt_OmitsRescueSectionWithoutEvents(t *testing.T) {
+	prompt := userPrompt(Request{SessionID: "s1", SceneType: "standup", Transcript: "hello"})
+	if strings.Contains(prompt, "rescue_events:") {
+		t.Fatalf("unexpected rescue section:\n%s", prompt)
+	}
+}
+
+func TestSystemPrompt_StatesRescueAnchorRules(t *testing.T) {
+	prompt := systemPrompt()
+	for _, want := range []string{
+		"path=incomplete",
+		"path=silent with an anchor",
+		"never invent an anchor",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
+	}
+}

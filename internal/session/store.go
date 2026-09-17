@@ -44,8 +44,11 @@ type Store interface {
 	// so a session can never end with its usage recorded but its transcript
 	// missing (or the reverse). nil means the provider reported no usage and no
 	// row is owed — distinct from a row of zeroes.
-	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error)
+	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error)
 	ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error)
+	// ListRescueEvents returns the session's B8 ladders ordered by seq. They are
+	// refine's second input (PRD §5.4.4), read when the review job runs.
+	ListRescueEvents(ctx context.Context, sessionID string) ([]RescueEvent, error)
 	EnqueueJob(ctx context.Context, job Job) error
 	HasSessionJob(ctx context.Context, sessionID, jobType string, statuses ...string) (bool, error)
 	ClaimNextJob(ctx context.Context, workerID string, at time.Time) (Job, error)

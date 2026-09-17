@@ -285,12 +285,16 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		result reviewgen.Result
 		err    error
 	)
+	// P1-1: refine's second input. Loaded once for both attempts — the rescue
+	// log cannot change between them.
+	stuckEvents := s.stuckEventsFor(ctx, session.ID)
 	for attempt := 1; attempt <= reviewRetryAttempts; attempt++ {
 		result, err = s.reviewGen.Generate(ctx, reviewgen.Request{
-			SessionID:  session.ID,
-			UserID:     session.UserID,
-			SceneType:  session.SceneType,
-			Transcript: renderTranscript(utterances),
+			SessionID:   session.ID,
+			UserID:      session.UserID,
+			SceneType:   session.SceneType,
+			Transcript:  renderTranscript(utterances),
+			StuckEvents: stuckEvents,
 		})
 		if err == nil {
 			break
@@ -365,6 +369,38 @@ func generateFailureAttrs(err error) []any {
 		return nil
 	}
 	return genErr.LogAttrs()
+}
+
+// stuckEventsFor loads the session's B8 ladders for refine (PRD §5.4.4).
+//
+// A read failure is not fatal: refining from the transcript alone is the
+// behaviour before this input existed, and losing the whole review would be a
+// worse outcome than losing the silent path's stuck points.
+func (s *Service) stuckEventsFor(ctx context.Context, sessionID string) []reviewgen.StuckEvent {
+	events, err := s.store.ListRescueEvents(ctx, sessionID)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			s.logger.Warn("rescue events unavailable for refine",
+				"session_id", sessionID, "err", err)
+		}
+		return nil
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]reviewgen.StuckEvent, 0, len(events))
+	for _, event := range events {
+		out = append(out, reviewgen.StuckEvent{
+			Seq:        event.Seq,
+			TurnID:     event.TurnID,
+			Level:      event.Level,
+			Path:       event.Path,
+			Ladder:     event.Ladder,
+			UserOpened: event.UserOpened,
+			Anchor:     event.Anchor,
+		})
+	}
+	return out
 }
 
 func renderTranscript(utterances []Utterance) string {

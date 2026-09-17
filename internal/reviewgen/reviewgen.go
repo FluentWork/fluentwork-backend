@@ -29,6 +29,25 @@ type Request struct {
 	UserID     string
 	SceneType  string
 	Transcript string
+	// StuckEvents is the session's B8 rescue ladders (PRD §5.4.4). Refine's
+	// input is not the transcript alone: without these the silent path's stuck
+	// points — a user who said nothing until the ladder arrived — leave no
+	// trace, because the transcript has no user text for them to anchor to.
+	StuckEvents []StuckEvent
+}
+
+// StuckEvent is one rescue ladder as refine sees it. The anchor is already
+// resolved by the gateway per PRD §5.2.2: the half-sentence for the incomplete
+// path, the first sentence after the ladder for the silent path, and empty when
+// the user never spoke — which means the event produces no phrase block.
+type StuckEvent struct {
+	Seq        int    `json:"seq"`
+	TurnID     string `json:"turn_id,omitempty"`
+	Level      int    `json:"level"`
+	Path       string `json:"path,omitempty"`
+	Ladder     string `json:"ladder,omitempty"`
+	UserOpened bool   `json:"user_opened"`
+	Anchor     string `json:"anchor,omitempty"`
 }
 
 // Result is one successful generation output.
@@ -369,6 +388,11 @@ Rules:
 - suggestions <= 3
 - comparisons length 3-8
 - every original_quote and anchor_user_said must be exact substrings from the transcript
+- rescue_events lists the B8 ladders that fired, in order; they are the stuck points worth refining
+- path=incomplete: anchor_user_said is the user's half-sentence, and expression_en is the complete expression the ladder gave (or a better one)
+- path=silent with an anchor: anchor_user_said is that anchor (the user's first sentence after the ladder), and expression_en is the level-3 complete expression
+- path=silent with no anchor (the user never spoke): emit no block for it, and never invent an anchor
+- do not emit a block whose anchor is not in the transcript
 - scene_tag must be one of: standup, review, 1on1, interview, casual; prefer the provided scene_type when it is one of these
 - function_tag must be one of: object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit
 - keep every string concise
@@ -397,5 +421,25 @@ Example:
 }
 
 func userPrompt(req Request) string {
-	return fmt.Sprintf("scene_type: %s\nsession_id: %s\ntranscript:\n%s", req.SceneType, req.SessionID, req.Transcript)
+	var b strings.Builder
+	fmt.Fprintf(&b, "scene_type: %s\nsession_id: %s\n", req.SceneType, req.SessionID)
+	if len(req.StuckEvents) > 0 {
+		b.WriteString("rescue_events:\n")
+		for _, event := range req.StuckEvents {
+			path := strings.TrimSpace(event.Path)
+			if path == "" {
+				path = "silent"
+			}
+			fmt.Fprintf(&b, "- seq=%d level=%d path=%s user_opened=%t\n",
+				event.Seq, event.Level, path, event.UserOpened)
+			if anchor := strings.TrimSpace(event.Anchor); anchor != "" {
+				fmt.Fprintf(&b, "  anchor: %s\n", anchor)
+			}
+			if ladder := strings.TrimSpace(event.Ladder); ladder != "" {
+				fmt.Fprintf(&b, "  ladder: %s\n", ladder)
+			}
+		}
+	}
+	fmt.Fprintf(&b, "transcript:\n%s", req.Transcript)
+	return b.String()
 }

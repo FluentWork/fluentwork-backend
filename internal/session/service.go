@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -343,8 +344,9 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 	if err != nil {
 		return EndResponse{}, err
 	}
+	rescueEvents := s.normalizeEndRescueEvents(existing, req.RescueEvents, now)
 	session, saved, alreadyEnded, err := s.store.EndSession(
-		ctx, sessionID, req.DurationSec, utterances, now,
+		ctx, sessionID, req.DurationSec, utterances, rescueEvents, now,
 		buildVoiceCostLog(existing, req.VoiceUsage, s.newID, now),
 	)
 	if err != nil {
@@ -733,6 +735,89 @@ func (s *Service) normalizeEndUtterances(sessionID string, items []EndUtteranceI
 		})
 	}
 	return out, nil
+}
+
+// normalizeEndRescueEvents validates the gateway's B8 ladder report (PRD §5.4.4).
+//
+// Nothing here rejects the session: the gateway ships rescue events in the same
+// call as the transcript, and a malformed ladder must not cost the user their
+// review. Field-level problems are coerced or dropped with a warning; only the
+// shape of the whole list (count, duplicate seq) is refused.
+func (s *Service) normalizeEndRescueEvents(session Session, items []RescueEventItem, now time.Time) []RescueEvent {
+	const (
+		maxRescueEvents = 200
+		maxTextField    = 512
+	)
+	if len(items) == 0 {
+		return nil
+	}
+	if len(items) > maxRescueEvents {
+		s.logger.Warn("rescue events dropped: too many",
+			"session_id", session.ID, "count", len(items))
+		return nil
+	}
+	seen := make(map[int]struct{}, len(items))
+	out := make([]RescueEvent, 0, len(items))
+	for _, item := range items {
+		if item.Seq < 1 || item.Seq > maxRescueEvents {
+			s.logger.Warn("rescue event dropped: seq out of range",
+				"session_id", session.ID, "seq", item.Seq)
+			continue
+		}
+		if _, ok := seen[item.Seq]; ok {
+			s.logger.Warn("rescue event dropped: duplicate seq",
+				"session_id", session.ID, "seq", item.Seq)
+			continue
+		}
+		seen[item.Seq] = struct{}{}
+		if item.Level < 1 || item.Level > 3 {
+			s.logger.Warn("rescue event dropped: level out of range",
+				"session_id", session.ID, "seq", item.Seq, "level", item.Level)
+			continue
+		}
+		path := strings.TrimSpace(item.Path)
+		switch path {
+		case RescuePathIncomplete, RescuePathSilent:
+		case "":
+			// An unlabelled ladder is the silence detector's: PRD §5.4.1's
+			// default trigger.
+			path = RescuePathSilent
+		default:
+			s.logger.Warn("rescue event dropped: unknown path",
+				"session_id", session.ID, "seq", item.Seq, "path", item.Path)
+			continue
+		}
+		anchor := strings.TrimSpace(item.Anchor)
+		if !item.UserOpened && anchor != "" {
+			// §5.2.2: a user who never spoke leaves no anchor. Keeping one would
+			// fabricate a stuck point the transcript cannot corroborate.
+			s.logger.Warn("rescue event anchor dropped: user never spoke",
+				"session_id", session.ID, "seq", item.Seq)
+			anchor = ""
+		}
+		out = append(out, RescueEvent{
+			ID:         s.newID(),
+			SessionID:  session.ID,
+			UserID:     session.UserID,
+			Seq:        item.Seq,
+			TurnID:     capRunes(strings.TrimSpace(item.TurnID), 64),
+			Level:      item.Level,
+			Path:       path,
+			Ladder:     capRunes(strings.TrimSpace(item.Ladder), maxTextField),
+			UserOpened: item.UserOpened,
+			Anchor:     capRunes(anchor, maxTextField),
+			CreatedAt:  now,
+		})
+	}
+	return out
+}
+
+// capRunes truncates s to at most n runes without splitting a multi-byte rune.
+func capRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // LookupTicket is retained as an alias for ConsumeTicket for gateway call sites.

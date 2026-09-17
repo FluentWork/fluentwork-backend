@@ -145,6 +145,9 @@ func (h *Handler) emitRescue(
 		)
 		return
 	}
+	// Only a delivered rung counts: a failed generation was never a prompt the
+	// user could have been stuck on.
+	rt.rescueLog.noteLadder(frame.TurnID, frame.Level, frame.Text)
 
 	h.logger.Info("B8 rescue ladder emitted",
 		"session_id", session.SessionID,
@@ -207,6 +210,9 @@ func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string) {
 		rt.rescueTurnID = tr
 		rt.rescueMu.Unlock()
 	}
+	// A new AI turn opens a new silence window, so the previous stuck point is
+	// complete — rungs cannot span turns.
+	rt.rescueLog.closeEpisode()
 	rt.silenceDetector.OnAISpeechEnd(rt.clock())
 }
 
@@ -274,7 +280,43 @@ func (rt *sessionRuntime) noteUserSpeechEnd(data []byte) {
 		complete = !incompleteDetector.IsIncomplete(text)
 	}
 	rt.silenceDetector.OnUserSpeechEnd(rt.clock(), complete)
+	if !complete {
+		// §5.2.2: the half-sentence is the incomplete path's anchor. Whether a
+		// ladder actually follows is the poller's decision, so this is held
+		// until a rung opens an episode.
+		rt.rescueLog.noteIncompleteUtterance(text)
+	}
 	rt.appendRecentTurn("user", text)
+}
+
+// noteUserUtteranceText feeds the user's resolved utterance to the rescue log,
+// which uses the first one after a ladder as the silent path's anchor (§5.2.2).
+func (rt *sessionRuntime) noteUserUtteranceText(text string) {
+	if !rt.rescueEnabled() {
+		return
+	}
+	rt.rescueLog.noteUserText(text)
+}
+
+// snapshotRescueEvents returns this session's stuck points for the end report.
+func (rt *sessionRuntime) snapshotRescueEvents() []EndRescueEvent {
+	episodes := rt.rescueLog.snapshot()
+	if len(episodes) == 0 {
+		return nil
+	}
+	out := make([]EndRescueEvent, 0, len(episodes))
+	for _, episode := range episodes {
+		out = append(out, EndRescueEvent{
+			Seq:        episode.seq,
+			TurnID:     episode.turnID,
+			Level:      episode.level,
+			Path:       episode.path,
+			Ladder:     episode.ladder,
+			UserOpened: episode.opened,
+			Anchor:     episode.anchor,
+		})
+	}
+	return out
 }
 
 // noteTurnAbort handles an abandoned recording: the user stopped talking without

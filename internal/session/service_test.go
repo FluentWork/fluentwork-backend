@@ -514,7 +514,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[{},{},{}],"generator":"ark-review-refine-v1","status":"ready","duration_sec":18}`)
@@ -566,7 +566,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayloadWithoutGenerator(t *testing.T)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[],"status":"ready","duration_sec":18}`)
@@ -665,10 +665,14 @@ type fakeReviewGenerator struct {
 	// err takes precedence when set; errOnCalls is the alternate path used by
 	// the retry-specific tests.
 	errOnCalls map[int]error
+	// requests records every Generate call, so a test can assert on what the
+	// pipeline actually handed the generator (inputs, not just call counts).
+	requests []reviewgen.Request
 }
 
-func (f *fakeReviewGenerator) Generate(_ context.Context, _ reviewgen.Request) (reviewgen.Result, error) {
+func (f *fakeReviewGenerator) Generate(_ context.Context, req reviewgen.Request) (reviewgen.Result, error) {
 	f.calls++
+	f.requests = append(f.requests, req)
 	if f.errOnCalls != nil {
 		if e, ok := f.errOnCalls[f.calls]; ok && e != nil {
 			return reviewgen.Result{}, e
@@ -955,7 +959,7 @@ func createEndedSession(t *testing.T, svc *Service) CreateResponse {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := svc.store.EndSession(context.Background(), created.SessionID, 30, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := svc.store.EndSession(context.Background(), created.SessionID, 30, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	return created
