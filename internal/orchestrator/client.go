@@ -18,7 +18,10 @@ type CompletionRequest struct {
 
 // CompletionResponse 统一的 LLM 响应
 type CompletionResponse struct {
-	Content      string
+	Content string
+	// FinishReason 是供应商给出的停止原因（"stop" / "length" ...）。"length"
+	// 表示输出被 max_tokens 截断，调用方据此把 JSON 解不开判为截断而非格式错。
+	FinishReason string
 	PromptTokens int
 	OutputTokens int
 	TotalTokens  int

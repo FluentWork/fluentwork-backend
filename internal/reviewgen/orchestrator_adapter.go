@@ -25,16 +25,20 @@ func (a *OrchestratorAdapter) Generate(ctx context.Context, req Request) (Result
 	req.SceneType = strings.TrimSpace(req.SceneType)
 	req.Transcript = strings.TrimSpace(req.Transcript)
 	if req.SessionID == "" {
-		return Result{}, fmt.Errorf("session_id is required")
+		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("session_id is required")}
 	}
 	if req.SceneType == "" {
-		return Result{}, fmt.Errorf("scene_type is required")
+		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("scene_type is required")}
 	}
 	if _, ok := eval.SceneTags[req.SceneType]; !ok {
 		req.SceneType = "standup"
 	}
 	if req.Transcript == "" {
-		return Result{}, fmt.Errorf("transcript is required")
+		return Result{}, &GenerateError{
+			Kind:      FailureEmptySession,
+			Err:       fmt.Errorf("transcript is required"),
+			SessionID: req.SessionID,
+		}
 	}
 
 	resp, err := a.Client.Complete(ctx, orchestrator.CompletionRequest{
@@ -46,17 +50,28 @@ func (a *OrchestratorAdapter) Generate(ctx context.Context, req Request) (Result
 		Operation:      "reviewgen.generate",
 	})
 	if err != nil {
-		return Result{}, err
+		// The transport failed before any content existed; there is no raw
+		// model output to attach, only the provider's own error.
+		return Result{}, &GenerateError{
+			Kind:      FailureTransport,
+			Err:       err,
+			SessionID: req.SessionID,
+		}
 	}
 
 	content := strings.TrimSpace(resp.Content)
 	if content == "" {
-		return Result{}, fmt.Errorf("orchestrator response missing content")
+		return Result{}, &GenerateError{
+			Kind:         FailureEmptyContent,
+			Err:          fmt.Errorf("orchestrator response missing content"),
+			SessionID:    req.SessionID,
+			FinishReason: resp.FinishReason,
+		}
 	}
 
-	doc, err := parseGeneratedDocument(content)
+	doc, err := parseGeneratedDocument(content, resp.FinishReason)
 	if err != nil {
-		return Result{}, err
+		return Result{}, withSession(err, req.SessionID)
 	}
 	findings := eval.ValidateSample(eval.Sample{
 		ID:         req.SessionID,
@@ -65,7 +80,7 @@ func (a *OrchestratorAdapter) Generate(ctx context.Context, req Request) (Result
 		Refine:     doc.Refine,
 	})
 	if len(findings) > 0 {
-		return Result{}, fmt.Errorf("generated document failed B15 validation: %s", findings[0].Rule)
+		return Result{}, schemaViolation(req.SessionID, content, resp.FinishReason, findings)
 	}
 
 	return Result{

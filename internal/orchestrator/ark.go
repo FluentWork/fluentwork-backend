@@ -162,6 +162,7 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 
 	resp := CompletionResponse{
 		Content:      arkResp.Choices[0].Message.Content,
+		FinishReason: arkResp.Choices[0].FinishReason,
 		PromptTokens: arkResp.Usage.PromptTokens,
 		OutputTokens: arkResp.Usage.CompletionTokens,
 		TotalTokens:  arkResp.Usage.TotalTokens,

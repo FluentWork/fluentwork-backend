@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -63,10 +64,10 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 	req.SceneType = strings.TrimSpace(req.SceneType)
 	req.Transcript = strings.TrimSpace(req.Transcript)
 	if req.SessionID == "" {
-		return Result{}, fmt.Errorf("session_id is required")
+		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("session_id is required")}
 	}
 	if req.SceneType == "" {
-		return Result{}, fmt.Errorf("scene_type is required")
+		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("scene_type is required")}
 	}
 	// Session scene_type predates the closed corpus enum; normalize anything
 	// outside the B15 scene set so refine blocks always validate.
@@ -74,7 +75,11 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 		req.SceneType = "standup"
 	}
 	if req.Transcript == "" {
-		return Result{}, fmt.Errorf("transcript is required")
+		return Result{}, &GenerateError{
+			Kind:      FailureEmptySession,
+			Err:       fmt.Errorf("transcript is required"),
+			SessionID: req.SessionID,
+		}
 	}
 
 	seg := logx.Begin(g.Logger, "review.generate",
@@ -86,6 +91,11 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 	var generateErr error
 	var endAttrs []any
 	defer func() {
+		// P0-2: whatever the caller does with the error, this segment records
+		// the model's raw response and the failure classification.
+		if genErr, ok := generateErr.(*GenerateError); ok {
+			endAttrs = append(endAttrs, genErr.LogAttrs()...)
+		}
 		seg.End(generateErr, endAttrs...)
 	}()
 
@@ -143,24 +153,41 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 		return Result{}, generateErr
 	}
 	if resp.StatusCode != http.StatusOK {
-		generateErr = fmt.Errorf("ark chat completions http=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		generateErr = &GenerateError{
+			Kind:      FailureTransport,
+			Err:       fmt.Errorf("ark chat completions http=%d", resp.StatusCode),
+			SessionID: req.SessionID,
+			RawBody:   string(body),
+		}
 		return Result{}, generateErr
 	}
 
 	var decoded arkChatResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		generateErr = fmt.Errorf("decode ark response: %w", err)
+		generateErr = &GenerateError{
+			Kind:      FailureInvalidJSON,
+			Err:       fmt.Errorf("decode ark response: %w", err),
+			SessionID: req.SessionID,
+			RawBody:   string(body),
+		}
 		return Result{}, generateErr
 	}
 	content := strings.TrimSpace(firstChoiceContent(decoded))
+	finishReason := firstChoiceFinishReason(decoded)
 	if content == "" {
-		generateErr = fmt.Errorf("ark response missing message content")
+		generateErr = &GenerateError{
+			Kind:         FailureEmptyContent,
+			Err:          fmt.Errorf("ark response missing message content"),
+			SessionID:    req.SessionID,
+			FinishReason: finishReason,
+			RawBody:      string(body),
+		}
 		return Result{}, generateErr
 	}
 
-	doc, err := parseGeneratedDocument(content)
+	doc, err := parseGeneratedDocument(content, finishReason)
 	if err != nil {
-		generateErr = err
+		generateErr = withSession(err, req.SessionID)
 		return Result{}, generateErr
 	}
 	findings := eval.ValidateSample(eval.Sample{
@@ -170,7 +197,7 @@ func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error)
 		Refine:     doc.Refine,
 	})
 	if len(findings) > 0 {
-		generateErr = fmt.Errorf("generated document failed B15 validation: %s", findings[0].Rule)
+		generateErr = schemaViolation(req.SessionID, content, finishReason, findings)
 		return Result{}, generateErr
 	}
 
@@ -212,7 +239,8 @@ type arkMessage struct {
 
 type arkChatResponse struct {
 	Choices []struct {
-		Message arkMessage `json:"message"`
+		Message      arkMessage `json:"message"`
+		FinishReason string     `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -220,7 +248,10 @@ type arkChatResponse struct {
 	} `json:"usage"`
 }
 
-func parseGeneratedDocument(raw string) (generatedDocument, error) {
+// parseGeneratedDocument decodes the model's JSON document. Failures come back
+// as *GenerateError carrying the raw content and a FailureKind (P0-2) so the
+// caller can log what the model actually said.
+func parseGeneratedDocument(raw, finishReason string) (generatedDocument, error) {
 	trimmed := strings.TrimSpace(raw)
 	trimmed = strings.TrimPrefix(trimmed, "```json")
 	trimmed = strings.TrimPrefix(trimmed, "```")
@@ -229,12 +260,37 @@ func parseGeneratedDocument(raw string) (generatedDocument, error) {
 
 	var doc generatedDocument
 	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
-		return generatedDocument{}, fmt.Errorf("decode generated json: %w", err)
+		return generatedDocument{}, &GenerateError{
+			Kind:         classifyJSONError(finishReason, err),
+			Err:          fmt.Errorf("decode generated json: %w", err),
+			RawContent:   raw,
+			FinishReason: finishReason,
+		}
 	}
 	if len(doc.Review) == 0 || len(doc.Refine) == 0 {
-		return generatedDocument{}, fmt.Errorf("generated json must include review and refine")
+		return generatedDocument{}, &GenerateError{
+			Kind:         FailureMissingFields,
+			Err:          fmt.Errorf("generated json must include review and refine"),
+			RawContent:   raw,
+			FinishReason: finishReason,
+		}
 	}
 	return doc, nil
+}
+
+// classifyJSONError separates "the model was cut off" from "the model returned
+// something that is not our JSON". finish_reason=length is decisive; without it
+// the truncation signature is encoding/json's "unexpected end of JSON input",
+// which fires only when the payload stops mid-token.
+func classifyJSONError(finishReason string, err error) FailureKind {
+	if strings.EqualFold(strings.TrimSpace(finishReason), "length") {
+		return FailureTruncatedJSON
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) && strings.Contains(syntaxErr.Error(), "unexpected end of JSON input") {
+		return FailureTruncatedJSON
+	}
+	return FailureInvalidJSON
 }
 
 func firstChoiceContent(resp arkChatResponse) string {
@@ -242,6 +298,41 @@ func firstChoiceContent(resp arkChatResponse) string {
 		return ""
 	}
 	return resp.Choices[0].Message.Content
+}
+
+func firstChoiceFinishReason(resp arkChatResponse) string {
+	if len(resp.Choices) == 0 {
+		return ""
+	}
+	return resp.Choices[0].FinishReason
+}
+
+// withSession stamps the session ID onto a *GenerateError built deeper down;
+// other errors pass through unchanged.
+func withSession(err error, sessionID string) error {
+	var genErr *GenerateError
+	if errors.As(err, &genErr) && genErr != nil {
+		genErr.SessionID = sessionID
+		return genErr
+	}
+	return err
+}
+
+// schemaViolation reports every failed B15 rule plus the raw document, so a
+// validator failure can be reproduced from the log alone (P0-2).
+func schemaViolation(sessionID, content, finishReason string, findings []eval.Finding) *GenerateError {
+	rules := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		rules = append(rules, finding.Rule)
+	}
+	return &GenerateError{
+		Kind:            FailureSchemaViolation,
+		Err:             fmt.Errorf("generated document failed B15 validation: %s", strings.Join(rules, ",")),
+		SessionID:       sessionID,
+		FinishReason:    finishReason,
+		RawContent:      content,
+		ValidationRules: rules,
+	}
 }
 
 func systemPrompt() string {

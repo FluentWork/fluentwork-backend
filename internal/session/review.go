@@ -295,25 +295,42 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		if err == nil {
 			break
 		}
-		s.logger.Warn("review generator attempt failed",
+		// P0-2: an empty session is a correct rejection, not a failure worth a
+		// warning; everything else is a real fault and carries the provider's
+		// raw response so the attempt can be reproduced from the log alone.
+		attrs := []any{
 			"session_id", session.ID,
 			"user_id", session.UserID,
 			"scene_type", session.SceneType,
 			"stage", "orchestration",
 			"attempt", attempt,
 			"max_attempts", reviewRetryAttempts,
+			"failure_kind", failureKind(err),
 			"err", err,
-		)
+		}
+		attrs = append(attrs, generateFailureAttrs(err)...)
+		if reviewgen.KindOf(err) == reviewgen.FailureEmptySession {
+			s.logger.Info("review generator skipped empty session", attrs...)
+			break
+		}
+		s.logger.Warn("review generator attempt failed", attrs...)
 	}
 	if err != nil {
-		s.logger.Warn("review generator failed after retries; falling back to stub",
+		attrs := []any{
 			"session_id", session.ID,
 			"user_id", session.UserID,
 			"scene_type", session.SceneType,
 			"stage", "orchestration",
 			"attempts", reviewRetryAttempts,
+			"failure_kind", failureKind(err),
 			"err", err,
-		)
+		}
+		attrs = append(attrs, generateFailureAttrs(err)...)
+		if reviewgen.KindOf(err) == reviewgen.FailureEmptySession {
+			s.logger.Info("review generator skipped empty session; falling back to stub", attrs...)
+			return buildStubReviewArtifacts(session, utterances)
+		}
+		s.logger.Warn("review generator failed after retries; falling back to stub", attrs...)
 		return buildStubReviewArtifacts(session, utterances)
 	}
 	return reviewArtifacts{
@@ -328,6 +345,26 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 			CostFen:   0,
 		},
 	}, nil
+}
+
+// failureKind names the generator failure for logs and dashboards; unknown
+// errors fall back to "unclassified" rather than an empty field.
+func failureKind(err error) string {
+	if kind := reviewgen.KindOf(err); kind != "" {
+		return string(kind)
+	}
+	return "unclassified"
+}
+
+// generateFailureAttrs adds the model's raw response (P0-2 acceptance 1) plus
+// the provider's stop reason and any failed B15 rules, when the generator
+// classified the error.
+func generateFailureAttrs(err error) []any {
+	var genErr *reviewgen.GenerateError
+	if !errors.As(err, &genErr) {
+		return nil
+	}
+	return genErr.LogAttrs()
 }
 
 func renderTranscript(utterances []Utterance) string {

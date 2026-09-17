@@ -10,7 +10,7 @@ import (
 )
 
 func TestParseGeneratedDocument(t *testing.T) {
-	doc, err := parseGeneratedDocument("```json\n{\"review\":{\"goal_achievement\":{},\"issues\":[],\"suggestions\":[],\"comparisons\":[{},{},{}]},\"refine\":{\"blocks\":[{\"intent_zh\":\"x\",\"expression_en\":\"y\",\"anchor_user_said\":\"hello\",\"scene_tag\":\"casual\",\"function_tag\":\"ask\"}]}}\n```")
+	doc, err := parseGeneratedDocument("```json\n{\"review\":{\"goal_achievement\":{},\"issues\":[],\"suggestions\":[],\"comparisons\":[{},{},{}]},\"refine\":{\"blocks\":[{\"intent_zh\":\"x\",\"expression_en\":\"y\",\"anchor_user_said\":\"hello\",\"scene_tag\":\"casual\",\"function_tag\":\"ask\"}]}}\n```", "")
 	if err != nil {
 		t.Fatal(err)
 	}
