@@ -62,6 +62,7 @@ func (s *Service) Round(ctx context.Context, userID string, size int) (Round, er
 		size = MaxRoundSize
 	}
 	now := s.now().UTC()
+	s.sweepOverdue(ctx, userID, now, s.cfg.Normalize().OverdueWindow)
 	blocks, err := SelectBlocksForRound(ctx, s.blocks, userID, now, size, s.roundOptions(ctx, userID, now))
 	if err != nil {
 		return Round{}, err
@@ -76,6 +77,25 @@ func (s *Service) Round(ctx context.Context, userID string, size int) (Round, er
 		})
 	}
 	return Round{Size: len(cards), Cards: cards}, nil
+}
+
+// sweepOverdue folds blocks that fell due long ago back to "due now", so the
+// round a learner sees after a break is a normal queue rather than the oldest
+// debt first (83_ §2.1 风险 2). A failure logs and continues: a bookkeeping
+// fault must not cost the round.
+func (s *Service) sweepOverdue(ctx context.Context, userID string, now time.Time, window time.Duration) {
+	if window <= 0 {
+		return
+	}
+	moved, err := s.blocks.SweepOverdue(ctx, userID, now.Add(-window), now)
+	if err != nil {
+		s.logger.Warn("overdue sweep failed", "user_id", userID, "err", err)
+		return
+	}
+	if moved > 0 {
+		s.logger.Info("overdue blocks folded forward",
+			"user_id", userID, "count", moved, "window", window.String())
+	}
 }
 
 // roundOptions decides whether this round may release 灰 blocks.
@@ -178,6 +198,7 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		Recorded:      true,
 		RecordID:      recordID,
 		ASRText:       asr,
+		Promoted:      saved.State == corpus.StateAutomated && block.State != corpus.StateAutomated,
 	}, nil
 }
 

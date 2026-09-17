@@ -29,6 +29,11 @@ type Config struct {
 	// Zero means no cap. Training and automated material is never capped: the
 	// limit defers new blocks, it does not close the drill.
 	DailyNewBlockLimit int
+	// OverdueWindow is how far overdue a block may be before a round folds it
+	// back to "due now" (83_ §2.1 风险 2: 过期任务不累积). Zero disables the
+	// sweep — a zero Config is "no sweep", while DefaultConfig carries the PRD's
+	// three days.
+	OverdueWindow time.Duration
 }
 
 // DefaultConfig is the PRD ladder with the pre-E3 round behaviour.
@@ -37,11 +42,18 @@ func DefaultConfig() Config {
 		Schedule:           corpus.DefaultSchedule(),
 		RoundSize:          DefaultRoundSize,
 		DailyNewBlockLimit: 0,
+		OverdueWindow:      DefaultOverdueWindow,
 	}
 }
 
+// DefaultOverdueWindow is 83_ §2.1's "只保留最近 3 天".
+const DefaultOverdueWindow = 72 * time.Hour
+
 // Normalize fills anything left unset, so a partially built Config cannot
 // silently produce a zero-length round or an unscheduled ladder.
+//
+// OverdueWindow is deliberately left alone: zero is a meaningful value there
+// (the sweep is off), so filling it would make "off" impossible to express.
 func (c Config) Normalize() Config {
 	out := c
 	out.Schedule = out.Schedule.Normalize()
@@ -50,6 +62,9 @@ func (c Config) Normalize() Config {
 	}
 	if out.DailyNewBlockLimit < 0 {
 		out.DailyNewBlockLimit = 0
+	}
+	if out.OverdueWindow < 0 {
+		out.OverdueWindow = 0
 	}
 	return out
 }
@@ -87,6 +102,10 @@ type JudgeResponse struct {
 	// RecordID names this attempt so an appeal can point at it (E2). Zero when
 	// the ledger write failed after the schedule had already moved.
 	RecordID int64 `json:"record_id,omitempty"`
+	// Promoted marks the attempt that turned this block green (E4's 已自动化
+	// 变化). The transition is already in State; this says it happened *now*,
+	// which is what a celebration needs.
+	Promoted bool `json:"promoted,omitempty"`
 	// ASRText echoes what the judge actually read. The client shows it next to
 	// the verdict (E2: 判定前展示 ASR 识别文本) so a user who was misheard can
 	// see that for themselves instead of guessing.

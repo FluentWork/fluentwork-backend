@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
 func newRecordStoreMock(t *testing.T) (*MySQLRecordStore, sqlmock.Sqlmock) {
@@ -180,6 +182,34 @@ func TestMySQLRecordStore_CountNewReleasesSince(t *testing.T) {
 	}
 	if n != 3 {
 		t.Fatalf("n = %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// The round's overdue sweep is one statement; a wrong bound would either sweep
+// everything or nothing.
+func TestMySQLStore_SweepOverdue(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := corpus.NewMySQLStore(db)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-72 * time.Hour)
+
+	mock.ExpectExec(`UPDATE phrase_blocks\s+SET next_due_at = \?, updated_at = \?`).
+		WithArgs(now, now, "user-1", cutoff).
+		WillReturnResult(sqlmock.NewResult(0, 4))
+
+	moved, err := store.SweepOverdue(context.Background(), "user-1", cutoff, now)
+	if err != nil {
+		t.Fatalf("SweepOverdue: %v", err)
+	}
+	if moved != 4 {
+		t.Fatalf("moved = %d", moved)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)

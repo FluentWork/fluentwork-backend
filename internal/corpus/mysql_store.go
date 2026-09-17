@@ -425,6 +425,20 @@ func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID s
 	return recorded, nil
 }
 
+// SweepOverdue implements Store: one statement, scoped to the user.
+func (s *MySQLStore) SweepOverdue(ctx context.Context, userID string, dueBefore, at time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE phrase_blocks
+		SET next_due_at = ?, updated_at = ?
+		WHERE user_id = ? AND deleted_at IS NULL AND next_due_at < ?
+	`, at.UTC(), at.UTC(), userID, dueBefore.UTC())
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
 // SaveFeedback implements Store.
 func (s *MySQLStore) SaveFeedback(ctx context.Context, feedback Feedback) (bool, error) {
 	result, err := s.db.ExecContext(ctx, `

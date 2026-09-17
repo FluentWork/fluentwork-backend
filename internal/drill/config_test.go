@@ -168,3 +168,104 @@ type failingCountStore struct {
 func (failingCountStore) CountNewReleasesSince(context.Context, string, time.Time) (int, error) {
 	return 0, context.DeadlineExceeded
 }
+
+// 83_ §2.1 风险 2 的"过期任务不累积"：休假回来看到的是正常队列，不是最旧的债。
+func TestRound_FoldsAncientOverdueForward(t *testing.T) {
+	svc, blocks, _, now := configFixture(t)
+	ancient := now.Add(-21 * 24 * time.Hour)
+	recent := now.Add(-time.Hour)
+	seedDue(t, blocks, "user-1", "ancient", corpus.StateTraining, ancient)
+	seedDue(t, blocks, "user-1", "recent", corpus.StateTraining, recent)
+	svc.SetConfig(Config{RoundSize: 10, OverdueWindow: 72 * time.Hour})
+
+	if _, err := svc.Round(context.Background(), "user-1", 0); err != nil {
+		t.Fatalf("Round: %v", err)
+	}
+
+	moved, err := blocks.GetBlock(context.Background(), "user-1", "ancient")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if !moved.NextDueAt.After(now.Add(-time.Minute)) {
+		t.Fatalf("ancient block still overdue: %v", moved.NextDueAt)
+	}
+	untouched, err := blocks.GetBlock(context.Background(), "user-1", "recent")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if !untouched.NextDueAt.Equal(recent) {
+		t.Fatalf("a block overdue by an hour must keep its due time: %v", untouched.NextDueAt)
+	}
+}
+
+// 窗口为 0 即关闭：需要看"真实的过期积压"时（例如运营观察）可以关掉。
+func TestRound_OverdueSweepDisabledByZeroWindow(t *testing.T) {
+	svc, blocks, _, now := configFixture(t)
+	ancient := now.Add(-21 * 24 * time.Hour)
+	seedDue(t, blocks, "user-1", "ancient", corpus.StateTraining, ancient)
+	svc.SetConfig(Config{RoundSize: 10})
+
+	if _, err := svc.Round(context.Background(), "user-1", 0); err != nil {
+		t.Fatalf("Round: %v", err)
+	}
+	block, err := blocks.GetBlock(context.Background(), "user-1", "ancient")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if !block.NextDueAt.Equal(ancient) {
+		t.Fatalf("sweep ran with a zero window: %v", block.NextDueAt)
+	}
+}
+
+// 账本故障不该让轮次失败：sweep 失败只记 warn。
+func TestRound_OverdueSweepFailureStillServes(t *testing.T) {
+	svc, blocks, _, now := configFixture(t)
+	seedDue(t, blocks, "user-1", "due-1", corpus.StateTraining, now.Add(-time.Minute))
+	svc.SetConfig(Config{RoundSize: 10, OverdueWindow: 72 * time.Hour})
+	svc.blocks = failingSweepStore{Store: blocks}
+
+	round, err := svc.Round(context.Background(), "user-1", 0)
+	if err != nil {
+		t.Fatalf("Round: %v", err)
+	}
+	if round.Size != 1 {
+		t.Fatalf("round = %+v, want the due block", round)
+	}
+}
+
+type failingSweepStore struct {
+	corpus.Store
+}
+
+func (failingSweepStore) SweepOverdue(context.Context, string, time.Time, time.Time) (int, error) {
+	return 0, context.DeadlineExceeded
+}
+
+// E4 的"已自动化变化"：客户端要能只对"刚刚变绿"的那一次做庆祝。
+func TestJudge_PromotedFlagMarksTheGreenTransition(t *testing.T) {
+	svc, blocks, _, now := configFixture(t)
+	seedDue(t, blocks, "user-1", "block-1", corpus.StateTraining, now.Add(-time.Minute))
+	svc.SetConfig(Config{Schedule: corpus.Schedule{PromoteStreak: 2}})
+
+	first, err := svc.Judge(context.Background(), "user-1", JudgeRequest{BlockID: "block-1", ASRText: "Let's ship it block-1"})
+	if err != nil {
+		t.Fatalf("first Judge: %v", err)
+	}
+	if first.Promoted {
+		t.Fatalf("first pass is not a promotion: %+v", first)
+	}
+	second, err := svc.Judge(context.Background(), "user-1", JudgeRequest{BlockID: "block-1", ASRText: "Let's ship it block-1"})
+	if err != nil {
+		t.Fatalf("second Judge: %v", err)
+	}
+	if !second.Promoted || second.State != corpus.StateAutomated {
+		t.Fatalf("promotion not flagged: %+v", second)
+	}
+	third, err := svc.Judge(context.Background(), "user-1", JudgeRequest{BlockID: "block-1", ASRText: "Let's ship it block-1"})
+	if err != nil {
+		t.Fatalf("third Judge: %v", err)
+	}
+	if third.Promoted {
+		t.Fatalf("re-verifying an already green block is not a promotion: %+v", third)
+	}
+}

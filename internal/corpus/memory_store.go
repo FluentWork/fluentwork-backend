@@ -531,6 +531,26 @@ func (s *MemoryStore) RestoreFeedbackForUser(_ context.Context, userID string) (
 	return n, nil
 }
 
+// SweepOverdue implements Store.
+func (s *MemoryStore) SweepOverdue(_ context.Context, userID string, dueBefore, at time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	moved := 0
+	for id, block := range s.blocks {
+		if block.UserID != userID || block.DeletedAt != nil {
+			continue
+		}
+		if !block.NextDueAt.Before(dueBefore) {
+			continue
+		}
+		block.NextDueAt = at.UTC()
+		block.UpdatedAt = at.UTC()
+		s.blocks[id] = block
+		moved++
+	}
+	return moved, nil
+}
+
 // SoftDeleteAllForUser implements Store.
 func (s *MemoryStore) SoftDeleteAllForUser(_ context.Context, userID string, deletedAt time.Time) (int, error) {
 	s.mu.Lock()

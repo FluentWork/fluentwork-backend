@@ -156,3 +156,53 @@ func findItem(t *testing.T, items []Recommendation, id string) Recommendation {
 	t.Fatalf("item %s not in %+v", id, items)
 	return Recommendation{}
 }
+
+// SweepOverdue is the other half of "过期任务不累积": it is the write the
+// recommendation and round logic rely on to keep the overdue set honest.
+func TestSweepOverdue_MemoryStore(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	ancient := now.Add(-30 * 24 * time.Hour)
+	recent := now.Add(-2 * time.Hour)
+	seedRecommendBlock(t, store, "ancient", "standup", "report", StateTraining, 0, nil, ancient)
+	seedRecommendBlock(t, store, "recent", "standup", "report", StateTraining, 0, nil, recent)
+
+	moved, err := store.SweepOverdue(context.Background(), "user-1", now.Add(-72*time.Hour), now)
+	if err != nil {
+		t.Fatalf("SweepOverdue: %v", err)
+	}
+	if moved != 1 {
+		t.Fatalf("moved = %d, want only the ancient one", moved)
+	}
+	got, err := store.GetBlock(context.Background(), "user-1", "ancient")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if !got.NextDueAt.Equal(now) {
+		t.Fatalf("next_due_at = %v, want the sweep time", got.NextDueAt)
+	}
+	kept, err := store.GetBlock(context.Background(), "user-1", "recent")
+	if err != nil {
+		t.Fatalf("GetBlock: %v", err)
+	}
+	if !kept.NextDueAt.Equal(recent) {
+		t.Fatalf("recent block moved: %v", kept.NextDueAt)
+	}
+}
+
+func TestSweepOverdue_SkipsDeletedAndOtherUsers(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	ancient := now.Add(-30 * 24 * time.Hour)
+	seedRecommendBlock(t, store, "mine", "standup", "report", StateTraining, 0, nil, ancient)
+	if _, err := store.SoftDeleteAllForUser(context.Background(), "user-1", now); err != nil {
+		t.Fatalf("wipe: %v", err)
+	}
+	moved, err := store.SweepOverdue(context.Background(), "user-1", now.Add(-72*time.Hour), now)
+	if err != nil {
+		t.Fatalf("SweepOverdue: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("a wiped block must not be swept, moved = %d", moved)
+	}
+}

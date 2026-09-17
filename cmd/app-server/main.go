@@ -150,6 +150,7 @@ func run() error {
 		Schedule:           corpus.ScheduleFromConfig(cfg),
 		RoundSize:          cfg.DrillRoundSize,
 		DailyNewBlockLimit: cfg.DrillDailyNewBlockLimit,
+		OverdueWindow:      cfg.DrillOverdueWindow,
 	})
 	logger.Info("drill schedule configured",
 		"promote_streak", cfg.DrillPromoteStreak,
@@ -159,6 +160,7 @@ func run() error {
 		"fail_interval", cfg.DrillFailInterval,
 		"round_size", cfg.DrillRoundSize,
 		"daily_new_block_limit", cfg.DrillDailyNewBlockLimit,
+		"overdue_window", cfg.DrillOverdueWindow,
 	)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 

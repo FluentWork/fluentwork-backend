@@ -67,6 +67,11 @@ type Store interface {
 	RecordHits(ctx context.Context, userID, sessionID, turnID string, hits []Hit) (int, error)
 	ListSessionHits(ctx context.Context, sessionID string) ([]RecentHit, error)
 	ListDueBlocks(ctx context.Context, userID string, now time.Time, states []string, limit int) ([]PhraseBlock, error)
+	// SweepOverdue folds blocks that fell due before `dueBefore` forward to
+	// `at`, so a learner returning after a break meets one normal queue instead
+	// of a pile of 20-day-old debt (83_ §2.1 风险 2: 过期任务不累积). It reports
+	// how many rows moved.
+	SweepOverdue(ctx context.Context, userID string, dueBefore, at time.Time) (int, error)
 	UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error)
 	SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
 	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)

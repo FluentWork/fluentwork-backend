@@ -215,3 +215,25 @@ func TestValidateDrillScheduleRejectsNegatives(t *testing.T) {
 		t.Fatalf("unparseable value = %d, want the default", got)
 	}
 }
+
+// 83_ §2.1's overdue window: default three days, and 0 is the documented way to
+// switch the sweep off (so the parse must not turn 0 back into the default).
+func TestLoadDrillOverdueWindow(t *testing.T) {
+	t.Setenv("DRILL_OVERDUE_WINDOW", "")
+	if got := Load().DrillOverdueWindow; got != defaultDrillOverdueWindow {
+		t.Fatalf("default = %s, want %s", got, defaultDrillOverdueWindow)
+	}
+	t.Setenv("DRILL_OVERDUE_WINDOW", "12h")
+	if got := Load().DrillOverdueWindow; got != 12*time.Hour {
+		t.Fatalf("override = %s", got)
+	}
+	t.Setenv("DRILL_OVERDUE_WINDOW", "0")
+	if got := Load().DrillOverdueWindow; got != 0 {
+		t.Fatalf("zero must disable the sweep, got %s", got)
+	}
+	t.Setenv("DRILL_OVERDUE_WINDOW", "-1h")
+	cfg := Load()
+	if err := cfg.validateDrillSchedule(); err == nil {
+		t.Fatal("a negative window must not validate")
+	}
+}
