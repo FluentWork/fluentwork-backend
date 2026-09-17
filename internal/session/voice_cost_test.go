@@ -3,6 +3,8 @@ package session
 import (
 	"testing"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 )
 
 func fixedID() string { return "cost-1" }
@@ -24,8 +26,8 @@ func TestBuildVoiceCostLogRecordsSecondsAndLeavesMoneyAtZero(t *testing.T) {
 	if log == nil {
 		t.Fatal("usage was reported but no ledger row was built")
 	}
-	if log.TaskType != voiceDuplexTaskType {
-		t.Fatalf("task_type = %q, want %q", log.TaskType, voiceDuplexTaskType)
+	if log.TaskType != aicost.TaskTypeVoiceDuplex {
+		t.Fatalf("task_type = %q, want %q", log.TaskType, aicost.TaskTypeVoiceDuplex)
 	}
 	if log.AudioSec != 20 {
 		t.Fatalf("audio_sec = %d, want 20", log.AudioSec)

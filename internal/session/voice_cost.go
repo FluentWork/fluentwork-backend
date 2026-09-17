@@ -7,10 +7,9 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 )
 
-// voiceDuplexTaskType labels the ledger rows the voice path writes. Distinct
-// from the review task type so the two can be summed separately — they are
-// different vendor products with different rates.
-const voiceDuplexTaskType = "voice.duplex"
+// The voice path writes aicost.TaskTypeVoiceDuplex rows: one label, defined once,
+// so the SKU map in the ledger package is the only place it can drift from.
+// (See internal/aicost/voice_usage.go for why ASR and hit detection have none.)
 
 // buildVoiceCostLog turns the gateway's measurement into a ledger row, or nil
 // when there is nothing to record.
@@ -43,7 +42,7 @@ func buildVoiceCostLog(session Session, usage *VoiceUsageItem, newID func() stri
 
 	return &aicost.Log{
 		ID:       newID(),
-		TaskType: voiceDuplexTaskType,
+		TaskType: aicost.TaskTypeVoiceDuplex,
 		Model:    strings.TrimSpace(usage.Model),
 		// Integer division floors: a partial second is not a second of audio,
 		// and rounding up would inflate every session.
