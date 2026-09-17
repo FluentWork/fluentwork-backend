@@ -131,6 +131,11 @@ func run() error {
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}
 	sessionSvc.SetReviewGenerator(reviewGenerator)
+	// Development only: a guest's first session seeds the starter corpus, so a
+	// physical device fires badges without anyone hunting for its guest id.
+	if cfg.IsDevelopment() {
+		sessionSvc.SetCorpusProvisioner(corpus.StarterProvisioner{Service: corpusSvc})
+	}
 	sessionHandler := session.NewHandler(sessionSvc, accountHandler)
 	reviewEval := reviewpkg.NewService(sessionStore, corpusStore, &reviewpkg.OrchestratorAdapter{
 		Client: orchestrator.NewClient(cfg, costWriter),

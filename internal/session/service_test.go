@@ -1004,3 +1004,36 @@ func TestEnd_EvalEnqueueFailureDoesNotFailEnd(t *testing.T) {
 		t.Fatalf("ended = %+v", ended)
 	}
 }
+
+// stubProvisioner records the development starter-corpus call.
+type stubProvisioner struct {
+	calls  int
+	seeded int
+	err    error
+}
+
+func (s *stubProvisioner) ProvisionStarterCorpus(context.Context, string) (int, error) {
+	s.calls++
+	return s.seeded, s.err
+}
+
+// A brand-new learner's first session seeds the starter corpus in development,
+// and a provisioning failure never costs them the session.
+func TestCreate_ProvisionsStarterCorpusForANewLearner(t *testing.T) {
+	store := NewMemoryStore()
+	svc := NewService(store, config.Config{SessionTicketTTL: time.Minute}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provisioner := &stubProvisioner{seeded: 10}
+	svc.SetCorpusProvisioner(provisioner)
+
+	if _, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if provisioner.calls != 1 {
+		t.Fatalf("provision calls = %d, want 1", provisioner.calls)
+	}
+
+	svc.SetCorpusProvisioner(&stubProvisioner{err: errors.New("corpus down")})
+	if _, err := svc.Create(context.Background(), "user-2", CreateRequest{SceneType: "standup"}); err != nil {
+		t.Fatalf("a provisioning failure must not fail the session: %v", err)
+	}
+}

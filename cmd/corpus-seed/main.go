@@ -11,10 +11,13 @@
 // dedupes exact (source_session_id, anchor_user_said) pairs, so dev-up.sh can
 // safely call this on every startup without duplicating phrase blocks.
 //
-// This is dev-only: the seed list is hand-picked workplace English phrases
-// chosen so that, when a developer says them in the speaking-room, the
-// ASR transcript matches at least one of them and a B12 `feedback.badge`
-// frame is emitted. It is NOT intended as production data.
+// The phrase list lives in internal/corpus/starter.go, shared with the
+// development auto-provisioner so the two cannot drift. It is NOT production
+// data.
+//
+// Note that app-server now provisions the same starter corpus automatically for
+// a guest's first session in development, so this command is only needed to
+// seed a *specific* device explicitly.
 package main
 
 import (
@@ -29,97 +32,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+
 	_ "github.com/go-sql-driver/mysql" // register driver for dev session upsert
 )
 
 const devSourceSessionID = "dev-corpus-seed-session"
-
-type seedBlock struct {
-	IntentZH       string `json:"intent_zh"`
-	ExpressionEN   string `json:"expression_en"`
-	AnchorUserSaid string `json:"anchor_user_said"`
-	SceneTag       string `json:"scene_tag"`
-	FunctionTag    string `json:"function_tag"`
-}
-
-// devSeed is intentionally small and high-signal. Each anchor_user_said
-// string is a phrase a non-native English speaker might actually say
-// during a standup / 1on1 / review, and the ExpressionEN is the more
-// idiomatic form the badge should highlight. The detector's job is to
-// notice the anchor string inside the user's ASR transcript and surface
-// the ExpressionEN.
-var devSeed = []seedBlock{
-	{
-		IntentZH:       "说明阻塞点",
-		ExpressionEN:   "I'm blocked on the API review.",
-		AnchorUserSaid: "I am blocked on the API review.",
-		SceneTag:       "standup",
-		FunctionTag:    "report",
-	},
-	{
-		IntentZH:       "把会议收尾",
-		ExpressionEN:   "Let's wrap up.",
-		AnchorUserSaid: "let's wrap up the meeting",
-		SceneTag:       "review",
-		FunctionTag:    "summarize",
-	},
-	{
-		IntentZH:       "推动上线",
-		ExpressionEN:   "Let's ship it.",
-		AnchorUserSaid: "let's ship it",
-		SceneTag:       "review",
-		FunctionTag:    "commit",
-	},
-	{
-		IntentZH:       "请求澄清",
-		ExpressionEN:   "Could you clarify what you mean by that?",
-		AnchorUserSaid: "could you clarify",
-		SceneTag:       "1on1",
-		FunctionTag:    "clarify",
-	},
-	{
-		IntentZH:       "委婉拒绝延期",
-		ExpressionEN:   "I'd rather not push the deadline.",
-		AnchorUserSaid: "I don't want to push the deadline",
-		SceneTag:       "1on1",
-		FunctionTag:    "disagree",
-	},
-	{
-		IntentZH:       "主动提议",
-		ExpressionEN:   "How about we pair on this tomorrow?",
-		AnchorUserSaid: "how about we pair on this tomorrow",
-		SceneTag:       "casual",
-		FunctionTag:    "propose",
-	},
-	{
-		IntentZH:       "承认不确定",
-		ExpressionEN:   "I'm not 100% sure yet, but I'll confirm by EOD.",
-		AnchorUserSaid: "I'm not sure yet",
-		SceneTag:       "standup",
-		FunctionTag:    "defer",
-	},
-	{
-		IntentZH:       "总结结论",
-		ExpressionEN:   "Bottom line: we'll ship next Tuesday.",
-		AnchorUserSaid: "bottom line",
-		SceneTag:       "review",
-		FunctionTag:    "summarize",
-	},
-	{
-		IntentZH:       "请求反馈",
-		ExpressionEN:   "Does that work for you?",
-		AnchorUserSaid: "does that work for you",
-		SceneTag:       "1on1",
-		FunctionTag:    "ask",
-	},
-	{
-		IntentZH:       "礼貌结束",
-		ExpressionEN:   "Thanks for your time today.",
-		AnchorUserSaid: "thanks for your time",
-		SceneTag:       "casual",
-		FunctionTag:    "agree",
-	},
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -156,11 +74,11 @@ func run() error {
 	}
 	fmt.Printf("  dev session created: %s\n", sessionID)
 
-	accepted, err := batchAccept(client, *baseURL, guest.AccessToken, sessionID, devSeed)
+	accepted, err := batchAccept(client, *baseURL, guest.AccessToken, sessionID, corpus.StarterBlocks())
 	if err != nil {
 		return fmt.Errorf("batch-accept: %w", err)
 	}
-	fmt.Printf("  accepted %d / %d phrase blocks\n", accepted, len(devSeed))
+	fmt.Printf("  accepted %d / %d phrase blocks\n", accepted, len(corpus.StarterBlocks()))
 
 	listed, err := listBlocks(client, *baseURL, guest.AccessToken, "")
 	if err != nil {
@@ -258,7 +176,7 @@ func createDevSession(client *http.Client, baseURL, token string) (string, error
 	return out.SessionID, nil
 }
 
-func batchAccept(client *http.Client, baseURL, token, sessionID string, blocks []seedBlock) (int, error) {
+func batchAccept(client *http.Client, baseURL, token, sessionID string, blocks []corpus.BatchAcceptBlock) (int, error) {
 	payload, _ := json.Marshal(map[string]any{
 		"source_session_id": sessionID,
 		"blocks":            blocks,

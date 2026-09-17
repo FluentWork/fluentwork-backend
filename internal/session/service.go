@@ -29,13 +29,24 @@ var (
 
 // Service creates practice sessions and issues WSS tickets.
 type Service struct {
-	store     Store
-	cfg       config.Config
-	logger    *slog.Logger
-	reviewGen ReviewGenerator
-	eval      EvalProcessor
-	now       func() time.Time
-	newID     func() string
+	store       Store
+	cfg         config.Config
+	logger      *slog.Logger
+	reviewGen   ReviewGenerator
+	eval        EvalProcessor
+	provisioner CorpusProvisioner
+	now         func() time.Time
+	newID       func() string
+}
+
+// CorpusProvisioner gives a learner with no phrase blocks a starter corpus.
+//
+// Development only: cmd/app-server attaches it when APP_ENV is a local value,
+// and it is never wired in production. It exists because a corpus is scoped per
+// user — seeding a fixed device id helps that device and no other, so a phone
+// would otherwise get badges that silently never fire.
+type CorpusProvisioner interface {
+	ProvisionStarterCorpus(ctx context.Context, userID string) (int, error)
 }
 
 // EvalProcessor is the B18 review-eval hook. Optional until review.Service is wired.
@@ -68,6 +79,11 @@ func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
 // SetReviewGenerator attaches the real review/refine generator used by the worker.
 func (s *Service) SetReviewGenerator(gen ReviewGenerator) {
 	s.reviewGen = gen
+}
+
+// SetCorpusProvisioner attaches the development starter-corpus seeder.
+func (s *Service) SetCorpusProvisioner(p CorpusProvisioner) {
+	s.provisioner = p
 }
 
 // SetEvalProcessor attaches B18 per-utterance eval.
@@ -129,6 +145,18 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	}
 	if err := s.store.CreateSessionWithTicket(ctx, session, ticket); err != nil {
 		return CreateResponse{}, err
+	}
+
+	// A brand-new learner in development gets a starter corpus here, so their
+	// first session can already produce badges. Provisioning never fails the
+	// session: it is a convenience, not a precondition.
+	if s.provisioner != nil {
+		if seeded, err := s.provisioner.ProvisionStarterCorpus(ctx, userID); err != nil {
+			s.logger.Warn("starter corpus provisioning failed", "user_id", userID, "err", err)
+		} else if seeded > 0 {
+			s.logger.Info("starter corpus provisioned (development only)",
+				"user_id", userID, "blocks", seeded)
+		}
 	}
 
 	s.logger.Info("practice session created",

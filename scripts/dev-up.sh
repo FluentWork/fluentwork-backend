@@ -266,12 +266,14 @@ if [[ "$AUTO_CORPUS_SEED" == "1" ]]; then
     -base-url "http://127.0.0.1:${PORT}" \
     -device-id "${SEED_ID}" | tail -2
   # The corpus is scoped by user, and a physical device authenticates as its own
-  # guest — never this id. So badge hits on a real phone silently never fire,
-  # with nothing anywhere to say why. Say it here instead.
-  echo "   ⚠️  corpus belongs to device_id=${SEED_ID} only."
-  echo "      Badge hits on a physical device need its own id:"
-  echo "        go run ./cmd/corpus-seed -device-id <your device id>"
-  echo "      (or set SEED_DEVICE_ID=<your device id> before this script)"
+  # guest — never this id. App-server now covers that case itself: in
+  # development it provisions the same starter corpus for a guest's first
+  # session (corpus.StarterProvisioner), so a phone fires badges with no extra
+  # step. This seed stays for pinning a *specific* device deliberately.
+  echo "   corpus belongs to device_id=${SEED_ID}."
+  echo "   A physical device needs no seeding in development: app-server seeds the"
+  echo "   same starter corpus on its first session. To pin one explicitly:"
+  echo "     go run ./cmd/corpus-seed -device-id <your device id>"
 fi
 echo "📡 WSS URL for iOS: ws://${HOST}:${GATEWAY_PORT}/v1/voice"
 echo "   Set LOCAL_HOST=${HOST} in Xcode scheme for physical device testing."
