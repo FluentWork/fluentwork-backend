@@ -142,3 +142,76 @@ func TestLoadArkPrefersExplicitAPIKey(t *testing.T) {
 		t.Fatalf("ArkReviewRefineEP = %q", cfg.ArkReviewRefineEP)
 	}
 }
+
+// E3: the scheduling ladder is the environment's to set, and an unset variable
+// must land on the PRD default rather than on zero.
+func TestLoadDrillScheduleDefaults(t *testing.T) {
+	for _, key := range []string{
+		"DRILL_PROMOTE_STREAK", "DRILL_TRAINING_INTERVAL", "DRILL_AUTOMATED_INTERVAL",
+		"DRILL_AUTOMATED_REVIEW_INTERVAL", "DRILL_FAIL_INTERVAL", "DRILL_ROUND_SIZE",
+		"DRILL_DAILY_NEW_BLOCK_LIMIT",
+	} {
+		t.Setenv(key, "")
+	}
+	cfg := Load()
+	if cfg.DrillPromoteStreak != defaultDrillPromoteStreak ||
+		cfg.DrillTrainingInterval != defaultDrillTrainingInterval ||
+		cfg.DrillAutomatedInterval != defaultDrillAutomatedInterval ||
+		cfg.DrillAutomatedReviewInterval != defaultDrillAutomatedReviewInterval ||
+		cfg.DrillFailInterval != defaultDrillFailInterval ||
+		cfg.DrillRoundSize != defaultDrillRoundSize ||
+		cfg.DrillDailyNewBlockLimit != defaultDrillDailyNewBlockLimit {
+		t.Fatalf("drill defaults not applied: %+v", cfg)
+	}
+	if err := cfg.validateDrillSchedule(); err != nil {
+		t.Fatalf("defaults must validate: %v", err)
+	}
+}
+
+func TestLoadDrillScheduleOverrides(t *testing.T) {
+	t.Setenv("DRILL_PROMOTE_STREAK", "2")
+	t.Setenv("DRILL_TRAINING_INTERVAL", "6h")
+	t.Setenv("DRILL_AUTOMATED_INTERVAL", "72h")
+	t.Setenv("DRILL_AUTOMATED_REVIEW_INTERVAL", "720h")
+	t.Setenv("DRILL_FAIL_INTERVAL", "15m")
+	t.Setenv("DRILL_ROUND_SIZE", "6")
+	t.Setenv("DRILL_DAILY_NEW_BLOCK_LIMIT", "5")
+
+	cfg := Load()
+	if cfg.DrillPromoteStreak != 2 || cfg.DrillTrainingInterval != 6*time.Hour ||
+		cfg.DrillAutomatedInterval != 72*time.Hour ||
+		cfg.DrillAutomatedReviewInterval != 720*time.Hour ||
+		cfg.DrillFailInterval != 15*time.Minute || cfg.DrillRoundSize != 6 ||
+		cfg.DrillDailyNewBlockLimit != 5 {
+		t.Fatalf("overrides not applied: %+v", cfg)
+	}
+	if err := cfg.validateDrillSchedule(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// A negative value is a typo, not a default: it must fail loudly rather than
+// quietly disable the spacing the mechanism rests on.
+func TestValidateDrillScheduleRejectsNegatives(t *testing.T) {
+	cases := map[string]Config{
+		"promote streak":    {DrillPromoteStreak: -1},
+		"training interval": {DrillTrainingInterval: -time.Hour},
+		"automated":         {DrillAutomatedInterval: -time.Hour},
+		"automated review":  {DrillAutomatedReviewInterval: -time.Hour},
+		"fail interval":     {DrillFailInterval: -time.Minute},
+		"round size":        {DrillRoundSize: -1},
+		"daily new blocks":  {DrillDailyNewBlockLimit: -1},
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := cfg.validateDrillSchedule(); err == nil {
+				t.Fatalf("%+v must not validate", cfg)
+			}
+		})
+	}
+	// Unparseable input keeps the default instead of failing the process.
+	t.Setenv("DRILL_PROMOTE_STREAK", "three")
+	if got := intOr("DRILL_PROMOTE_STREAK", defaultDrillPromoteStreak); got != defaultDrillPromoteStreak {
+		t.Fatalf("unparseable value = %d, want the default", got)
+	}
+}

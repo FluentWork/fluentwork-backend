@@ -166,3 +166,22 @@ func TestMySQLRecordStore_IsLatestForBlock(t *testing.T) {
 		t.Fatalf("err = %v, want ErrRecordNotFound", err)
 	}
 }
+
+func TestMySQLRecordStore_CountNewReleasesSince(t *testing.T) {
+	store, mock := newRecordStoreMock(t)
+	day := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM drill_records`).
+		WithArgs("user-1", "new", day).
+		WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(3))
+
+	n, err := store.CountNewReleasesSince(context.Background(), "user-1", day)
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("n = %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}

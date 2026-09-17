@@ -1,7 +1,11 @@
 // Package drill implements E1/E2 flash-drill rounds, LLM judging, and SM-2 updates.
 package drill
 
-import "time"
+import (
+	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+)
 
 const (
 	// DefaultRoundSize is the number of cards GET /drill/round returns.
@@ -13,6 +17,42 @@ const (
 	// DrillTypeRecall is E1 层级1召回闪测.
 	DrillTypeRecall = 1
 )
+
+// Config carries the E3 server-side knobs (PRD §5.3.2). The ladder itself lives
+// in corpus.Schedule because the B7 hit writeback shares it; wiring builds one
+// Schedule and hands it to both the corpus store and this service.
+type Config struct {
+	Schedule corpus.Schedule
+	// RoundSize is the cards per round when the client sends no size (E1: 10).
+	RoundSize int
+	// DailyNewBlockLimit caps how many 灰 blocks may enter rounds per UTC day.
+	// Zero means no cap. Training and automated material is never capped: the
+	// limit defers new blocks, it does not close the drill.
+	DailyNewBlockLimit int
+}
+
+// DefaultConfig is the PRD ladder with the pre-E3 round behaviour.
+func DefaultConfig() Config {
+	return Config{
+		Schedule:           corpus.DefaultSchedule(),
+		RoundSize:          DefaultRoundSize,
+		DailyNewBlockLimit: 0,
+	}
+}
+
+// Normalize fills anything left unset, so a partially built Config cannot
+// silently produce a zero-length round or an unscheduled ladder.
+func (c Config) Normalize() Config {
+	out := c
+	out.Schedule = out.Schedule.Normalize()
+	if out.RoundSize <= 0 {
+		out.RoundSize = DefaultRoundSize
+	}
+	if out.DailyNewBlockLimit < 0 {
+		out.DailyNewBlockLimit = 0
+	}
+	return out
+}
 
 // Card is one due phrase block in a drill round.
 type Card struct {

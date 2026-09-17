@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,6 +23,20 @@ const (
 	defaultSessionTicketTTL   = 60 * time.Second
 )
 
+// E3 drill-scheduling defaults (PRD §5.3.2). These are the PRD ladder; the
+// DRILL_* environment variables override them without a redeploy.
+const (
+	defaultDrillPromoteStreak           = 3
+	defaultDrillTrainingInterval        = 24 * time.Hour
+	defaultDrillAutomatedInterval       = 7 * 24 * time.Hour
+	defaultDrillAutomatedReviewInterval = 30 * 24 * time.Hour
+	defaultDrillFailInterval            = time.Hour
+	defaultDrillRoundSize               = 10
+	// defaultDrillDailyNewBlockLimit of 0 means "no cap": every 灰 block that is
+	// due may enter a round, which is the behaviour before E3 existed.
+	defaultDrillDailyNewBlockLimit = 0
+)
+
 // Config holds process settings for app-server.
 type Config struct {
 	HTTPAddr           string
@@ -36,6 +51,21 @@ type Config struct {
 	ArkBaseURL         string
 	ArkAPIKey          string
 	ArkReviewRefineEP  string
+
+	// Drill scheduling ladder (PRD §5.3.2, E3). One ladder serves both the
+	// flash drill's judging and the B7 hit writeback: corpus.ScheduleFromConfig
+	// maps these onto corpus.Schedule so the two can never diverge.
+	DrillPromoteStreak           int
+	DrillTrainingInterval        time.Duration
+	DrillAutomatedInterval       time.Duration
+	DrillAutomatedReviewInterval time.Duration
+	DrillFailInterval            time.Duration
+	// DrillRoundSize is the default cards per round when the client sends no
+	// size (E1: 一轮 10 题).
+	DrillRoundSize int
+	// DrillDailyNewBlockLimit caps how many 灰 blocks enter rounds per UTC day.
+	// 0 disables the cap (每日新块释放上限, E3).
+	DrillDailyNewBlockLimit int
 }
 
 // Load reads configuration from environment variables.
@@ -57,7 +87,30 @@ func Load() Config {
 		ArkBaseURL:         envOr("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
 		ArkAPIKey:          firstNonEmpty(strings.TrimSpace(os.Getenv("ARK_API_KEY")), strings.TrimSpace(os.Getenv("ARK_API_KEY_DEV"))),
 		ArkReviewRefineEP:  strings.TrimSpace(os.Getenv("ARK_EP_REVIEW_REFINE")),
+
+		DrillPromoteStreak:           intOr("DRILL_PROMOTE_STREAK", defaultDrillPromoteStreak),
+		DrillTrainingInterval:        durationOr("DRILL_TRAINING_INTERVAL", defaultDrillTrainingInterval),
+		DrillAutomatedInterval:       durationOr("DRILL_AUTOMATED_INTERVAL", defaultDrillAutomatedInterval),
+		DrillAutomatedReviewInterval: durationOr("DRILL_AUTOMATED_REVIEW_INTERVAL", defaultDrillAutomatedReviewInterval),
+		DrillFailInterval:            durationOr("DRILL_FAIL_INTERVAL", defaultDrillFailInterval),
+		DrillRoundSize:               intOr("DRILL_ROUND_SIZE", defaultDrillRoundSize),
+		DrillDailyNewBlockLimit:      intOr("DRILL_DAILY_NEW_BLOCK_LIMIT", defaultDrillDailyNewBlockLimit),
 	}
+}
+
+// intOr reads an integer setting. Unparseable or empty keeps the default;
+// negatives are passed through so Validate can reject them loudly rather than
+// have a typo quietly become a default.
+func intOr(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 // IsProduction reports whether the process is running in production.
@@ -104,6 +157,36 @@ func (c Config) Validate() error {
 	}
 	if !c.IsDevelopment() && (c.InternalAPIToken == "" || c.InternalAPIToken == DevInternalAPIToken) {
 		return fmt.Errorf("INTERNAL_API_TOKEN must be set outside development environments")
+	}
+	if err := c.validateDrillSchedule(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateDrillSchedule rejects a ladder that cannot schedule anything. A
+// negative duration would make every block due immediately, which reads as
+// "working" while quietly destroying the spacing the mechanism rests on.
+//
+// Zero is allowed and means "unset": the corpus ladder normalizes zero fields
+// to the PRD defaults, so a Config literal that never mentions drills keeps the
+// documented behaviour.
+func (c Config) validateDrillSchedule() error {
+	switch {
+	case c.DrillPromoteStreak < 0:
+		return fmt.Errorf("DRILL_PROMOTE_STREAK must not be negative")
+	case c.DrillTrainingInterval < 0:
+		return fmt.Errorf("DRILL_TRAINING_INTERVAL must not be negative")
+	case c.DrillAutomatedInterval < 0:
+		return fmt.Errorf("DRILL_AUTOMATED_INTERVAL must not be negative")
+	case c.DrillAutomatedReviewInterval < 0:
+		return fmt.Errorf("DRILL_AUTOMATED_REVIEW_INTERVAL must not be negative")
+	case c.DrillFailInterval < 0:
+		return fmt.Errorf("DRILL_FAIL_INTERVAL must not be negative")
+	case c.DrillRoundSize < 0:
+		return fmt.Errorf("DRILL_ROUND_SIZE must not be negative")
+	case c.DrillDailyNewBlockLimit < 0:
+		return fmt.Errorf("DRILL_DAILY_NEW_BLOCK_LIMIT must not be negative")
 	}
 	return nil
 }

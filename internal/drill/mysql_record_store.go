@@ -11,6 +11,7 @@ import (
 	_ "github.com/go-sql-driver/mysql" // registers the mysql driver used by OpenRecordStore
 
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
 // MySQLRecordStore persists drill_records.
@@ -101,6 +102,19 @@ func (s *MySQLRecordStore) IsLatestForBlock(ctx context.Context, userID, blockID
 		return false, ErrRecordNotFound
 	}
 	return latest.Int64 == recordID, nil
+}
+
+// CountNewReleasesSince implements RecordStore.
+func (s *MySQLRecordStore) CountNewReleasesSince(ctx context.Context, userID string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM drill_records
+		WHERE user_id = ? AND prev_state = ? AND created_at >= ?
+	`, userID, corpus.StateNew, since.UTC()).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 type recordScanner interface {

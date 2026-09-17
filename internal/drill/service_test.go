@@ -35,7 +35,7 @@ func seedDue(t *testing.T, store *corpus.MemoryStore, userID, id, state string, 
 func TestSelectBlocksForRound_NoDueReturnsEmpty(t *testing.T) {
 	store := corpus.NewMemoryStore()
 	seedDue(t, store, "user-1", "block-1", corpus.StateNew, time.Now().UTC().Add(24*time.Hour))
-	got, err := SelectBlocksForRound(context.Background(), store, "user-1", time.Now().UTC(), 10)
+	got, err := SelectBlocksForRound(context.Background(), store, "user-1", time.Now().UTC(), 10, DefaultRoundOptions())
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestSelectBlocksForRound_CapsAtTenAndFillsAutomated(t *testing.T) {
 		seedDue(t, store, "user-1", id, corpus.StateTraining, now.Add(-time.Duration(i)*time.Minute))
 	}
 	seedDue(t, store, "user-1", "auto-1", corpus.StateAutomated, now.Add(-time.Hour))
-	got, err := SelectBlocksForRound(context.Background(), store, "user-1", now, 10)
+	got, err := SelectBlocksForRound(context.Background(), store, "user-1", now, 10, DefaultRoundOptions())
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestSelectBlocksForRound_FillsAutomated(t *testing.T) {
 	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
 	seedDue(t, store, "user-1", "train-1", corpus.StateTraining, now.Add(-time.Minute))
 	seedDue(t, store, "user-1", "auto-1", corpus.StateAutomated, now.Add(-time.Hour))
-	got, err := SelectBlocksForRound(context.Background(), store, "user-1", now, 10)
+	got, err := SelectBlocksForRound(context.Background(), store, "user-1", now, 10, DefaultRoundOptions())
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}

@@ -158,6 +158,20 @@ test(provider): add B15 regression tests
 | `DATABASE_URL` | MySQL 连接字符串 |
 | `APP_ENV` | 环境 (`development`/`production`) |
 
+### 闪测调度（E3，服务端可配）
+
+同一套阶梯同时驱动闪测判定与 B7 命中回写（`corpus.ScheduleFromConfig`），改环境变量即可调整，无需重新部署：
+
+| 变量 | 描述 | 默认值 |
+|------|------|--------|
+| `DRILL_PROMOTE_STREAK` | 转正所需连续成功次数 | `3` |
+| `DRILL_TRAINING_INTERVAL` | 训练中间隔 | `24h` |
+| `DRILL_AUTOMATED_INTERVAL` | 转正当次的间隔 | `7d`（168h） |
+| `DRILL_AUTOMATED_REVIEW_INTERVAL` | 绿灯块复验间隔 | `30d`（720h） |
+| `DRILL_FAIL_INTERVAL` | 失败重排间隔 | `1h` |
+| `DRILL_ROUND_SIZE` | 单轮题量（客户端显式传 `size` 时以请求为准） | `10` |
+| `DRILL_DAILY_NEW_BLOCK_LIMIT` | 每日新块释放上限（UTC 日；`0` = 不限） | `0` |
+
 ## 问题排查
 
 ### 测试失败

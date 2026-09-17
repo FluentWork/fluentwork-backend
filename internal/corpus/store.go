@@ -77,9 +77,12 @@ func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, err
 	if logger == nil {
 		logger = slog.Default()
 	}
+	schedule := ScheduleFromConfig(cfg)
 	if cfg.MySQLDSN == "" {
 		logger.Warn("MYSQL_DSN is empty; using in-memory corpus store")
-		return NewMemoryStore(), func() error { return nil }, nil
+		store := NewMemoryStore()
+		store.SetSchedule(schedule)
+		return store, func() error { return nil }, nil
 	}
 	db, err := sql.Open("mysql", ensureParseTime(cfg.MySQLDSN))
 	if err != nil {
@@ -95,7 +98,22 @@ func OpenStore(cfg config.Config, logger *slog.Logger) (Store, func() error, err
 		_ = db.Close()
 		return nil, nil, fmt.Errorf("ping mysql: %w", err)
 	}
-	return NewMySQLStore(db), db.Close, nil
+	store := NewMySQLStore(db)
+	store.SetSchedule(schedule)
+	return store, db.Close, nil
+}
+
+// ScheduleFromConfig maps the DRILL_* settings onto the ladder (E3). Fields the
+// environment leaves unset carry their config default, so this is always "the
+// server's ladder" and never a partially filled one.
+func ScheduleFromConfig(cfg config.Config) Schedule {
+	return Schedule{
+		PromoteStreak:           cfg.DrillPromoteStreak,
+		TrainingInterval:        cfg.DrillTrainingInterval,
+		AutomatedInterval:       cfg.DrillAutomatedInterval,
+		AutomatedReviewInterval: cfg.DrillAutomatedReviewInterval,
+		FailInterval:            cfg.DrillFailInterval,
+	}.Normalize()
 }
 
 func ensureParseTime(dsn string) string {

@@ -142,6 +142,24 @@ func run() error {
 	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: &drill.OrchestratorAdapter{
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}}, logger)
+	// E3: one ladder, two writers. corpus.OpenStore already configured the
+	// store's hit writeback from the same config, so the service gets the same
+	// struct rather than a second reading of the environment — a hit must never
+	// promote a block on different terms than a drill answer.
+	drillSvc.SetConfig(drill.Config{
+		Schedule:           corpus.ScheduleFromConfig(cfg),
+		RoundSize:          cfg.DrillRoundSize,
+		DailyNewBlockLimit: cfg.DrillDailyNewBlockLimit,
+	})
+	logger.Info("drill schedule configured",
+		"promote_streak", cfg.DrillPromoteStreak,
+		"training_interval", cfg.DrillTrainingInterval,
+		"automated_interval", cfg.DrillAutomatedInterval,
+		"automated_review_interval", cfg.DrillAutomatedReviewInterval,
+		"fail_interval", cfg.DrillFailInterval,
+		"round_size", cfg.DrillRoundSize,
+		"daily_new_block_limit", cfg.DrillDailyNewBlockLimit,
+	)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 
 	materialStore, materialCloser, err := materials.OpenStore(cfg, logger)

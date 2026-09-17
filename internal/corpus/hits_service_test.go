@@ -71,11 +71,16 @@ func TestHitsService_RecordHits_PromotesToAutomated(t *testing.T) {
 	seedBlock(t, store, "block-1", "user-1", "推动上线", "Let's ship it.")
 	svc := NewHitsService(store)
 
-	for turn, ms := range map[string]int64{"turn-1": 1_000, "turn-2": 2_000, "turn-3": 3_000} {
-		if _, err := svc.RecordHits(context.Background(), "user-1", "session-1", turn, []Hit{
-			{BlockID: "block-1", DetectedAtMs: ms},
+	// Ordered slice, not a map: the last hit decides next_due_at.
+	turns := []struct {
+		id string
+		ms int64
+	}{{"turn-1", 1_000}, {"turn-2", 2_000}, {"turn-3", 3_000}}
+	for _, turn := range turns {
+		if _, err := svc.RecordHits(context.Background(), "user-1", "session-1", turn.id, []Hit{
+			{BlockID: "block-1", DetectedAtMs: turn.ms},
 		}); err != nil {
-			t.Fatalf("%s: %v", turn, err)
+			t.Fatalf("%s: %v", turn.id, err)
 		}
 	}
 	block, err := store.GetBlock(context.Background(), "user-1", "block-1")

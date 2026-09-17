@@ -10,11 +10,22 @@ import (
 // MySQLStore persists phrase blocks in MySQL.
 type MySQLStore struct {
 	db *sql.DB
+	// schedule is the ladder the B7 hit writeback applies. Zero value means the
+	// PRD defaults (see Schedule.Normalize); OpenStore fills it from config.
+	schedule Schedule
 }
 
-// NewMySQLStore constructs a MySQL-backed corpus store.
+// NewMySQLStore constructs a MySQL-backed corpus store with the default ladder.
 func NewMySQLStore(db *sql.DB) *MySQLStore {
-	return &MySQLStore{db: db}
+	return &MySQLStore{db: db, schedule: DefaultSchedule()}
+}
+
+// SetSchedule replaces the ladder used by the hit writeback (E3).
+func (s *MySQLStore) SetSchedule(schedule Schedule) {
+	if s == nil {
+		return
+	}
+	s.schedule = schedule.Normalize()
 }
 
 // Ping implements Store.
@@ -393,7 +404,7 @@ func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID s
 			}
 			return 0, err
 		}
-		updated := ApplyJudge(PhraseBlock{State: state, SuccessStreak: streak, NextDueAt: dueAt}, true, usedAt)
+		updated := s.schedule.ApplyJudge(PhraseBlock{State: state, SuccessStreak: streak, NextDueAt: dueAt}, true, usedAt)
 		if _, err := tx.ExecContext(ctx, `
                         UPDATE phrase_blocks
                         SET total_uses = total_uses + 1,

@@ -18,6 +18,7 @@ type Service struct {
 	judge   *LLMJudge
 	logger  *slog.Logger
 	now     func() time.Time
+	cfg     Config
 }
 
 // NewService constructs a drill service.
@@ -34,7 +35,18 @@ func NewService(blocks corpus.Store, records RecordStore, judge *LLMJudge, logge
 		judge:   judge,
 		logger:  logger.With("component", "drill.service"),
 		now:     time.Now,
+		cfg:     DefaultConfig(),
 	}
+}
+
+// SetConfig replaces the E3 scheduling knobs. Wiring passes the same
+// corpus.Schedule it gave the corpus store, so a hit and a drill answer can
+// never promote a block on different terms.
+func (s *Service) SetConfig(cfg Config) {
+	if s == nil {
+		return
+	}
+	s.cfg = cfg.Normalize()
 }
 
 // Round returns due cards for the user.
@@ -44,12 +56,13 @@ func (s *Service) Round(ctx context.Context, userID string, size int) (Round, er
 		return Round{}, apierr.Unauthenticated("missing authenticated user")
 	}
 	if size <= 0 {
-		size = DefaultRoundSize
+		size = s.cfg.Normalize().RoundSize
 	}
 	if size > MaxRoundSize {
 		size = MaxRoundSize
 	}
-	blocks, err := SelectBlocksForRound(ctx, s.blocks, userID, s.now().UTC(), size)
+	now := s.now().UTC()
+	blocks, err := SelectBlocksForRound(ctx, s.blocks, userID, now, size, s.roundOptions(ctx, userID, now))
 	if err != nil {
 		return Round{}, err
 	}
@@ -63,6 +76,33 @@ func (s *Service) Round(ctx context.Context, userID string, size int) (Round, er
 		})
 	}
 	return Round{Size: len(cards), Cards: cards}, nil
+}
+
+// roundOptions decides whether this round may release 灰 blocks.
+//
+// The count comes from the ledger rather than a counter we keep: every attempt
+// records the state its block was in (drill_records.prev_state), so "how many
+// new blocks has this user already been given today" is a fact already stored,
+// and it survives restarts without a second source of truth.
+//
+// A ledger read failure logs and releases the blocks: a bookkeeping outage must
+// not be able to empty a user's drill.
+func (s *Service) roundOptions(ctx context.Context, userID string, now time.Time) RoundOptions {
+	cfg := s.cfg.Normalize()
+	if cfg.DailyNewBlockLimit <= 0 {
+		return DefaultRoundOptions()
+	}
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	served, err := s.records.CountNewReleasesSince(ctx, userID, dayStart)
+	if err != nil {
+		s.logger.Warn("new block budget unavailable; releasing without cap",
+			"user_id", userID, "err", err)
+		return DefaultRoundOptions()
+	}
+	if served >= cfg.DailyNewBlockLimit {
+		return RoundOptions{IncludeNew: false}
+	}
+	return DefaultRoundOptions()
 }
 
 // Judge scores one attempt, writes drill_records, and updates SM-2 state.
@@ -100,7 +140,7 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		return JudgeResponse{}, err
 	}
 	now := s.now().UTC()
-	updated := ApplyJudge(block, result.Pass, now)
+	updated := s.cfg.Normalize().Schedule.ApplyJudge(block, result.Pass, now)
 	saved, err := s.blocks.UpdateSchedule(ctx, userID, block.ID, updated.State, updated.SuccessStreak, updated.NextDueAt, now)
 	if err != nil {
 		if err == corpus.ErrNotFound {

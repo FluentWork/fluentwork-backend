@@ -10,9 +10,21 @@ import (
 
 // MemoryStore keeps phrase blocks in memory for local development and tests.
 type MemoryStore struct {
-	mu     sync.Mutex
-	blocks map[string]PhraseBlock
-	uses   map[string]phraseBlockUse
+	mu sync.Mutex
+	// schedule is the ladder the B7 hit writeback applies; a zero value means
+	// the PRD defaults (see Schedule.Normalize).
+	schedule Schedule
+	blocks   map[string]PhraseBlock
+	uses     map[string]phraseBlockUse
+}
+
+// SetSchedule replaces the ladder used by the hit writeback (E3). A zero
+// schedule falls back to the PRD defaults.
+func (s *MemoryStore) SetSchedule(schedule Schedule) {
+	if s == nil {
+		return
+	}
+	s.schedule = schedule.Normalize()
 }
 
 // NewMemoryStore constructs an in-memory corpus store.
@@ -372,7 +384,7 @@ func (s *MemoryStore) RecordHits(_ context.Context, userID, sessionID, turnID st
 		block.RealUseCount++
 		block.TotalUses++
 		block.LastUsedAt = &usedAt
-		s.blocks[hit.BlockID] = ApplyJudge(block, true, usedAt)
+		s.blocks[hit.BlockID] = s.schedule.Normalize().ApplyJudge(block, true, usedAt)
 	}
 	return recorded, nil
 }

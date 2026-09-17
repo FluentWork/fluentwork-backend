@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
 // ErrRecordNotFound is returned when an attempt does not exist or belongs to
@@ -27,6 +29,10 @@ type RecordStore interface {
 	// block: the guard that stops an old appeal from rolling back a later,
 	// legitimate attempt (PRD §7.5 的申诉只对"被误判的那次"生效).
 	IsLatestForBlock(ctx context.Context, userID, blockID string, recordID int64) (bool, error)
+	// CountNewReleasesSince counts attempts since a time whose block was still
+	// 灰 when it was served — the accounting behind 每日新块释放上限 (E3).
+	// Attempts recorded before that snapshot column existed count as zero.
+	CountNewReleasesSince(ctx context.Context, userID string, since time.Time) (int, error)
 }
 
 // MemoryRecordStore is the local/dev ledger.
@@ -83,6 +89,23 @@ func (s *MemoryRecordStore) MarkAppealed(_ context.Context, userID string, recor
 		return true, nil
 	}
 	return false, ErrRecordNotFound
+}
+
+// CountNewReleasesSince implements RecordStore.
+func (s *MemoryRecordStore) CountNewReleasesSince(_ context.Context, userID string, since time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, rec := range s.records {
+		if rec.UserID != userID || rec.PrevState != corpus.StateNew {
+			continue
+		}
+		if rec.CreatedAt.Before(since) {
+			continue
+		}
+		n++
+	}
+	return n, nil
 }
 
 // IsLatestForBlock implements RecordStore.
