@@ -1,4 +1,4 @@
-package voicepoc
+package voiceduplex
 
 import (
 	"bytes"

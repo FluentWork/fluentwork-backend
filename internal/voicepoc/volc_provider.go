@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 )
 
 // VolcDuplexInjectionProvider is the live B14 T9 adapter.
@@ -12,7 +14,7 @@ import (
 // Each trial: upload fixture PCM → commit (≈ VAD-stop) → wait delay →
 // session.update → score same-turn reply; if miss, one next-turn probe.
 type VolcDuplexInjectionProvider struct {
-	Config  DuplexConfig
+	Config  voiceduplex.DuplexConfig
 	WavPath string
 	// SkipNextTurnProbe saves cost when only measuring same-turn window.
 	SkipNextTurnProbe bool
@@ -35,10 +37,10 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 	}
 
 	cfg := p.Config
-	cfg.Instructions = firstNonEmpty(cfg.Instructions,
+	cfg.Instructions = voiceduplex.FirstNonEmpty(cfg.Instructions,
 		"你是 FluentWork 英语口语练习助手。用一两句中文或英文简短回应用户，不要主动提标记词。")
 
-	session, err := OpenDuplex(ctx, cfg)
+	session, err := voiceduplex.OpenDuplex(ctx, cfg)
 	if err != nil {
 		return InjectTrial{}, err
 	}
@@ -70,7 +72,7 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 		return InjectTrial{DelayMS: int(delay / time.Millisecond)}, err
 	}
 
-	turn1, err := session.collectTurn(ctx, commitAt, skipped, 35*time.Second)
+	turn1, err := session.WaitTurn(ctx, commitAt, skipped, 35*time.Second)
 	if err != nil {
 		return InjectTrial{DelayMS: int(delay / time.Millisecond)}, err
 	}
@@ -104,7 +106,7 @@ func (p VolcDuplexInjectionProvider) RunDelayedInject(ctx context.Context, delay
 }
 
 // SmokeDuplexT9 runs a cost-controlled live T9 gradient and returns the window report.
-func SmokeDuplexT9(ctx context.Context, cfg DuplexConfig, wavPath string, delays []time.Duration, trialsPerDelay int) (WindowReport, error) {
+func SmokeDuplexT9(ctx context.Context, cfg voiceduplex.DuplexConfig, wavPath string, delays []time.Duration, trialsPerDelay int) (WindowReport, error) {
 	if trialsPerDelay <= 0 {
 		trialsPerDelay = 1
 	}

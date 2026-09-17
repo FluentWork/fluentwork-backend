@@ -31,7 +31,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
 	"github.com/FluentWork/fluentwork-backend/internal/topic"
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -376,7 +376,7 @@ func newTTSProvider(logger *slog.Logger) tts.Provider {
 		Logger:     logger.With("component", "tts.volc_streaming"),
 	}
 	fallback := &tts.VolcDuplexFallbackProvider{
-		Config: voicepoc.DuplexConfig{
+		Config: voiceduplex.DuplexConfig{
 			APIKey: apiKey,
 			Logger: logger.With("component", "tts.volc_duplex"),
 		},

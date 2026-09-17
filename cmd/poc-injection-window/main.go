@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -52,7 +53,7 @@ func run() error {
 	if liveRequested && apiKey != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		smoke, err := voicepoc.SmokeDuplex(ctx, voicepoc.DuplexConfig{
+		smoke, err := voicepoc.SmokeDuplex(ctx, voiceduplex.DuplexConfig{
 			APIKey:       apiKey,
 			Endpoint:     strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
 			Logger:       slog.Default().With("component", "voicepoc.cli"),
@@ -77,7 +78,7 @@ func run() error {
 		err    error
 	)
 	if liveT9 && apiKey != "" {
-		provider := voicepoc.VolcDuplexInjectionProvider{Config: voicepoc.DuplexConfig{
+		provider := voicepoc.VolcDuplexInjectionProvider{Config: voiceduplex.DuplexConfig{
 			APIKey:   apiKey,
 			Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
 			Logger:   slog.Default().With("component", "voicepoc.cli"),

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -99,9 +99,9 @@ func TestTurnToOutbound_DoesNotRepeatAStreamedReply(t *testing.T) {
 	sess, _ := streamableSession(t)
 	sess.AssistantTextDelta("Sounds good.")
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	var sawTurnEnd bool
@@ -136,9 +136,9 @@ func TestTurnToOutbound_StillSendsTheWholeReplyWithoutStreaming(t *testing.T) {
 
 	sess, _ := streamableSession(t)
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	var texts []string
@@ -177,8 +177,8 @@ func TestStreamedAudioEqualsTheBatchFrames(t *testing.T) {
 
 	// Path A: never streamed — turnToOutbound emits the whole turn itself.
 	batchSession, _ := streamableSession(t)
-	batchOut := batchSession.turnToOutbound(voicepoc.TurnResult{
-		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: whole,
+	batchOut := batchSession.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "ok", Outcome: voiceduplex.TurnOutcomeOK, AudioPCM: whole,
 	})
 
 	// Path B: chunks pushed as they arrive; the turn then closes. AudioPCM is
@@ -187,8 +187,8 @@ func TestStreamedAudioEqualsTheBatchFrames(t *testing.T) {
 	for _, c := range chunks {
 		streamSession.AssistantAudio(c)
 	}
-	streamOut := streamSession.turnToOutbound(voicepoc.TurnResult{
-		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: whole,
+	streamOut := streamSession.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "ok", Outcome: voiceduplex.TurnOutcomeOK, AudioPCM: whole,
 	})
 
 	var batchFrames [][]byte
@@ -233,8 +233,8 @@ func TestTurnToOutboundFlushesTheTrailingAudio(t *testing.T) {
 		streamedBytes += len(frame) - audioFrameHeaderBytes
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
-		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: pcm,
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "ok", Outcome: voiceduplex.TurnOutcomeOK, AudioPCM: pcm,
 	})
 	flushedBytes := 0
 	for _, item := range outbound {
@@ -277,10 +277,10 @@ func TestTurnToOutbound_DoesNotFinalizeBeforeTheAudioTail(t *testing.T) {
 		sess, _ := streamableSession(t)
 		sess.AssistantAudio(pcm)
 
-		outbound := sess.turnToOutbound(voicepoc.TurnResult{
+		outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 			Transcript:    "学习学习。",
 			AssistantText: "Let's start with core terms.",
-			Outcome:       voicepoc.TurnOutcomeOK,
+			Outcome:       voiceduplex.TurnOutcomeOK,
 			AudioPCM:      pcm,
 		})
 		assertAudioClosesBeforeTurnEnd(t, outbound, true)
@@ -291,10 +291,10 @@ func TestTurnToOutbound_DoesNotFinalizeBeforeTheAudioTail(t *testing.T) {
 		pcm := randomPCM(t, 4800, 7)
 		sess, _ := streamableSession(t)
 
-		outbound := sess.turnToOutbound(voicepoc.TurnResult{
+		outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 			Transcript:    "hello",
 			AssistantText: "hi there",
-			Outcome:       voicepoc.TurnOutcomeOK,
+			Outcome:       voiceduplex.TurnOutcomeOK,
 			AudioPCM:      pcm,
 		})
 		assertAudioClosesBeforeTurnEnd(t, outbound, true)
@@ -350,8 +350,8 @@ func TestAssistantAudioWithoutAnEmitterDoesNotSuppressTheAudio(t *testing.T) {
 		t.Fatal("no emitter, but the turn was marked as streamed audio — the voice would never be sent")
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
-		AssistantText: "ok", Outcome: voicepoc.TurnOutcomeOK, AudioPCM: pcm,
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "ok", Outcome: voiceduplex.TurnOutcomeOK, AudioPCM: pcm,
 	})
 	var sent int
 	for _, item := range outbound {
@@ -379,9 +379,9 @@ func TestAssistantTextDeltaWithoutAnEmitterDoesNotSuppressTheReply(t *testing.T)
 		t.Fatal("no emitter, but the turn was marked streamed — the reply would never be sent")
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 	var texts []string
 	for _, item := range outbound {
@@ -410,7 +410,7 @@ func TestStreamingPushFailureIsRecordedNotSwallowed(t *testing.T) {
 	}
 	// The turn still completes and still records its utterance: a dead push
 	// path is the handler's problem to escalate, not a reason to lose the turn.
-	sess.turnToOutbound(voicepoc.TurnResult{AssistantText: "Sounds good.", Outcome: voicepoc.TurnOutcomeOK})
+	sess.turnToOutbound(voiceduplex.TurnResult{AssistantText: "Sounds good.", Outcome: voiceduplex.TurnOutcomeOK})
 	if sess.emitErr != nil {
 		t.Fatal("emitErr should be cleared once it has been logged")
 	}
@@ -469,10 +469,10 @@ func TestVolcDuplexStreamsASRAsSoonAsItArrives(t *testing.T) {
 		t.Fatalf("streamed ASR = %q, want the completed transcript once", got)
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		Transcript:    "今天学习 clean architecture。",
 		AssistantText: "Sounds good.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 	if asrControlCount(outbound) != 0 {
 		t.Fatalf("turnToOutbound repeated client.asr.transcription after it was streamed: %+v", outbound)
@@ -493,9 +493,9 @@ func TestUserTranscriptWithoutAnEmitterDoesNotSuppressTheASR(t *testing.T) {
 		t.Fatal("no emitter, but ASR was marked streamed — the transcript would never be sent")
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		Transcript: "hello",
-		Outcome:    voicepoc.TurnOutcomeOK,
+		Outcome:    voiceduplex.TurnOutcomeOK,
 	})
 	if asrControlCount(outbound) != 1 {
 		t.Fatalf("ASR control frames = %d, want the closeout frame once", asrControlCount(outbound))

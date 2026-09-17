@@ -10,8 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -23,7 +23,7 @@ import (
 // turnResult is what the stub returns from every HandleClientControl call.
 // Pass an empty transcript to simulate a turn where ASR returned nothing.
 type volcStubSession struct {
-	turnResult voicepoc.TurnResult
+	turnResult voiceduplex.TurnResult
 	calls      int
 }
 
@@ -90,7 +90,7 @@ func TestVolcDuplexProvider_RelayEmitsClientASRTranscription(t *testing.T) {
 		},
 	}
 	stubSession := &volcStubSession{
-		turnResult: voicepoc.TurnResult{
+		turnResult: voiceduplex.TurnResult{
 			Transcript:    "we should ship it today",
 			AssistantText: "Sounds good!",
 		},
@@ -181,7 +181,7 @@ func TestVolcDuplexProvider_OmitsRelayWhenTranscriptEmpty(t *testing.T) {
 		out:    voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
 	}
 	stubSession := &volcStubSession{
-		turnResult: voicepoc.TurnResult{
+		turnResult: voiceduplex.TurnResult{
 			// Transcript intentionally empty: provider heard nothing.
 			AssistantText: "I didn't catch that, could you repeat?",
 		},

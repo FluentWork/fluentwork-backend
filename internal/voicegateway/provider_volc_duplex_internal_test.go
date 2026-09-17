@@ -17,7 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -82,7 +82,7 @@ func TestVolcDuplexForwardsAssistantAudioAsBinaryFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	duplex, err := voicepoc.OpenDuplex(ctx, voicepoc.DuplexConfig{
+	duplex, err := voiceduplex.OpenDuplex(ctx, voiceduplex.DuplexConfig{
 		APIKey:   "test-key",
 		Endpoint: startAudioDuplexStub(t, vendorAudio),
 		Model:    "test-model",
@@ -93,7 +93,7 @@ func TestVolcDuplexForwardsAssistantAudioAsBinaryFrames(t *testing.T) {
 	}
 
 	sess := &volcDuplexProviderSession{
-		cfg:         voicepoc.DuplexConfig{Model: "test-model", Voice: "test-voice"},
+		cfg:         voiceduplex.DuplexConfig{Model: "test-model", Voice: "test-voice"},
 		audioFormat: "pcm-s16le",
 		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		session:     duplex,
@@ -195,7 +195,7 @@ func TestVolcDuplexResetsSessionWhenTurnReadFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	duplex, err := voicepoc.OpenDuplex(ctx, voicepoc.DuplexConfig{
+	duplex, err := voiceduplex.OpenDuplex(ctx, voiceduplex.DuplexConfig{
 		APIKey:   "test-key",
 		Endpoint: dyingDuplexStub(t),
 		Model:    "test-model",
@@ -207,7 +207,7 @@ func TestVolcDuplexResetsSessionWhenTurnReadFails(t *testing.T) {
 
 	resets := 0
 	sess := &volcDuplexProviderSession{
-		cfg:         voicepoc.DuplexConfig{Model: "test-model", Voice: "test-voice"},
+		cfg:         voiceduplex.DuplexConfig{Model: "test-model", Voice: "test-voice"},
 		audioFormat: "pcm-s16le",
 		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		session:     duplex,
@@ -422,10 +422,10 @@ func TestVolcDuplexSessionAlignsTurnIDFromClient(t *testing.T) {
 		t.Fatalf("activeTurnID not aligned with iOS: got %q want %q", sess.activeTurnID, "turn-7")
 	}
 
-	out := sess.turnToOutbound(voicepoc.TurnResult{
+	out := sess.turnToOutbound(voiceduplex.TurnResult{
 		Transcript:    "hello world",
 		AssistantText: "hi",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 	if got := aiTurnEndID(out); got != "turn-7" {
 		t.Fatalf("ai.turn.end turn_id = %q, want turn-7", got)
@@ -440,7 +440,7 @@ func TestTurnToOutboundFallbackUsesTurnNNotVolcPrefix(t *testing.T) {
 		audioFormat: "pcm-s16le",
 		nextSeq:     3,
 	}
-	out := sess.turnToOutbound(voicepoc.TurnResult{Outcome: voicepoc.TurnOutcomeOK})
+	out := sess.turnToOutbound(voiceduplex.TurnResult{Outcome: voiceduplex.TurnOutcomeOK})
 	if got := aiTurnEndID(out); got != "turn-3" {
 		t.Fatalf("fallback turn_id = %q, want turn-3 (not volc-turn-3)", got)
 	}
@@ -522,7 +522,7 @@ func TestVolcDuplexSession_KeepaliveDoesNotProbeBelowThreshold(t *testing.T) {
 // caller wraps both the idle duration and the underlying transport error.
 // The handler uses this signal to trigger its reopen-once fallback (B15
 // Item 1.2). We exercise runProbe directly here because constructing a
-// real voicepoc.DuplexSession would require a live Volc WebSocket; the
+// real voiceduplex.DuplexSession would require a live Volc WebSocket; the
 // end-to-end wiring (probe → HandleClientAudio → handler reopen) is
 // covered by integration tests and the production code path is one
 // straight-line call between runProbe and the error wrapping in
@@ -713,13 +713,13 @@ func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		outcome  voicepoc.TurnOutcome
+		outcome  voiceduplex.TurnOutcome
 		wantWire string
 	}{
-		{name: "timeout", outcome: voicepoc.TurnOutcomeTimeout, wantWire: "timeout"},
-		{name: "partial", outcome: voicepoc.TurnOutcomePartial, wantWire: "partial"},
-		{name: "error", outcome: voicepoc.TurnOutcomeError, wantWire: "error"},
-		{name: "ok", outcome: voicepoc.TurnOutcomeOK, wantWire: "ok"},
+		{name: "timeout", outcome: voiceduplex.TurnOutcomeTimeout, wantWire: "timeout"},
+		{name: "partial", outcome: voiceduplex.TurnOutcomePartial, wantWire: "partial"},
+		{name: "error", outcome: voiceduplex.TurnOutcomeError, wantWire: "error"},
+		{name: "ok", outcome: voiceduplex.TurnOutcomeOK, wantWire: "ok"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -729,7 +729,7 @@ func TestTurnToOutbound_StampsOutcomeOnAITurnEnd(t *testing.T) {
 				activeTurnID: "turn-" + tc.name,
 				nextSeq:      1,
 			}
-			out := sess.turnToOutbound(voicepoc.TurnResult{Outcome: tc.outcome})
+			out := sess.turnToOutbound(voiceduplex.TurnResult{Outcome: tc.outcome})
 			var end voiceproto.AITurnEnd
 			found := false
 			for _, frame := range out {
@@ -766,8 +766,8 @@ func TestTurnToOutbound_StampsServerTsMsOnTextDelta(t *testing.T) {
 		nextSeq:      1,
 		nowFn:        func() time.Time { return frozen },
 	}
-	out := sess.turnToOutbound(voicepoc.TurnResult{
-		Outcome:       voicepoc.TurnOutcomeOK,
+	out := sess.turnToOutbound(voiceduplex.TurnResult{
+		Outcome:       voiceduplex.TurnOutcomeOK,
 		AssistantText: "hello",
 	})
 	var delta voiceproto.AITextDelta

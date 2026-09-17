@@ -40,6 +40,17 @@ linters:
             - pkg: "github.com/FluentWork/fluentwork-backend/internal/account"
               desc: "账号域属于 app-server；语音链路不该依赖它"
 
+        # voicepoc 是 PoC 与测量工具的包：WER、注入窗口探针、smoke 入口。
+        # 生产代码不得依赖它——这个边界此前只存在于读者的判断里，而
+        # voicepoc 里当时装着**生产的语音传输层**（已拆到 voiceduplex，
+        # docs/94_ F7）。规则写下来，它就不能再长回去。
+        no-poc-in-production:
+          files:
+            - "**/internal/**"
+          deny:
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+              desc: "生产代码不依赖 PoC/测量包；传输层在 voiceduplex"
+
 formatters:
   enable:
     - gofumpt

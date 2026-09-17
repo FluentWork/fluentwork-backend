@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -28,7 +28,7 @@ const defaultVolcTurnWait = 60 * time.Second
 // fast with a clear error until the upstream AudioEngine switches gateway input
 // to raw PCM or a backend transcode step is added.
 type VolcDuplexProvider struct {
-	cfg         voicepoc.DuplexConfig
+	cfg         voiceduplex.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
 }
@@ -39,7 +39,7 @@ func NewVolcDuplexProvider(cfg Config, logger *slog.Logger) VolcDuplexProvider {
 		logger = slog.Default()
 	}
 	return VolcDuplexProvider{
-		cfg: voicepoc.DuplexConfig{
+		cfg: voiceduplex.DuplexConfig{
 			APIKey:   strings.TrimSpace(cfg.VolcSpeechAPIKey),
 			Endpoint: strings.TrimSpace(cfg.VolcDuplexEndpoint),
 			Model:    strings.TrimSpace(cfg.VolcDuplexModel),
@@ -85,10 +85,10 @@ const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
 	mu          sync.Mutex
-	cfg         voicepoc.DuplexConfig
+	cfg         voiceduplex.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
-	session     *voicepoc.DuplexSession
+	session     *voiceduplex.DuplexSession
 	turnStarted time.Time
 	nextSeq     int
 	// audioSeq numbers the gateway→client binary audio frames. It is the
@@ -222,7 +222,7 @@ func (s *volcDuplexProviderSession) UserTranscript(text string) {
 	}
 }
 
-// AssistantTextDelta implements voicepoc.TurnSink: one fragment of the
+// AssistantTextDelta implements voiceduplex.TurnSink: one fragment of the
 // assistant's reply, pushed the moment the vendor produces it.
 func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 	if delta == "" || s.emit == nil {
@@ -266,7 +266,7 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.collectingTurn = false
 }
 
-// AssistantAudio implements voicepoc.TurnSink: one chunk of the assistant's
+// AssistantAudio implements voiceduplex.TurnSink: one chunk of the assistant's
 // speech, pushed the moment the vendor produces it.
 //
 // This is the half of P1-2 that a user actually hears. Text deltas made the
@@ -386,7 +386,7 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	if instructions := instructionsForSessionStart(start, continuation); instructions != "" {
 		s.cfg.Instructions = instructions
 	}
-	session, err := voicepoc.OpenDuplex(ctx, s.cfg)
+	session, err := voiceduplex.OpenDuplex(ctx, s.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +508,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// transparent reopen budget on a connection already known to be dead.
 		// A provider error *event* is different: the session is still usable
 		// and resetting would discard the server-side conversation context.
-		if errors.Is(err, voicepoc.ErrDuplexClosed) {
+		if errors.Is(err, voiceduplex.ErrDuplexClosed) {
 			s.resetAfterTurnReadFailure(ctx)
 		}
 
@@ -517,7 +517,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// on every exit path, so timeout/partial/error take this branch and skip
 		// the 20s retry below. That retry is only for DeadlineExceeded with an
 		// unset Outcome (transport timeout before collectTurn could classify).
-		if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+		if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 			s.logger.Warn("turn result non-ok outcome, sending ai.turn.end to unblock iOS",
 				"session_id", s.session.SessionID(),
 				"outcome", turn.Outcome,
@@ -542,7 +542,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 			defer cancel()
 			turn, retryErr := s.session.WaitTurnResult(retryCtx, s.turnStarted, 20*time.Second)
 			// B15-fix: if retry has a set Outcome, prefer it over the error
-			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+			if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 				s.logger.Warn("retry non-ok outcome, sending ai.turn.end to unblock iOS",
 					"session_id", s.session.SessionID(),
 					"outcome", turn.Outcome,
@@ -564,7 +564,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 				return s.turnToOutbound(turn), nil
 			}
 			// B15-fix: retry returned no content with an error. Check if Outcome is set.
-			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+			if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 				s.logger.Warn("retry had non-ok outcome despite error, sending ai.turn.end",
 					"session_id", s.session.SessionID(),
 					"outcome", turn.Outcome,
@@ -768,7 +768,7 @@ func (s *volcDuplexProviderSession) defaultResetDuplex(ctx context.Context) erro
 	}
 	resetCtx, cancel := context.WithTimeout(ctx, duplexResetTimeout)
 	defer cancel()
-	newSess, err := voicepoc.OpenDuplex(resetCtx, s.cfg)
+	newSess, err := voiceduplex.OpenDuplex(resetCtx, s.cfg)
 	if err != nil {
 		return err
 	}
@@ -796,7 +796,7 @@ func (s *volcDuplexProviderSession) Close(ctx context.Context) error {
 	return s.session.Close(ctx)
 }
 
-func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []ProviderOutbound {
+func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) []ProviderOutbound {
 	var outbound []ProviderOutbound
 	transcript := strings.TrimSpace(turn.Transcript)
 	// B15: include outcome in all log lines so dashboards can filter by status
@@ -1123,9 +1123,9 @@ var (
 // `ai.tts.end` already uses. Falling back to "ok" for an unset outcome keeps
 // the field non-empty: an empty status would read as "unknown", which is the
 // one thing this marker exists to rule out.
-func ttsCompletionStatus(outcome voicepoc.TurnOutcome) string {
+func ttsCompletionStatus(outcome voiceduplex.TurnOutcome) string {
 	if outcome == "" {
-		return string(voicepoc.TurnOutcomeOK)
+		return string(voiceduplex.TurnOutcomeOK)
 	}
 	return string(outcome)
 }
