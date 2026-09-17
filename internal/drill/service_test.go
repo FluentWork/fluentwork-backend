@@ -61,25 +61,31 @@ func TestSelectBlocksForRound_CapsAtTenAndFillsAutomated(t *testing.T) {
 	}
 }
 
+// testSchedule is the ladder production uses: drill.Service reads
+// cfg.Normalize().Schedule, whose zero value is the PRD default. Going through it
+// rather than a drill-local helper means these assertions cover the same call the
+// service makes.
+func testSchedule() corpus.Schedule { return corpus.Schedule{}.Normalize() }
+
 func TestApplyJudge_PassFailAutomated(t *testing.T) {
 	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
 	block := corpus.PhraseBlock{State: corpus.StateNew, SuccessStreak: 0, NextDueAt: now}
-	p1 := ApplyJudge(block, true, now)
+	p1 := testSchedule().ApplyJudge(block, true, now)
 	if p1.SuccessStreak != 1 || p1.State != corpus.StateTraining {
 		t.Fatalf("pass1 = %+v", p1)
 	}
 	if !p1.NextDueAt.Equal(now.Add(24 * time.Hour)) {
 		t.Fatalf("due1 = %s", p1.NextDueAt)
 	}
-	p2 := ApplyJudge(p1, true, now)
-	p3 := ApplyJudge(p2, true, now)
+	p2 := testSchedule().ApplyJudge(p1, true, now)
+	p3 := testSchedule().ApplyJudge(p2, true, now)
 	if p3.State != corpus.StateAutomated || p3.SuccessStreak != 3 {
 		t.Fatalf("pass3 = %+v", p3)
 	}
 	if !p3.NextDueAt.Equal(now.Add(7 * 24 * time.Hour)) {
 		t.Fatalf("due3 = %s", p3.NextDueAt)
 	}
-	auto := ApplyJudge(p3, true, now)
+	auto := testSchedule().ApplyJudge(p3, true, now)
 	if !auto.NextDueAt.Equal(now.Add(30 * 24 * time.Hour)) {
 		t.Fatalf("auto due = %s", auto.NextDueAt)
 	}
@@ -88,7 +94,7 @@ func TestApplyJudge_PassFailAutomated(t *testing.T) {
 	if auto.SuccessStreak != p3.SuccessStreak {
 		t.Fatalf("auto streak = %d, want unchanged %d", auto.SuccessStreak, p3.SuccessStreak)
 	}
-	fail := ApplyJudge(p1, false, now)
+	fail := testSchedule().ApplyJudge(p1, false, now)
 	if fail.SuccessStreak != 0 || fail.State != corpus.StateTraining {
 		t.Fatalf("fail = %+v", fail)
 	}
@@ -97,7 +103,7 @@ func TestApplyJudge_PassFailAutomated(t *testing.T) {
 	}
 	// 从已自动化回退（PRD §5.3.2：失败含从 automated 回退）。这是唯一一条
 	// 会"降级"的路径，也是用户最能感知到的一条（绿灯掉回黄灯）。
-	demoted := ApplyJudge(p3, false, now)
+	demoted := testSchedule().ApplyJudge(p3, false, now)
 	if demoted.State != corpus.StateTraining || demoted.SuccessStreak != 0 {
 		t.Fatalf("automated block did not fall back to training: %+v", demoted)
 	}

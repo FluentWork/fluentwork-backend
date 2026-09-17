@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
-// Locks the shared ladder (PRD §5.3.2) at its home in corpus; drill.ApplyJudge
-// delegates here, so drill's own tests exercise the same code.
+// Locks the shared ladder (PRD §5.3.2) at its home in corpus. This is the only
+// implementation: both drill judging and the B7 hit writeback call it (the latter
+// from inside the corpus store transaction, where drill cannot be imported).
+// A drill.ApplyJudge delegate used to sit on top of this and was never called by
+// production — see docs/devnotes rule 5.
 func TestApplyJudge_Ladder(t *testing.T) {
 	now := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 

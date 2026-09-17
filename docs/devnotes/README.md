@@ -99,11 +99,11 @@
 
 | 手记 | 卡在哪 | 下一步 | 复查日期 |
 |---|---|---|---|
-| [B8 卡顿救援](2026-09-16-b8-rescue-handler-integration.md) | 救援音频无出口：`internal/content/tts` 仍是 "built, not turned on"，且住在 app-server | 定下音频投递方式（URL 还是网关自持），再接 `RescueSynthesizer` | 2026-09-28（W5 D1） |
+| ~~[B8 卡顿救援](2026-09-16-b8-rescue-handler-integration.md)~~ | ~~救援音频无出口~~ → **已解决 2026-09-18**：投递方式定为走客户端已有的 `ai.tts.*` 通道（不引入对象存储），`RescueSynthesizer` 已接上，见 `docs/92` | — | ✅ |
 | [B8 卡顿救援](2026-09-16-b8-rescue-handler-integration.md) | 不确定 iOS 在用户全程沉默时是否会发 `user.speech.start` | 向 iOS 团队确认 VAD 事件语义 | 2026-09-30（W5 D3） |
-| [空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md) | 两套调度实现规则冲突，`corpus/schedule.go` 无生产调用方 | **待产品/技术拍板**：以 `drill/scheduler.go` 为准并删另一处，或写明各自适用范围 | 2026-09-19 |
-| [空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md) | `ease_factor` 恒为 2.5，从不参与计算 | **待拍板**：启用 ease 计算 或 从表/类型中移除 | 2026-09-19 |
-| [空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md) | `real_use_count` 无写入方 → UI 的"开会用上过 N 次"恒为 0 | 补 B7 命中回写（`real_use_count +1` 且 `streak +1`），并做一次端到端验证 | 2026-09-19 |
+| ~~[空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md)~~ | ~~两套调度实现规则冲突~~ → **已查清 2026-09-18**：只有一处实现（`corpus.ApplyJudge`），drill 与 B7 回写都走它。所谓"第二套"是 `drill.ApplyJudge`——一个没人调用的转发函数，已删除 | — | ✅ |
+| ~~[空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md)~~ | ~~`ease_factor` 恒为 2.5~~ → **不是缺陷 2026-09-18**：它是**刻意预留**的（`corpus/types.go` 注释已写明：MVP 固定阶梯，PRD §5.5 定案不启用），且有写入方（建块时置 2.5）。"待拍板"这个措辞本身是错的——拍板已经拍过了 | — | ✅ |
+| ~~[空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md)~~ | ~~`real_use_count` 无写入方~~ → **已解决 2026-09-18**：账本侧 772ce2a 早已做完，缺的是网关调用方；`BadgeEmitter.HitRecorder` 已接上，端到端测试见 `hit_writeback_test.go` | — | ✅ |
 
 ## 防复发规则表
 
@@ -116,5 +116,21 @@
 | 3 | 引入"时间阈值"类逻辑时，时钟必须可注入；测试用假时钟推进，不用 sleep | `Handler.RescueTick` + 可注入 `h.now` | [B8](2026-09-16-b8-rescue-handler-integration.md) |
 | 4 | 核心机制的字段，**写入方与字段同时提交**；做不到就先不建字段 | 评审时 grep 写入方；UI/接口会展示的数据必须端到端验证一次 | [空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md) |
 | 5 | 同一规则不允许存在两处实现，新实现落地时必须删除旧实现或写明各自适用范围 | 删除死代码；保留两处时在代码注释里写明分工 | [空壳字段](2026-09-17-silent-fields-and-dead-scheduler.md) |
+| 6 | **"XX 没做/没接线"这类任务，先 grep 调用方再读组件**：本仓最常见的缺陷不是组件坏了，而是组件齐全、各自有测试、唯独没人调用它 | 派活/接活时的第一个动作：`grep -rn "<端点或 setter>" --include="*.go" . \| grep -v _test`。命中数就是答案 | B8、B7 三次同形（见下） |
+
+### 6 号的证据：同一个坑出现了三次
+
+| 时间 | 组件（齐全且各自有测试） | 缺的那一行 | 症状 |
+|---|---|---|---|
+| 之前 | `SetRescueComponents` + 沉默检测 + 三级梯子 | `cmd/voice-gateway` 里没人调用 | B8 在所有环境都是暗的（23f5262） |
+| 2026-09-18 | `corpus.RecordHits` 的整条回写事务（772ce2a 就做完了） | 网关上没有任何调用方，全仓唯一 POST 的是 `cmd/smoke-moat` | "用上过 N 次"恒为 0（1e4b0e4） |
+| 2026-09-18 | 客户端按 `{"data":{...}}` 解码 | app-server 从来只发扁平结构 | 每一级梯子静默掉进静态库（4f113e6） |
+
+三例的共同点：**测试全绿**。因为每个组件自己的测试都通过，而洞永远在两个包的接缝上——没有哪个包的测试套件看得见它。
+
+对应的防护手段有两条，缺一条就还会再犯：
+
+1. **发现**：接"XX 没做"这类任务时，先看调用方（规则 6 的 grep）。三次里有两次，组件其实已经写好了。
+2. **证明**：跨进程/跨包的调用，测试必须**驱动真 handler**（真 HTTP、真路由、真鉴权），不能用一个复述了同样假设的 fixture。B8 那次正是 fixture 与客户端犯了同一个错，所以它替 bug 打了掩护。
 
 > **硬规则**：同一个坑出现第二次 = 这套规范失效。第二次必须产出**防护**（测试 / 断言 / 类型 / 校验 / 监控），而不是再写一篇手记。
