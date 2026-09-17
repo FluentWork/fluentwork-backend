@@ -11,7 +11,7 @@ type MockClient struct {
 }
 
 // Complete 实现 Client 接口，返回预设的响应或错误
-func (m *MockClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+func (m *MockClient) Complete(_ context.Context, req CompletionRequest) (CompletionResponse, error) {
 	if m.Calls != nil {
 		m.Calls = append(m.Calls, req)
 	}

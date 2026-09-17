@@ -45,8 +45,8 @@ func TestMockClient_RecordsCalls(t *testing.T) {
 	req1 := CompletionRequest{Prompt: "first"}
 	req2 := CompletionRequest{Prompt: "second"}
 
-	client.Complete(context.Background(), req1)
-	client.Complete(context.Background(), req2)
+	_, _ = client.Complete(context.Background(), req1)
+	_, _ = client.Complete(context.Background(), req2)
 
 	if len(client.Calls) != 2 {
 		t.Fatalf("expected 2 calls, got %d", len(client.Calls))

@@ -1,3 +1,6 @@
+// Package orchestrator is the app-server's single LLM entry point: every
+// feature that needs a completion goes through Client, so model choice,
+// cost logging and prompt-call bookkeeping live in one place.
 package orchestrator
 
 import (
@@ -130,7 +133,7 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("do request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {

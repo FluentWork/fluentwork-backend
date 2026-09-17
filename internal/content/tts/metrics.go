@@ -38,7 +38,7 @@ func (m *Metrics) incRouteHit(voiceID string) {
 	counter.Add(1)
 }
 
-func (m *Metrics) incRouteMiss(voiceID string) {
+func (m *Metrics) incRouteMiss(_ string) {
 	if m != nil {
 		m.routeMisses.Add(1)
 	}

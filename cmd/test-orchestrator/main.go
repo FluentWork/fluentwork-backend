@@ -71,7 +71,7 @@ AI: Excellent update! Let me know if you need any feedback.`,
 
 	result, err := adapter.Generate(ctx, req)
 	if err != nil {
-		return fmt.Errorf("Generate failed: %w", err)
+		return fmt.Errorf("generate failed: %w", err)
 	}
 
 	fmt.Println("✓ Review generated successfully!")

@@ -17,13 +17,13 @@ type failingCostWriter struct {
 	err       error
 }
 
-func (f *failingCostWriter) Write(ctx context.Context, log CostLog) error {
+func (f *failingCostWriter) Write(_ context.Context, _ CostLog) error {
 	f.callCount++
 	return f.err
 }
 
 func TestArkClient_CostWriterFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := arkChatResponse{
 			ID:      "test-id",
 			Created: 1234567890,
@@ -58,7 +58,7 @@ func TestArkClient_CostWriterFailure(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -96,7 +96,7 @@ func TestArkClient_CostWriterFailure(t *testing.T) {
 }
 
 func TestArkClient_NilCostWriter(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := arkChatResponse{
 			ID:      "test-id",
 			Created: 1234567890,
@@ -130,7 +130,7 @@ func TestArkClient_NilCostWriter(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -155,9 +155,9 @@ func TestArkClient_NilCostWriter(t *testing.T) {
 }
 
 func TestArkClient_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": {"message": "internal error"}}`))
+		_, _ = w.Write([]byte(`{"error": {"message": "internal error"}}`))
 	}))
 	defer server.Close()
 
@@ -183,9 +183,9 @@ func TestArkClient_HTTPError(t *testing.T) {
 }
 
 func TestArkClient_MalformedJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices": [{"message": {"content": "incomplete`))
+		_, _ = w.Write([]byte(`{"choices": [{"message": {"content": "incomplete`))
 	}))
 	defer server.Close()
 
@@ -208,7 +208,7 @@ func TestArkClient_MalformedJSON(t *testing.T) {
 }
 
 func TestArkClient_EmptyChoices(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := arkChatResponse{
 			ID:      "test-id",
 			Created: 1234567890,
@@ -232,7 +232,7 @@ func TestArkClient_EmptyChoices(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -258,7 +258,7 @@ func TestArkClient_EmptyChoices(t *testing.T) {
 }
 
 func TestArkClient_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()

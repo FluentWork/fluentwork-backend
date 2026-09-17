@@ -8,7 +8,7 @@ import (
 
 func TestRouter_Stream_RouteHit(t *testing.T) {
 	mockA := &MockProvider{
-		streamFunc: func(ctx context.Context, text string, voice VoiceConfig) (<-chan AudioChunk, error) {
+		streamFunc: func(_ context.Context, _ string, _ VoiceConfig) (<-chan AudioChunk, error) {
 			ch := make(chan AudioChunk, 1)
 			ch <- AudioChunk{Data: []byte("mock-a"), Seq: 0, IsFinal: true}
 			close(ch)
@@ -16,7 +16,7 @@ func TestRouter_Stream_RouteHit(t *testing.T) {
 		},
 	}
 	mockB := &MockProvider{
-		streamFunc: func(ctx context.Context, text string, voice VoiceConfig) (<-chan AudioChunk, error) {
+		streamFunc: func(_ context.Context, _ string, _ VoiceConfig) (<-chan AudioChunk, error) {
 			ch := make(chan AudioChunk, 1)
 			ch <- AudioChunk{Data: []byte("mock-b"), Seq: 0, IsFinal: true}
 			close(ch)
@@ -59,7 +59,7 @@ func TestRouter_Stream_RouteHit(t *testing.T) {
 
 func TestRouter_Stream_RouteMiss_Fallback(t *testing.T) {
 	mockFallback := &MockProvider{
-		streamFunc: func(ctx context.Context, text string, voice VoiceConfig) (<-chan AudioChunk, error) {
+		streamFunc: func(_ context.Context, _ string, _ VoiceConfig) (<-chan AudioChunk, error) {
 			ch := make(chan AudioChunk, 1)
 			ch <- AudioChunk{Data: []byte("fallback"), Seq: 0, IsFinal: true}
 			close(ch)
@@ -117,17 +117,17 @@ func TestRouter_Stream_NilRouter(t *testing.T) {
 
 func TestRouter_Ping_AllProviders(t *testing.T) {
 	mockA := &MockProvider{
-		pingFunc: func(ctx context.Context) error {
+		pingFunc: func(_ context.Context) error {
 			return nil
 		},
 	}
 	mockB := &MockProvider{
-		pingFunc: func(ctx context.Context) error {
+		pingFunc: func(_ context.Context) error {
 			return nil
 		},
 	}
 	mockFallback := &MockProvider{
-		pingFunc: func(ctx context.Context) error {
+		pingFunc: func(_ context.Context) error {
 			return nil
 		},
 	}
@@ -146,12 +146,12 @@ func TestRouter_Ping_AllProviders(t *testing.T) {
 func TestRouter_Ping_FirstError(t *testing.T) {
 	errTest := errors.New("ping failed")
 	mockA := &MockProvider{
-		pingFunc: func(ctx context.Context) error {
+		pingFunc: func(_ context.Context) error {
 			return errTest
 		},
 	}
 	mockB := &MockProvider{
-		pingFunc: func(ctx context.Context) error {
+		pingFunc: func(_ context.Context) error {
 			return nil
 		},
 	}

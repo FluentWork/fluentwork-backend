@@ -26,6 +26,8 @@ const (
 // `context.Context` 抢读者的注意力；二是这个名字已经写进跨仓的
 // `meta/docs/40_研发流程与协作/78_PRD_V1.6新增功能实现方案`，改名的收益抵不上
 // 让计划文档与代码对不上的代价。
+//
+//nolint:revive // 名字已写入跨仓文档 78_，改名收益不抵代价（理由见上）。
 type ConversationContext struct {
 	LastAIMessage   string // AI 最后一条消息
 	ScenarioContext string // 场景上下文（用户素材）

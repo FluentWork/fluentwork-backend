@@ -14,7 +14,7 @@ type mockCostWriter struct {
 	logs []CostLog
 }
 
-func (m *mockCostWriter) Write(ctx context.Context, log CostLog) error {
+func (m *mockCostWriter) Write(_ context.Context, log CostLog) error {
 	m.logs = append(m.logs, log)
 	return nil
 }
@@ -68,7 +68,7 @@ func TestArkClient_Complete(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
