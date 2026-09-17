@@ -309,3 +309,29 @@ func findBackendRootOrSkip(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// B8 rescue defaults to the environment's answer: a ladder nobody can render is
+// not a rescue, so production stays off until iOS renders it and TTS is
+// authorized — but development turns it on so the mechanism produces data.
+func TestLoadConfig_RescueEnabledDefaultsByEnvironment(t *testing.T) {
+	cases := []struct {
+		appEnv   string
+		override string
+		want     bool
+	}{
+		{"development", "", true},
+		{"production", "", false},
+		{"production", "true", true},
+		{"development", "false", false},
+		{"development", "nonsense", true}, // unparseable keeps the environment's answer
+	}
+	for _, tc := range cases {
+		t.Run(tc.appEnv+"/"+tc.override, func(t *testing.T) {
+			t.Setenv("APP_ENV", tc.appEnv)
+			t.Setenv("VOICE_RESCUE_ENABLED", tc.override)
+			if got := voicegateway.LoadConfig().RescueEnabled; got != tc.want {
+				t.Fatalf("RescueEnabled = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -54,13 +54,22 @@ type Config struct {
 	HTTPAddr             string
 	AppEnv               string
 	AppServerInternalURL string
-	InternalAPIToken     string
-	Provider             string
-	ClientAudioFormat    string
-	VolcSpeechAPIKey     string
-	VolcDuplexEndpoint   string
-	VolcDuplexModel      string
-	VolcDuplexVoice      string
+	// RescueEnabled wires B8 stuck rescue into the gateway.
+	//
+	// It defaults to the environment's answer rather than to "on", because a
+	// ladder the client cannot render is not a rescue: iOS has no rescue
+	// handling yet, and the ladder is text-only until TTS is authorized
+	// (P1-3/P2-4). Turning it on in production before then would record rescues
+	// that never reached anyone — data that lies about the user's experience.
+	// In development it is on, so the mechanism and its data can be exercised.
+	RescueEnabled      bool
+	InternalAPIToken   string
+	Provider           string
+	ClientAudioFormat  string
+	VolcSpeechAPIKey   string
+	VolcDuplexEndpoint string
+	VolcDuplexModel    string
+	VolcDuplexVoice    string
 	// DevEchoText is the authoritative text the dev-echo provider returns
 	// as ServerASRText on every user.speech.end. Only honored when
 	// Provider == "dev-echo". Empty text makes the provider a no-op (logs
@@ -103,6 +112,7 @@ func LoadConfig() Config {
 		HTTPAddr:             envOr("VOICE_GATEWAY_HTTP_ADDR", defaultVoiceHTTPAddr),
 		AppEnv:               appEnv,
 		AppServerInternalURL: envOr("APP_SERVER_INTERNAL_URL", defaultAppServerURL),
+		RescueEnabled:        boolOr("VOICE_RESCUE_ENABLED", isDevelopmentEnv(appEnv)),
 		InternalAPIToken:     token,
 		Provider:             envOr("VOICE_GATEWAY_PROVIDER", "mock"),
 		ClientAudioFormat:    envOr("VOICE_GATEWAY_CLIENT_AUDIO_FORMAT", "opus-framed"),
@@ -189,6 +199,21 @@ func envTruthy(key string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// boolOr reads a boolean setting; anything unparseable keeps the fallback.
+func boolOr(key string, fallback bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch raw {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
 	}
 }
 

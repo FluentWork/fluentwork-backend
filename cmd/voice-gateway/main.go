@@ -14,11 +14,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
 	"github.com/FluentWork/fluentwork-backend/pkg/buildinfo"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
+
+// noRescueLLM is the honest "no model available here" client: the rescue
+// generator is wired, its calls fail fast, and the orchestrator serves the
+// static ladder library. Wiring a real client is a product decision (whose
+// budget pays for it), not a wiring detail.
+type noRescueLLM struct{}
+
+func (noRescueLLM) Complete(context.Context, string, conversation.CompletionOptions) (string, error) {
+	return "", errors.New("rescue LLM is not wired in this deployment")
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -62,6 +73,34 @@ func run() error {
 			IdleTimeout:        cfg.IdleTimeout,
 		},
 	)
+	// B8 wiring: the stuck-rescue ladder (PRD §5.4) — the moment this product
+	// either keeps a learner or loses them. SetRescueComponents was never called
+	// anywhere outside tests, so the whole mechanism (silence detection, three
+	// rungs, rescue events for refine) was dark in every deployment.
+	//
+	// Enabled where a ladder can actually reach someone: development today,
+	// production once iOS renders it and TTS is authorized. See
+	// RescueEnabled's comment for why "on everywhere" would be dishonest.
+	if cfg.RescueEnabled {
+		handler.SetRescueComponents(
+			voicegateway.NewSilenceDetector(),
+			voicegateway.NewRescueOrchestrator(
+				// No LLM in the gateway: the ladder falls back to the reviewed
+				// static library (docs/78 §8.1). Tailored ladders need an LLM
+				// seam here, which is a deliberate next step — the gateway has no
+				// provider client today, and adding one without cost accounting
+				// would put model spend outside ai_cost_logs.
+				conversation.NewRescueGenerator(noRescueLLM{}),
+				nil, // synthesizer: TTS is built but not turned on (B17/P2-4)
+				logger,
+			),
+		)
+		logger.Info("B8 stuck rescue wired", "stage", "b8_rescue", "provider", cfg.Provider)
+	} else {
+		logger.Info("B8 stuck rescue disabled; set VOICE_RESCUE_ENABLED=true to wire it",
+			"stage", "b8_rescue", "app_env", cfg.AppEnv)
+	}
+
 	// B12 wiring: every provider gets a BadgeEmitter.
 	//   - dev-echo uses a self-contained source derived from the echo phrase
 	//     so the local loop needs no app-server corpus (deterministic).
