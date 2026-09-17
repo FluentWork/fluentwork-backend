@@ -87,6 +87,7 @@ func New(
 	}
 	if drillHandler != nil {
 		drill.RegisterRoutes(apiGroup, drillHandler)
+		drill.RegisterInternalRoutes(engine.Group("/internal/v1"), drillHandler, cfg.InternalAPIToken)
 	}
 	if historyHandler != nil {
 		sessionhistory.RegisterRoutes(apiGroup, historyHandler)

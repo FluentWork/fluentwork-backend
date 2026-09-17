@@ -243,6 +243,26 @@ func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSe
 	return cloneSession(session), cloneUtterances(cloned), false, nil
 }
 
+// CountRescuesByPath implements Store.
+func (s *MemoryStore) CountRescuesByPath(_ context.Context, userID string, since time.Time) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, events := range s.rescueEvents {
+		for _, event := range events {
+			if event.UserID != userID || event.CreatedAt.Before(since) {
+				continue
+			}
+			path := event.Path
+			if path == "" {
+				path = RescuePathSilent
+			}
+			out[path]++
+		}
+	}
+	return out, nil
+}
+
 // ListRescueEvents returns the session's B8 ladders ordered by seq.
 func (s *MemoryStore) ListRescueEvents(_ context.Context, sessionID string) ([]RescueEvent, error) {
 	s.mu.Lock()

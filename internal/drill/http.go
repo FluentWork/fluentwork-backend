@@ -1,6 +1,7 @@
 package drill
 
 import (
+	"crypto/subtle"
 	"strconv"
 	"strings"
 
@@ -64,6 +65,44 @@ func (h *Handler) PostJudge(c *gin.Context) {
 		return
 	}
 	httpjson.OK(c, result)
+}
+
+// RegisterInternalRoutes mounts the operator-facing drill endpoints under
+// /internal/v1. These are read-only views over one learner's data, used for
+// content and difficulty work — not client API.
+func RegisterInternalRoutes(rg gin.IRouter, h *Handler, expectedToken string) {
+	if h == nil {
+		return
+	}
+	rg.GET("/drill/stuck-map", requireInternalToken(expectedToken), h.GetStuckMap)
+}
+
+// GetStuckMap handles GET /internal/v1/drill/stuck-map (86_ M4).
+func (h *Handler) GetStuckMap(c *gin.Context) {
+	days, _ := strconv.Atoi(c.Query("days"))
+	result, err := h.svc.StuckMap(c.Request.Context(), c.Query("user_id"), days)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// requireInternalToken mirrors the other modules' internal auth.
+func requireInternalToken(expected string) gin.HandlerFunc {
+	expected = strings.TrimSpace(expected)
+	return func(c *gin.Context) {
+		if expected == "" {
+			httpjson.Error(c, apierr.Internal("internal API token is not configured"))
+			return
+		}
+		got := strings.TrimSpace(c.GetHeader("X-Internal-Token"))
+		if got == "" || len(got) != len(expected) || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+			httpjson.Error(c, apierr.Unauthenticated("invalid internal token"))
+			return
+		}
+		c.Next()
+	}
 }
 
 // PostAppeal handles POST /api/v1/drill/appeal — E2's 一键申诉.

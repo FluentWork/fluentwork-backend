@@ -186,6 +186,9 @@ func run() error {
 		"overdue_window", cfg.DrillOverdueWindow,
 		"judge_timeout", cfg.DrillJudgeTimeout,
 	)
+	// 86_ M4: the stuck map spans drills and rescues, so the drill service reads
+	// rescue counts through the session store rather than owning its tables.
+	drillSvc.SetRescueSource(sessionStore)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 
 	materialStore, materialCloser, err := materials.OpenStore(cfg, logger)

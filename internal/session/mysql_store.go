@@ -328,6 +328,32 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 	return session, saved, false, nil
 }
 
+// CountRescuesByPath implements Store.
+func (s *MySQLStore) CountRescuesByPath(ctx context.Context, userID string, since time.Time) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT path, COUNT(*) FROM rescue_events
+		WHERE user_id = ? AND created_at >= ?
+		GROUP BY path
+	`, userID, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int{}
+	for rows.Next() {
+		var path string
+		var count int
+		if err := rows.Scan(&path, &count); err != nil {
+			return nil, err
+		}
+		if path == "" {
+			path = RescuePathSilent
+		}
+		out[path] += count
+	}
+	return out, rows.Err()
+}
+
 // ListRescueEvents implements Store: the session's B8 ladders ordered by seq.
 func (s *MySQLStore) ListRescueEvents(ctx context.Context, sessionID string) ([]RescueEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `

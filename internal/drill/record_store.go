@@ -3,6 +3,7 @@ package drill
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -29,6 +30,9 @@ type RecordStore interface {
 	// block: the guard that stops an old appeal from rolling back a later,
 	// legitimate attempt (PRD §7.5 的申诉只对"被误判的那次"生效).
 	IsLatestForBlock(ctx context.Context, userID, blockID string, recordID int64) (bool, error)
+	// ListRecordsSince returns the user's attempts in a window, oldest first.
+	// The stuck map groups them in Go so both stores rank by one rule.
+	ListRecordsSince(ctx context.Context, userID string, since time.Time) ([]Record, error)
 	// CountNewReleasesSince counts attempts since a time whose block was still
 	// 灰 when it was served — the accounting behind 每日新块释放上限 (E3).
 	// Attempts recorded before that snapshot column existed count as zero.
@@ -89,6 +93,21 @@ func (s *MemoryRecordStore) MarkAppealed(_ context.Context, userID string, recor
 		return true, nil
 	}
 	return false, ErrRecordNotFound
+}
+
+// ListRecordsSince implements RecordStore.
+func (s *MemoryRecordStore) ListRecordsSince(_ context.Context, userID string, since time.Time) ([]Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Record, 0, len(s.records))
+	for _, rec := range s.records {
+		if rec.UserID != userID || rec.CreatedAt.Before(since) {
+			continue
+		}
+		out = append(out, rec)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // CountNewReleasesSince implements RecordStore.

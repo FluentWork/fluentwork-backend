@@ -49,6 +49,9 @@ type Store interface {
 	// ListRescueEvents returns the session's B8 ladders ordered by seq. They are
 	// refine's second input (PRD §5.4.4), read when the review job runs.
 	ListRescueEvents(ctx context.Context, sessionID string) ([]RescueEvent, error)
+	// CountRescuesByPath counts one learner's ladders per path in a window,
+	// for the stuck map (86_ M4). Satisfies drill.RescueSource.
+	CountRescuesByPath(ctx context.Context, userID string, since time.Time) (map[string]int, error)
 	EnqueueJob(ctx context.Context, job Job) error
 	HasSessionJob(ctx context.Context, sessionID, jobType string, statuses ...string) (bool, error)
 	ClaimNextJob(ctx context.Context, workerID string, at time.Time) (Job, error)

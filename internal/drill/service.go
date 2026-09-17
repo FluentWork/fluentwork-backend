@@ -19,6 +19,16 @@ type Service struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	cfg     Config
+	rescues RescueSource
+}
+
+// SetRescueSource attaches the B8 rescue reader used by the stuck map (86_ M4).
+// Optional: without it the map reports the drill half only.
+func (s *Service) SetRescueSource(source RescueSource) {
+	if s == nil {
+		return
+	}
+	s.rescues = source
 }
 
 // NewService constructs a drill service.

@@ -104,6 +104,29 @@ func (s *MySQLRecordStore) IsLatestForBlock(ctx context.Context, userID, blockID
 	return latest.Int64 == recordID, nil
 }
 
+// ListRecordsSince implements RecordStore.
+func (s *MySQLRecordStore) ListRecordsSince(ctx context.Context, userID string, since time.Time) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+recordColumns+`
+		FROM drill_records
+		WHERE user_id = ? AND created_at >= ?
+		ORDER BY id ASC
+	`, userID, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]Record, 0, 64)
+	for rows.Next() {
+		rec, err := scanRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
 // CountNewReleasesSince implements RecordStore.
 func (s *MySQLRecordStore) CountNewReleasesSince(ctx context.Context, userID string, since time.Time) (int, error) {
 	var n int

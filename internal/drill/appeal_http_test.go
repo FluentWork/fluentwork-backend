@@ -122,3 +122,62 @@ func TestHandler_AppealHTTP(t *testing.T) {
 		t.Fatalf("anonymous status=%d body=%s", anon.Code, anon.Body.String())
 	}
 }
+
+// 86_ M4: the stuck map is an operator view — internal token only, and it
+// answers for a named learner.
+func TestHandler_StuckMapHTTP(t *testing.T) {
+	accountStore := account.NewMemoryStore()
+	cfg := config.Config{
+		HTTPAddr:         ":0",
+		AppEnv:           "development",
+		AuthJWTSecret:    config.DevJWTSecret,
+		AccessTokenTTL:   2 * time.Hour,
+		RefreshTokenTTL:  24 * time.Hour,
+		InternalAPIToken: config.DevInternalAPIToken,
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
+	accountHandler := account.NewHandler(accountSvc)
+	tokens, err := accountSvc.IssueGuest(context.Background(), "device-stuck-map")
+	if err != nil {
+		t.Fatalf("guest: %v", err)
+	}
+
+	blocks := corpus.NewMemoryStore()
+	now := time.Now().UTC()
+	if _, err := blocks.SaveAcceptedBlocks(context.Background(), []corpus.PhraseBlock{{
+		ID: "block-map", UserID: tokens.UserID, IntentZH: "推动上线", ExpressionEN: "Let's ship it",
+		AnchorUserSaid: "ship it", SceneTag: "review", FunctionTag: "report",
+		State: corpus.StateTraining, NextDueAt: now.Add(-time.Minute), EaseFactor: 2.5,
+		CreatedAt: now.Add(-48 * time.Hour), UpdatedAt: now.Add(-48 * time.Hour),
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	svc := drill.NewService(blocks, drill.NewMemoryRecordStore(),
+		&drill.LLMJudge{LLM: drill.StaticCompleter{Body: `{"pass":false}`}}, logger)
+	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil,
+		drill.NewHandler(svc, accountHandler), nil, nil, nil, accountStore.Ping)
+
+	// Without the internal token the route does not answer.
+	anon := httptest.NewRecorder()
+	anonReq := httptest.NewRequest(http.MethodGet, "/internal/v1/drill/stuck-map?user_id="+tokens.UserID, nil)
+	server.Handler().ServeHTTP(anon, anonReq)
+	if anon.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d body=%s", anon.Code, anon.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/drill/stuck-map?days=30&user_id="+tokens.UserID, nil)
+	req.Header.Set("X-Internal-Token", config.DevInternalAPIToken)
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp drill.StuckMapResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.WindowDays != 30 || resp.Note == "" {
+		t.Fatalf("response = %+v", resp)
+	}
+}
