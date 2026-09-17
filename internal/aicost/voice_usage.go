@@ -59,10 +59,10 @@ func (r TTSRecorder) RecordTTSUsage(ctx context.Context, voiceID string, chars i
 		voiceID = "default"
 	}
 	_, err := r.Svc.Record(ctx, RecordRequest{
-		TaskType: TaskTypeVoiceTTS,
-		Model:    voiceID,
-		Chars:    chars,
-		CostFen:  0,
+		TaskType:      TaskTypeVoiceTTS,
+		Model:         voiceID,
+		Chars:         chars,
+		CostMicroYuan: 0,
 	})
 	return err
 }

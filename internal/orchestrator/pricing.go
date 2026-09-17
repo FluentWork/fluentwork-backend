@@ -3,46 +3,41 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
 )
 
-// ModelPricing 定义模型的输入/输出 token 单价（单位：分/千 tokens）
+// ModelPricing is a model's price in 微元 per million tokens (10^-6 CNY / 1M).
+//
+// Microunits rather than 分, because current models cost far less than one 分 per
+// call: 0.8 CNY/1M means a 1000+500 token call is 0.12 分, and integer fen cannot
+// say that — every call rounded up to the 1-分 floor and the ledger became
+// "calls × 1 分", a number that looks like money and is not.
+//
+// Per million, because that is the unit vendors publish: an operator copies the
+// number off the pricing page or the bill with no arithmetic in between.
 type ModelPricing struct {
-	InputPricePerKToken  int // 输入 token 单价（分/1K tokens）
-	OutputPricePerKToken int // 输出 token 单价（分/1K tokens）
+	InputMicroYuanPerMillion  int64
+	OutputMicroYuanPerMillion int64
 }
 
-// defaultArkPricing is the built-in 火山 Ark price table (2026-09 data).
-// 参考：https://www.volcengine.com/docs/82379/1099320
+// defaultArkPricing is the built-in 火山 Ark price table.
 //
 // It is a *default*, not the source of truth: P2-2 settled that vendor billing
 // decides the rates, and doc 79 asked for the table to be replaceable without a
 // deploy. LoadPricingFile does that — ops corrects the numbers, not the code.
+//
+// Only entries with a stated source live here. The rest of the old table was
+// dropped deliberately: its numbers were 分 per 1K and contradicted their own
+// comment by 100x (3 分/1K for a model documented at 0.3 CNY/1M), with no source
+// recorded for any of them. A model with no entry is recorded at 0 and counted
+// as unpriced — the honest state until a bill supplies a rate.
 func defaultArkPricing() map[string]ModelPricing {
 	return map[string]ModelPricing{
-		// Doubao-mini 系列（Ark Mini，最经济的模型）
-		// 0.3元/M input tokens = 3分/1K tokens
-		// 0.6元/M output tokens = 6分/1K tokens
-		"doubao-mini-32k": {InputPricePerKToken: 3, OutputPricePerKToken: 6},
-
-		// Doubao-pro 系列
-		"doubao-pro-4k":     {InputPricePerKToken: 8, OutputPricePerKToken: 8},
-		"doubao-pro-32k":    {InputPricePerKToken: 5, OutputPricePerKToken: 9},
-		"doubao-pro-128k":   {InputPricePerKToken: 5, OutputPricePerKToken: 9},
-		"doubao-pro-256k":   {InputPricePerKToken: 20, OutputPricePerKToken: 60},
-		"doubao-pro-search": {InputPricePerKToken: 10, OutputPricePerKToken: 10},
-
-		// Doubao-lite 系列
-		"doubao-lite-4k":   {InputPricePerKToken: 3, OutputPricePerKToken: 6},
-		"doubao-lite-32k":  {InputPricePerKToken: 3, OutputPricePerKToken: 6},
-		"doubao-lite-128k": {InputPricePerKToken: 3, OutputPricePerKToken: 6},
-
-		// Character 系列
-		"doubao-character-4k":   {InputPricePerKToken: 8, OutputPricePerKToken: 8},
-		"doubao-character-32k":  {InputPricePerKToken: 5, OutputPricePerKToken: 9},
-		"doubao-character-128k": {InputPricePerKToken: 5, OutputPricePerKToken: 9},
+		// 0.3 CNY/1M in, 0.6 CNY/1M out.
+		"doubao-mini-32k": {InputMicroYuanPerMillion: 300_000, OutputMicroYuanPerMillion: 600_000},
 	}
 }
 
@@ -80,10 +75,9 @@ func ConfigurePricing(table map[string]ModelPricing) error {
 			return fmt.Errorf("pricing table has an empty model name")
 		}
 		// Zero is refused as well as negative: a rate nobody knows is expressed
-		// by leaving the model out (it then records 0 fen and is counted as
-		// unpriced), not by writing a zero that silently prices every call at
-		// the 1-fen floor.
-		if price.InputPricePerKToken <= 0 || price.OutputPricePerKToken <= 0 {
+		// by leaving the model out (it then records 0 and is counted as
+		// unpriced), not by writing a zero that prices every call at the floor.
+		if price.InputMicroYuanPerMillion <= 0 || price.OutputMicroYuanPerMillion <= 0 {
 			return fmt.Errorf("pricing for %q must be positive; omit the model instead of pricing it at 0", model)
 		}
 		cleaned[name] = price
@@ -94,14 +88,17 @@ func ConfigurePricing(table map[string]ModelPricing) error {
 	return nil
 }
 
-// pricingFileEntry is the on-disk shape of one model's prices.
+// pricingFileEntry is the on-disk shape of one model's prices, in the unit the
+// vendor publishes. The conversion to microunits happens once, on load.
 type pricingFileEntry struct {
-	InputPricePerKToken  int `json:"input_price_per_k_token"`
-	OutputPricePerKToken int `json:"output_price_per_k_token"`
+	InputCNYPerMillion  float64 `json:"input_cny_per_million"`
+	OutputCNYPerMillion float64 `json:"output_cny_per_million"`
 }
 
-// LoadPricingFile reads an override table from JSON, in the shape
-// {"doubao-mini-32k": {"input_price_per_k_token": 3, "output_price_per_k_token": 6}}.
+// LoadPricingFile reads an override table from JSON, in the unit the vendor
+// publishes:
+//
+//	{"doubao-seed-2-1-pro-260628": {"input_cny_per_million": 0.8, "output_cny_per_million": 2.0}}
 //
 // The caller fails startup on error on purpose: a pricing file that does not
 // parse means somebody intended to change the rates, and quietly running on the
@@ -117,9 +114,18 @@ func LoadPricingFile(path string) error {
 	}
 	table := make(map[string]ModelPricing, len(parsed))
 	for model, entry := range parsed {
-		table[model] = ModelPricing(entry)
+		table[model] = ModelPricing{
+			InputMicroYuanPerMillion:  cnyToMicroYuanPerMillion(entry.InputCNYPerMillion),
+			OutputMicroYuanPerMillion: cnyToMicroYuanPerMillion(entry.OutputCNYPerMillion),
+		}
 	}
 	return ConfigurePricing(table)
+}
+
+// cnyToMicroYuanPerMillion converts the published unit to the internal one.
+// Rounding at 10^-6 CNY is far below any rate a vendor publishes.
+func cnyToMicroYuanPerMillion(cny float64) int64 {
+	return int64(math.Round(cny * 1_000_000))
 }
 
 // PricingTable returns a copy of the active table, for tests and for anybody
@@ -206,13 +212,12 @@ var endpointToModel = map[string]string{
 	"ep-20260830211850-pf2ts": "doubao-seed-2-1-turbo-260628", // ARK_EP_TEXT_DEGRADE (Prod)
 }
 
-// CalculateCost 计算 LLM 调用费用（单位：分）。
+// CalculateCostMicroYuan prices one call, in 微元 (10^-6 CNY).
 //
 // A model no rule recognises costs 0 and is counted, rather than being priced as
-// whatever family its name resembles: the old fallback billed an unknown model at
-// doubao-pro-32k rates, which is a number that looks authoritative and is wrong
-// by a factor. Zero is visibly unknown; a plausible wrong number is not.
-func CalculateCost(model string, promptTokens, outputTokens int) int {
+// whatever family its name resembles: a plausible wrong number is worse than a
+// visible gap.
+func CalculateCostMicroYuan(model string, promptTokens, outputTokens int) int64 {
 	if promptTokens <= 0 && outputTokens <= 0 {
 		return 0
 	}
@@ -225,16 +230,16 @@ func CalculateCost(model string, promptTokens, outputTokens int) int {
 		incHeuristicPricedModel(strings.TrimSpace(model))
 	}
 
-	inputCostFen := (promptTokens * pricing.InputPricePerKToken) / 1000
-	outputCostFen := (outputTokens * pricing.OutputPricePerKToken) / 1000
-
-	totalCost := inputCostFen + outputCostFen
-	if totalCost == 0 {
-		// Usage that rounds to nothing is still usage: a 1-fen floor keeps a
-		// very short call from recording as free.
+	// Integer math on microunits: tokens × (微元/1M) / 1M stays exact for any
+	// rate a vendor publishes.
+	total := (int64(promptTokens)*pricing.InputMicroYuanPerMillion +
+		int64(outputTokens)*pricing.OutputMicroYuanPerMillion) / 1_000_000
+	if total == 0 {
+		// Usage that rounds to nothing is still usage: a 1-微元 floor (10^-6 CNY)
+		// keeps a very short call from recording as free.
 		return 1
 	}
-	return totalCost
+	return total
 }
 
 // guessModelFamily infers the price family from a model name. The second return

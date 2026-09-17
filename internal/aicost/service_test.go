@@ -16,13 +16,13 @@ func TestRecordWritesLedgerRow(t *testing.T) {
 	svc.newID = func() string { return "log-1" }
 
 	log, err := svc.Record(context.Background(), RecordRequest{
-		UserID:    "user-1",
-		TaskType:  "voice.asr",
-		Model:     "doubao-asr-v1",
-		TokensIn:  0,
-		TokensOut: 0,
-		AudioSec:  12,
-		CostFen:   8,
+		UserID:        "user-1",
+		TaskType:      "voice.asr",
+		Model:         "doubao-asr-v1",
+		TokensIn:      0,
+		TokensOut:     0,
+		AudioSec:      12,
+		CostMicroYuan: 8,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestRecordWritesLedgerRow(t *testing.T) {
 	if len(logs) != 1 {
 		t.Fatalf("logs len = %d", len(logs))
 	}
-	if logs[0].TaskType != "voice.asr" || logs[0].CostFen != 8 {
+	if logs[0].TaskType != "voice.asr" || logs[0].CostMicroYuan != 8 {
 		t.Fatalf("unexpected stored log: %+v", logs[0])
 	}
 }
@@ -59,9 +59,9 @@ func TestRecordRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected missing model error")
 	}
 	if _, err := svc.Record(context.Background(), RecordRequest{
-		TaskType: "review.eval",
-		Model:    "ark",
-		CostFen:  -1,
+		TaskType:      "review.eval",
+		Model:         "ark",
+		CostMicroYuan: -1,
 	}); err == nil {
 		t.Fatal("expected negative cost error")
 	}

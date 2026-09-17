@@ -45,20 +45,20 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Log, error) {
 	if model == "" {
 		return Log{}, apierr.InvalidArgument("model is required")
 	}
-	if req.TokensIn < 0 || req.TokensOut < 0 || req.AudioSec < 0 || req.Chars < 0 || req.CostFen < 0 {
-		return Log{}, apierr.InvalidArgument("tokens/audio_sec/chars/cost_fen must be non-negative")
+	if req.TokensIn < 0 || req.TokensOut < 0 || req.AudioSec < 0 || req.Chars < 0 || req.CostMicroYuan < 0 {
+		return Log{}, apierr.InvalidArgument("tokens/audio_sec/chars/cost_micro_yuan must be non-negative")
 	}
 
 	log := Log{
-		ID:        s.newID(),
-		TaskType:  taskType,
-		Model:     model,
-		TokensIn:  req.TokensIn,
-		TokensOut: req.TokensOut,
-		AudioSec:  req.AudioSec,
-		Chars:     req.Chars,
-		CostFen:   req.CostFen,
-		CreatedAt: s.now().UTC(),
+		ID:            s.newID(),
+		TaskType:      taskType,
+		Model:         model,
+		TokensIn:      req.TokensIn,
+		TokensOut:     req.TokensOut,
+		AudioSec:      req.AudioSec,
+		Chars:         req.Chars,
+		CostMicroYuan: req.CostMicroYuan,
+		CreatedAt:     s.now().UTC(),
 	}
 	if userID := strings.TrimSpace(req.UserID); userID != "" {
 		log.UserID = &userID
@@ -76,7 +76,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Log, error) {
 		"tokens_out", log.TokensOut,
 		"audio_sec", log.AudioSec,
 		"chars", log.Chars,
-		"cost_fen", log.CostFen,
+		"cost_micro_yuan", log.CostMicroYuan,
 	)
 	return log, nil
 }

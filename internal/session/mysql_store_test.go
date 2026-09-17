@@ -99,14 +99,14 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	reviewJSON := []byte(`{"goal_achievement":{"met":true},"issues":[],"suggestions":[],"comparisons":[]}`)
 	costLog := aicost.Log{
-		ID:        "cost-1",
-		UserID:    &userID,
-		TaskType:  arkReviewTaskType,
-		Model:     "ep-review",
-		TokensIn:  1000,
-		TokensOut: 2000,
-		CostFen:   9,
-		CreatedAt: at,
+		ID:            "cost-1",
+		UserID:        &userID,
+		TaskType:      arkReviewTaskType,
+		Model:         "ep-review",
+		TokensIn:      1000,
+		TokensOut:     2000,
+		CostMicroYuan: 9,
+		CreatedAt:     at,
 	}
 
 	mock.ExpectBegin()
@@ -126,7 +126,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 			costLog.TokensOut,
 			costLog.AudioSec,
 			costLog.Chars, // P1-5: TTS 计费列，此处恒为 0（review 走 token）
-			costLog.CostFen,
+			costLog.CostMicroYuan,
 			costLog.CreatedAt,
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -180,7 +180,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *
 			costLog.TokensOut,
 			costLog.AudioSec,
 			costLog.Chars, // P1-5: TTS 计费列，此处恒为 0（review 走 token）
-			costLog.CostFen,
+			costLog.CostMicroYuan,
 			costLog.CreatedAt,
 		).
 		WillReturnError(errors.New("cost insert failed: ai_cost_logs.user_id FK violation"))

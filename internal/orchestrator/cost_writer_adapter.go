@@ -23,13 +23,13 @@ func (a *AICostWriterAdapter) Write(ctx context.Context, log CostLog) error {
 	}
 
 	req := aicost.RecordRequest{
-		UserID:    log.UserID,
-		TaskType:  log.Operation,
-		Model:     log.Model,
-		TokensIn:  log.PromptTokens,
-		TokensOut: log.OutputTokens,
-		AudioSec:  0,
-		CostFen:   CalculateCost(log.Model, log.PromptTokens, log.OutputTokens),
+		UserID:        log.UserID,
+		TaskType:      log.Operation,
+		Model:         log.Model,
+		TokensIn:      log.PromptTokens,
+		TokensOut:     log.OutputTokens,
+		AudioSec:      0,
+		CostMicroYuan: CalculateCostMicroYuan(log.Model, log.PromptTokens, log.OutputTokens),
 	}
 
 	_, err := a.service.Record(ctx, req)

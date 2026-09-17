@@ -36,8 +36,8 @@ func TestBuildVoiceCostLogRecordsSecondsAndLeavesMoneyAtZero(t *testing.T) {
 		t.Fatalf("model = %q, want the measured one", log.Model)
 	}
 	// The whole point of this round: usage is a fact, money is not yet.
-	if log.CostFen != 0 {
-		t.Fatalf("cost_fen = %d; the vendor's rate is unverified, so a non-zero value would be a guess wearing a ledger row's authority", log.CostFen)
+	if log.CostMicroYuan != 0 {
+		t.Fatalf("cost_micro_yuan = %d; the vendor's rate is unverified, so a non-zero value would be a guess wearing a ledger row's authority", log.CostMicroYuan)
 	}
 	if log.UserID == nil || *log.UserID != "u1" {
 		t.Fatalf("user_id = %v, want u1 so the row can be attributed", log.UserID)

@@ -19,7 +19,7 @@ func TestAICostWriterAdapter_Write(t *testing.T) {
 		PromptTokens: 100,
 		OutputTokens: 200,
 		TotalTokens:  300,
-		Model:        "doubao-pro-32k",
+		Model:        "doubao-mini-32k", // a model the built-in table prices
 		LatencyMS:    500,
 	}
 
@@ -41,8 +41,8 @@ func TestAICostWriterAdapter_Write(t *testing.T) {
 	if recorded.TaskType != "review.eval" {
 		t.Errorf("expected task_type 'review.eval', got %q", recorded.TaskType)
 	}
-	if recorded.Model != "doubao-pro-32k" {
-		t.Errorf("expected model 'doubao-pro-32k', got %q", recorded.Model)
+	if recorded.Model != "doubao-mini-32k" {
+		t.Errorf("expected model 'doubao-mini-32k', got %q", recorded.Model)
 	}
 	if recorded.TokensIn != 100 {
 		t.Errorf("expected tokens_in 100, got %d", recorded.TokensIn)
@@ -50,8 +50,8 @@ func TestAICostWriterAdapter_Write(t *testing.T) {
 	if recorded.TokensOut != 200 {
 		t.Errorf("expected tokens_out 200, got %d", recorded.TokensOut)
 	}
-	if recorded.CostFen <= 0 {
-		t.Errorf("expected CostFen > 0, got %d", recorded.CostFen)
+	if recorded.CostMicroYuan <= 0 {
+		t.Errorf("expected CostMicroYuan > 0, got %d", recorded.CostMicroYuan)
 	}
 }
 
@@ -85,14 +85,14 @@ func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
 	recorded := logs[0]
 	// doubao-mini-32k: 3分/1K input, 6分/1K output
 	// Cost = 1000*3/1000 + 500*6/1000 = 3 + 3 = 6 分
-	expectedCost := 6
-	if recorded.CostFen != expectedCost {
-		t.Errorf("CostFen = %d; want %d (doubao-mini-32k: 1000*3/1000 + 500*6/1000)", recorded.CostFen, expectedCost)
+	expectedCost := int64(600) // doubao-mini-32k: (1000*300000 + 500*600000)/1e6 = 600 微元
+	if recorded.CostMicroYuan != expectedCost {
+		t.Errorf("CostMicroYuan = %d; want %d (doubao-mini-32k at 0.3/0.6 CNY per 1M)", recorded.CostMicroYuan, expectedCost)
 	}
 }
 
 // The deployed model (probed, not guessed) has no built-in price: the row is
-// written with usage facts and cost_fen = 0, and the model shows up in
+// written with usage facts and cost_micro_yuan = 0, and the model shows up in
 // UnpricedModels so somebody can add it to the pricing file.
 func TestAICostWriterAdapter_UnpricedDeployedModelRecordsUsage(t *testing.T) {
 	store := aicost.NewMemoryStore()
@@ -117,8 +117,8 @@ func TestAICostWriterAdapter_UnpricedDeployedModelRecordsUsage(t *testing.T) {
 	if len(logs) != 1 {
 		t.Fatalf("logs = %+v", logs)
 	}
-	if logs[0].CostFen != 0 {
-		t.Fatalf("cost_fen = %d, want 0 for a model with no rate", logs[0].CostFen)
+	if logs[0].CostMicroYuan != 0 {
+		t.Fatalf("cost_micro_yuan = %d, want 0 for a model with no rate", logs[0].CostMicroYuan)
 	}
 	if logs[0].TokensIn != 1000 || logs[0].TokensOut != 500 {
 		t.Fatalf("usage must still be recorded: %+v", logs[0])

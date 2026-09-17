@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
+	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -22,19 +23,13 @@ const (
 	legacyReviewGenerator = "legacy-review-v0"
 )
 
-// #21 (B8 followup) — Ark Mini per-million-token pricing in 元 (CNY).
-// These are the public list prices for Volcano Ark Doubao models as of 2026-09:
-//
-//	input  : 0.3 CNY / 1M tokens
-//	output : 0.6 CNY / 1M tokens
-//
-// CostFen is recorded in 分 (1 元 = 100 分), so the multiplier is 0.1 * 100 / 1_000_000.
-// When Ark introduces model-specific pricing, switch on result.Model.
-const (
-	arkReviewTaskType    = "review.eval"
-	arkInputFenPerToken  = 0.03 / 1_000_000.0 // 0.3元/M token → 0.03分/token (rounded)
-	arkOutputFenPerToken = 0.06 / 1_000_000.0 // 0.6元/M token → 0.06分/token (rounded)
-)
+// #21 (B8 followup) — the review worker used to price its own rows from a
+// hardcoded Ark Mini rate (0.03 分/token), while the orchestrator priced its
+// calls from a table in a different unit. Two implementations meant two
+// answers for the same tokens, and the session one ignored result.Model
+// entirely. Pricing now goes through orchestrator.CalculateCostMicroYuan, the
+// same single path every other LLM call uses.
+const arkReviewTaskType = "review.eval"
 
 // reviewRetryAttempts is the number of times buildReviewArtifacts will retry a
 // failed generator call before falling back to stub artifacts. Acceptance
@@ -201,15 +196,15 @@ func buildCostLog(session Session, artifacts reviewArtifacts, at time.Time) aico
 		userID = session.UserID
 	}
 	return aicost.Log{
-		ID:        uuid.NewString(),
-		TaskType:  arkReviewTaskType,
-		Model:     strings.TrimSpace(req.Model),
-		TokensIn:  req.TokensIn,
-		TokensOut: req.TokensOut,
-		AudioSec:  req.AudioSec,
-		CostFen:   computeCostFen(req.TokensIn, req.TokensOut),
-		CreatedAt: at,
-		UserID:    nullableUserID(userID),
+		ID:            uuid.NewString(),
+		TaskType:      arkReviewTaskType,
+		Model:         strings.TrimSpace(req.Model),
+		TokensIn:      req.TokensIn,
+		TokensOut:     req.TokensOut,
+		AudioSec:      req.AudioSec,
+		CostMicroYuan: orchestrator.CalculateCostMicroYuan(req.Model, req.TokensIn, req.TokensOut),
+		CreatedAt:     at,
+		UserID:        nullableUserID(userID),
 	}
 }
 
@@ -221,23 +216,6 @@ func nullableUserID(id string) *string {
 	}
 	copied := id
 	return &copied
-}
-
-// computeCostFen converts token counts into a cost in 分 (1元 = 100分) using
-// the Ark Mini pricing table. The math is intentionally simple — when Ark
-// ships model-specific pricing we should switch on result.Model here.
-func computeCostFen(tokensIn, tokensOut int) int {
-	if tokensIn < 0 {
-		tokensIn = 0
-	}
-	if tokensOut < 0 {
-		tokensOut = 0
-	}
-	fen := float64(tokensIn)*arkInputFenPerToken + float64(tokensOut)*arkOutputFenPerToken
-	if fen < 0 {
-		fen = 0
-	}
-	return int(fen + 0.5) // round-half-up to nearest 分
 }
 
 type reviewArtifacts struct {
@@ -342,11 +320,11 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 		RefineJSON: append([]byte(nil), result.Refine...),
 		Generator:  result.Generator,
 		Cost: &aicost.RecordRequest{
-			TaskType:  arkReviewTaskType,
-			Model:     result.Model,
-			TokensIn:  result.TokensIn,
-			TokensOut: result.TokensOut,
-			CostFen:   0,
+			TaskType:      arkReviewTaskType,
+			Model:         result.Model,
+			TokensIn:      result.TokensIn,
+			TokensOut:     result.TokensOut,
+			CostMicroYuan: 0,
 		},
 	}, nil
 }

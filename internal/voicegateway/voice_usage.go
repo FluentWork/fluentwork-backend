@@ -12,7 +12,7 @@ package voicegateway
 // 2.67x (meta 77_ P2-2, "以账单为准"). A wrong number in a cost ledger reads as
 // authoritative — it gets used for pricing and for circuit-breaking, and nobody
 // re-derives it. Record the fact now; fill in money when the bill settles it.
-// `aicost.Log.CostFen` stays 0 for these rows until then.
+// `aicost.Log.CostMicroYuan` stays 0 for these rows until then.
 type VoiceUsage struct {
 	UplinkMS   int64 `json:"uplink_ms"`
 	DownlinkMS int64 `json:"downlink_ms"`

@@ -38,13 +38,13 @@ type SummaryFilter struct {
 // the same reason the ledger does: a total that mixes characters with audio
 // seconds means nothing.
 type SummaryRow struct {
-	Key       string `json:"key"`
-	Rows      int    `json:"rows"`
-	TokensIn  int    `json:"tokens_in"`
-	TokensOut int    `json:"tokens_out"`
-	AudioSec  int    `json:"audio_sec"`
-	Chars     int    `json:"chars"`
-	CostFen   int    `json:"cost_fen"`
+	Key           string `json:"key"`
+	Rows          int    `json:"rows"`
+	TokensIn      int    `json:"tokens_in"`
+	TokensOut     int    `json:"tokens_out"`
+	AudioSec      int    `json:"audio_sec"`
+	Chars         int    `json:"chars"`
+	CostMicroYuan int64  `json:"cost_micro_yuan"`
 }
 
 // SummaryResponse is the GET /internal/v1/ai-cost-logs/summary payload.
@@ -53,17 +53,18 @@ type SummaryResponse struct {
 	Since   string       `json:"since"`
 	Until   string       `json:"until"`
 	Rows    []SummaryRow `json:"rows"`
-	// CostFenIsNotMoney is deliberately loud, because the fen column means two
-	// different things depending on the row: voice rows carry 0 (rates pending
-	// vendor billing, P2-2), while LLM rows carry an estimate computed from a
-	// price table nobody has reconciled against a bill yet. The usage columns
-	// are facts; neither fen is an invoice.
-	CostFenIsNotMoney string `json:"cost_fen_is_not_money"`
+	// CostCaveat is deliberately loud, because the money column means different
+	// things depending on the row: voice rows carry 0 (rates pending vendor
+	// billing, P2-2), while LLM rows carry an estimate computed from a price
+	// table nobody has reconciled against a bill yet. The usage columns are
+	// facts; neither amount is an invoice.
+	CostCaveat string `json:"cost_caveat"`
 }
 
-const costFenNote = "usage columns are measured facts; cost_fen is neither an invoice nor complete — " +
+const costNote = "usage columns are measured facts; the money column is neither an invoice nor complete — " +
 	"voice rows are 0 pending vendor rates (P2-2), LLM rows are estimates from an unreconciled price table, " +
-	"and calls priced by model-name guesswork or left unpriced are counted in orchestrator metrics"
+	"and calls priced by model-name guesswork or left unpriced are counted in orchestrator metrics. " +
+	"Unit: 10^-6 CNY (微元)"
 
 // Summary aggregates the ledger over a window.
 func (s *Service) Summary(ctx context.Context, filter SummaryFilter) (SummaryResponse, error) {
@@ -108,10 +109,10 @@ func (s *Service) Summary(ctx context.Context, filter SummaryFilter) (SummaryRes
 		rows = []SummaryRow{}
 	}
 	return SummaryResponse{
-		GroupBy:           groupBy,
-		Since:             since.UTC().Format(time.RFC3339),
-		Until:             until.UTC().Format(time.RFC3339),
-		Rows:              rows,
-		CostFenIsNotMoney: costFenNote,
+		GroupBy:    groupBy,
+		Since:      since.UTC().Format(time.RFC3339),
+		Until:      until.UTC().Format(time.RFC3339),
+		Rows:       rows,
+		CostCaveat: costNote,
 	}, nil
 }

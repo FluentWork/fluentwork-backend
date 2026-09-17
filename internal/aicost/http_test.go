@@ -254,7 +254,7 @@ func TestSummarizeInternal_OverHTTP(t *testing.T) {
 	if len(summary.Rows) != 1 || summary.Rows[0].Key != TaskTypeVoiceDuplex || summary.Rows[0].AudioSec != 30 {
 		t.Fatalf("summary = %+v", summary)
 	}
-	if summary.CostFenIsNotMoney == "" {
+	if summary.CostCaveat == "" {
 		t.Fatal("the fen column must carry its own caveat")
 	}
 

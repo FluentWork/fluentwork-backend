@@ -14,19 +14,19 @@ type Log struct {
 	AudioSec         int     `json:"audio_sec"`
 	// Chars is the TTS billing unit (voice.tts). One unit per column: characters
 	// in tokens_in would be a number under a label that does not mean it.
-	Chars     int       `json:"chars"`
-	CostFen   int       `json:"cost_fen"`
-	CreatedAt time.Time `json:"created_at"`
+	Chars         int       `json:"chars"`
+	CostMicroYuan int64     `json:"cost_micro_yuan"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // RecordRequest is the validated input used by Service.Record.
 type RecordRequest struct {
-	UserID    string
-	TaskType  string
-	Model     string
-	TokensIn  int
-	TokensOut int
-	AudioSec  int
-	Chars     int
-	CostFen   int
+	UserID        string
+	TaskType      string
+	Model         string
+	TokensIn      int
+	TokensOut     int
+	AudioSec      int
+	Chars         int
+	CostMicroYuan int64
 }

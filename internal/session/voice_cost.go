@@ -14,7 +14,7 @@ import (
 // buildVoiceCostLog turns the gateway's measurement into a ledger row, or nil
 // when there is nothing to record.
 //
-// **CostFen is deliberately 0.** The vendor's billing unit is unverified — its
+// **CostMicroYuan is deliberately 0.** The vendor's billing unit is unverified — its
 // published doc contradicts itself on the output-text rate by 2.67x (meta 77_
 // P2-2, "以账单为准"). A number computed from a guessed rate reads as
 // authoritative in a ledger: it gets used for pricing and for circuit-breaking,
@@ -46,9 +46,9 @@ func buildVoiceCostLog(session Session, usage *VoiceUsageItem, newID func() stri
 		Model:    strings.TrimSpace(usage.Model),
 		// Integer division floors: a partial second is not a second of audio,
 		// and rounding up would inflate every session.
-		AudioSec:  int((uplinkMS + downlinkMS) / 1000),
-		CostFen:   0,
-		CreatedAt: at,
-		UserID:    nullableUserID(session.UserID),
+		AudioSec:      int((uplinkMS + downlinkMS) / 1000),
+		CostMicroYuan: 0,
+		CreatedAt:     at,
+		UserID:        nullableUserID(session.UserID),
 	}
 }

@@ -658,7 +658,7 @@ func exercise(
 	if err != nil {
 		return ev, fmt.Errorf("cost summary: %w", err)
 	}
-	if note := stringField(summary, "cost_fen_is_not_money"); note == "" {
+	if note := stringField(summary, "cost_caveat"); note == "" {
 		return ev, fmt.Errorf("cost summary must carry its caveat: %#v", summary)
 	}
 	ev.CostSummaryRows, _ = summary["rows"].([]any)

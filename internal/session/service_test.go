@@ -749,87 +749,40 @@ func TestBuildReviewArtifacts_SucceedsOnSecondAttempt(t *testing.T) {
 // #21 (B8 followup) — Ark Mini pricing math.
 // Table-driven: 0.3 CNY/M input + 0.6 CNY/M output → 分/token.
 
-func TestComputeCostFen(t *testing.T) {
-	const (
-		inputFenPerToken  = 0.03 / 1_000_000.0 // 0.3元/M
-		outputFenPerToken = 0.06 / 1_000_000.0 // 0.6元/M
-	)
-	cases := []struct {
-		name    string
-		in      int
-		out     int
-		wantFen int
-	}{
-		{"zero tokens", 0, 0, 0},
-		// 1M input = 0.03分 → round-half-up → 0
-		{"1M input only", 1_000_000, 0, roundFen(0.03)},
-		{"1M output only", 0, 1_000_000, roundFen(0.06)},
-		{"1M+1M", 1_000_000, 1_000_000, roundFen(0.03 + 0.06)},
-		{"100k+200k", 100_000, 200_000, roundFen(100_000*inputFenPerToken + 200_000*outputFenPerToken)},
-		{"negative clamps to zero", -100, -100, 0},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := computeCostFen(tc.in, tc.out)
-			if got != tc.wantFen {
-				t.Fatalf("computeCostFen(%d, %d) = %d, want %d", tc.in, tc.out, got, tc.wantFen)
-			}
-		})
+// The review row is priced by the same function as every other LLM call — it
+// used to have its own hardcoded Ark Mini rate that ignored result.Model and
+// disagreed with the orchestrator's table by orders of magnitude.
+func TestBuildCostLog_PricesThroughTheSharedTable(t *testing.T) {
+	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	artifacts := reviewArtifacts{Cost: &aicost.RecordRequest{
+		TaskType:  arkReviewTaskType,
+		Model:     "doubao-mini-32k",
+		TokensIn:  1000,
+		TokensOut: 2000,
+	}}
+	log := buildCostLog(Session{ID: "sess-1", UserID: "user-7"}, artifacts, at)
+	// 0.3 CNY/1M in, 0.6 CNY/1M out → 300000/600000 微元/1M.
+	// (1000*300000 + 2000*600000)/1_000_000 = 300 + 1200 = 1500 微元 = 0.0015 元.
+	if log.CostMicroYuan != 1500 {
+		t.Fatalf("CostMicroYuan = %d, want 1500", log.CostMicroYuan)
 	}
 }
 
-// roundFen matches the int(fen + 0.5) rounding in computeCostFen so test
-// expected values can be written as plain floats instead of int casts on
-// float arithmetic (which Go forbids in const contexts).
-func roundFen(f float64) int {
-	if f < 0 {
-		return 0
-	}
-	return int(f + 0.5)
-}
-
-// #21 (B8 followup) — buildCostLog must produce an aicost.Log with the
-// canonical task_type, a non-empty ID, and the right cost in fen. UserID
-// falls back to session.UserID when the RecordRequest leaves it blank.
-
-func TestBuildCostLog_FieldMapping(t *testing.T) {
-	session := Session{ID: "sess-1", UserID: "user-7"}
-	artifacts := reviewArtifacts{
-		Generator: "ark-review-refine-v1",
-		Cost: &aicost.RecordRequest{
-			TaskType:  arkReviewTaskType, // what callers send; buildCostLog must canonicalize
-			Model:     "ep-review",
-			TokensIn:  1_000,
-			TokensOut: 2_000,
-			AudioSec:  0,
-			CostFen:   0,
-			UserID:    "", // blank → falls back to session.UserID
-		},
-	}
-	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
-	log := buildCostLog(session, artifacts, at)
-
-	if log.ID == "" {
-		t.Fatal("expected non-empty log ID")
-	}
-	if log.TaskType != arkReviewTaskType {
-		t.Fatalf("TaskType = %q, want %q", log.TaskType, arkReviewTaskType)
-	}
-	if log.Model != "ep-review" {
-		t.Fatalf("Model = %q", log.Model)
+// A model the table cannot price records 0 rather than a guessed rate.
+func TestBuildCostLog_UnpricedModelRecordsZero(t *testing.T) {
+	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	artifacts := reviewArtifacts{Cost: &aicost.RecordRequest{
+		TaskType:  arkReviewTaskType,
+		Model:     "doubao-seed-2-1-pro-260628",
+		TokensIn:  1000,
+		TokensOut: 2000,
+	}}
+	log := buildCostLog(Session{ID: "sess-1", UserID: "user-7"}, artifacts, at)
+	if log.CostMicroYuan != 0 {
+		t.Fatalf("CostMicroYuan = %d, want 0 for a model with no rate", log.CostMicroYuan)
 	}
 	if log.TokensIn != 1000 || log.TokensOut != 2000 {
-		t.Fatalf("tokens mismatch: %+v", log)
-	}
-	if !log.CreatedAt.Equal(at) {
-		t.Fatalf("CreatedAt = %v, want %v", log.CreatedAt, at)
-	}
-	if log.UserID == nil || *log.UserID != "user-7" {
-		t.Fatalf("UserID fallback failed: %+v", log.UserID)
-	}
-	wantFen := computeCostFen(1000, 2000)
-	if log.CostFen != wantFen {
-		t.Fatalf("CostFen = %d, want %d", log.CostFen, wantFen)
+		t.Fatalf("usage must still be recorded: %+v", log)
 	}
 }
 

@@ -177,7 +177,7 @@ test(provider): add B15 regression tests
 
 | 变量 | 描述 | 默认值 |
 |------|------|--------|
-| `ARK_PRICING_FILE` | 模型费率表 JSON 文件；设置后**替换**内置表（格式见 `internal/orchestrator/pricing.go`）。文件解析失败则启动失败——静默沿用旧费率等于用没人选过的数字记账 | `""`（用内置表） |
+| `ARK_PRICING_FILE` | 模型费率表 JSON，设置后**替换**内置表。单位用供应商公布口径：`{"doubao-seed-2-1-pro-260628":{"input_cny_per_million":0.8,"output_cny_per_million":2.0}}`。解析失败则启动失败——静默沿用旧费率等于用没人选过的数字记账。查该配哪些模型：`go run ./cmd/ark-endpoint-probe` | `""`（用内置表） |
 
 ### 话题建议（H1/H2）
 

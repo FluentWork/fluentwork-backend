@@ -25,9 +25,9 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 func (s *MySQLStore) CreateLog(ctx context.Context, log Log) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO ai_cost_logs (
-			id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_fen, created_at
+			id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_micro_yuan, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, log.ID, nullableString(log.UserID), log.TaskType, log.Model, log.TokensIn, log.TokensOut, log.AudioSec, log.Chars, log.CostFen, log.CreatedAt)
+	`, log.ID, nullableString(log.UserID), log.TaskType, log.Model, log.TokensIn, log.TokensOut, log.AudioSec, log.Chars, log.CostMicroYuan, log.CreatedAt)
 	return err
 }
 
@@ -41,7 +41,7 @@ func (s *MySQLStore) ListRecent(ctx context.Context, userID string, limit int) (
 	}
 
 	query := `
-		SELECT id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_fen, created_at
+		SELECT id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_micro_yuan, created_at
 		FROM ai_cost_logs
 	`
 	args := []any{}
@@ -91,7 +91,7 @@ func scanLog(scanner interface{ Scan(dest ...any) error }) (Log, error) {
 		&log.TokensOut,
 		&log.AudioSec,
 		&log.Chars,
-		&log.CostFen,
+		&log.CostMicroYuan,
 		&log.CreatedAt,
 	); err != nil {
 		return Log{}, err
@@ -112,9 +112,9 @@ func (s *MySQLStore) RecordCostTx(ctx context.Context, tx any, log Log) error {
 	}
 	_, err := dbTx.ExecContext(ctx, `
 		INSERT INTO ai_cost_logs (
-			id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_fen, created_at
+			id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_micro_yuan, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, log.ID, nullableString(log.UserID), log.TaskType, log.Model, log.TokensIn, log.TokensOut, log.AudioSec, log.Chars, log.CostFen, log.CreatedAt)
+	`, log.ID, nullableString(log.UserID), log.TaskType, log.Model, log.TokensIn, log.TokensOut, log.AudioSec, log.Chars, log.CostMicroYuan, log.CreatedAt)
 	return err
 }
 
@@ -131,7 +131,7 @@ func (s *MySQLStore) SummarizeCosts(ctx context.Context, filter SummaryFilter) (
 	query := `
 		SELECT ` + keyExpr + ` AS bucket, COUNT(*),
 		       COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),
-		       COALESCE(SUM(audio_sec),0), COALESCE(SUM(chars),0), COALESCE(SUM(cost_fen),0)
+		       COALESCE(SUM(audio_sec),0), COALESCE(SUM(chars),0), COALESCE(SUM(cost_micro_yuan),0)
 		FROM ai_cost_logs
 		WHERE created_at >= ? AND created_at < ?`
 	args := []any{filter.Since.UTC(), filter.Until.UTC()}
@@ -153,7 +153,7 @@ func (s *MySQLStore) SummarizeCosts(ctx context.Context, filter SummaryFilter) (
 			key  sql.NullString
 			date sql.NullTime
 		)
-		dest := []any{&key, &row.Rows, &row.TokensIn, &row.TokensOut, &row.AudioSec, &row.Chars, &row.CostFen}
+		dest := []any{&key, &row.Rows, &row.TokensIn, &row.TokensOut, &row.AudioSec, &row.Chars, &row.CostMicroYuan}
 		if filter.GroupBy == GroupByDay {
 			dest[0] = &date
 		}

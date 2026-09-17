@@ -59,7 +59,7 @@ func (s *MemoryStore) SummarizeCosts(_ context.Context, filter SummaryFilter) ([
 		row.TokensOut += log.TokensOut
 		row.AudioSec += log.AudioSec
 		row.Chars += log.Chars
-		row.CostFen += log.CostFen
+		row.CostMicroYuan += log.CostMicroYuan
 	}
 	slices.Sort(order)
 	out := make([]SummaryRow, 0, len(order))

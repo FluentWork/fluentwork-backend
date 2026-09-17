@@ -137,7 +137,7 @@ func pricingGaps(endpoints []probeResult) []pricingGap {
 			Model:  model,
 			Source: string(sourceOf(model)),
 			UsedBy: byModel[model],
-			Hint:   "add this model to ARK_PRICING_FILE with the rates from the Volcengine bill, or its usage stays at 0 fen",
+			Hint:   "add this model to ARK_PRICING_FILE (input_cny_per_million / output_cny_per_million, from the Volcengine bill) or its usage records as 0",
 		})
 	}
 	if gaps == nil {

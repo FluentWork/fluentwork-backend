@@ -65,8 +65,8 @@ func TestSummary_GroupsByTaskTypeAndModelAndDay(t *testing.T) {
 	// The caveat has to distinguish the two meanings of the column: voice rows
 	// are 0, LLM rows are estimates from a table nobody has reconciled.
 	for _, want := range []string{"neither an invoice", "voice rows are 0", "estimates"} {
-		if !strings.Contains(byTask.CostFenIsNotMoney, want) {
-			t.Fatalf("the fen caveat must say %q: %q", want, byTask.CostFenIsNotMoney)
+		if !strings.Contains(byTask.CostCaveat, want) {
+			t.Fatalf("the fen caveat must say %q: %q", want, byTask.CostCaveat)
 		}
 	}
 
@@ -174,7 +174,7 @@ func TestTTSRecorder_WritesUsageWithZeroFen(t *testing.T) {
 		t.Fatalf("logs = %+v", logs)
 	}
 	log := logs[0]
-	if log.TaskType != TaskTypeVoiceTTS || log.Model != "voice-a" || log.Chars != 321 || log.CostFen != 0 {
+	if log.TaskType != TaskTypeVoiceTTS || log.Model != "voice-a" || log.Chars != 321 || log.CostMicroYuan != 0 {
 		t.Fatalf("log = %+v", log)
 	}
 	// 没有独立 ASR SKU 时不该写 voice.asr：会把 duplex 已经计过的音频再算一遍。

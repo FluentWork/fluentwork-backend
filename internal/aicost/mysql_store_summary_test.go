@@ -27,7 +27,7 @@ func TestMySQLStore_CharsColumn(t *testing.T) {
 		t.Fatalf("CreateLog: %v", err)
 	}
 
-	mock.ExpectQuery(`SELECT id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_fen, created_at`).
+	mock.ExpectQuery(`SELECT id, user_id, task_type, model, tokens_in, tokens_out, audio_sec, chars, cost_micro_yuan, created_at`).
 		WithArgs(10).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "user_id", "task_type", "model", "tokens_in", "tokens_out", "audio_sec", "chars", "cost_fen", "created_at",

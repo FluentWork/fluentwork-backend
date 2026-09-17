@@ -17,7 +17,7 @@ func restoreDefaultPricing(t *testing.T) {
 func TestLoadPricingFile_ReplacesTable(t *testing.T) {
 	defer restoreDefaultPricing(t)
 	path := filepath.Join(t.TempDir(), "pricing.json")
-	body := `{"doubao-mini-32k": {"input_price_per_k_token": 1, "output_price_per_k_token": 2}}`
+	body := `{"doubao-mini-32k": {"input_cny_per_million": 100, "output_cny_per_million": 200}}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -26,11 +26,11 @@ func TestLoadPricingFile_ReplacesTable(t *testing.T) {
 		t.Fatalf("LoadPricingFile: %v", err)
 	}
 	table := PricingTable()
-	if len(table) != 1 || table["doubao-mini-32k"].InputPricePerKToken != 1 {
+	if len(table) != 1 || table["doubao-mini-32k"].InputMicroYuanPerMillion != 100_000_000 {
 		t.Fatalf("table = %+v", table)
 	}
-	// 1000 in + 500 out at 1/2 分 per 1K = 1 + 1 = 2 分.
-	if got := CalculateCost("doubao-mini-32k", 1000, 500); got != 2 {
+	// 100 CNY/1M in, 200 CNY/1M out → (1000*1e8 + 500*2e8)/1e6 = 100000 + 100000 = 200000 微元.
+	if got := CalculateCostMicroYuan("doubao-mini-32k", 1000, 500); got != 200_000 {
 		t.Fatalf("cost = %d, want the file's rates", got)
 	}
 }
@@ -54,7 +54,7 @@ func TestLoadPricingFile_FailsLoudly(t *testing.T) {
 	}
 
 	negative := filepath.Join(dir, "negative.json")
-	if err := os.WriteFile(negative, []byte(`{"m": {"input_price_per_k_token": -1}}`), 0o600); err != nil {
+	if err := os.WriteFile(negative, []byte(`{"m": {"input_cny_per_million": -1, "output_cny_per_million": 2}}`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := LoadPricingFile(negative); err == nil {
@@ -76,10 +76,10 @@ func TestConfigurePricing_RejectsBadTables(t *testing.T) {
 	if err := ConfigurePricing(nil); err == nil {
 		t.Fatal("nil table must be refused")
 	}
-	if err := ConfigurePricing(map[string]ModelPricing{"": {InputPricePerKToken: 1}}); err == nil {
+	if err := ConfigurePricing(map[string]ModelPricing{"": {InputMicroYuanPerMillion: 1}}); err == nil {
 		t.Fatal("empty model name must be refused")
 	}
-	if err := ConfigurePricing(map[string]ModelPricing{"m": {OutputPricePerKToken: -1}}); err == nil {
+	if err := ConfigurePricing(map[string]ModelPricing{"m": {OutputMicroYuanPerMillion: -1}}); err == nil {
 		t.Fatal("negative price must be refused")
 	}
 }
@@ -90,8 +90,15 @@ func TestResolvePricing_Sources(t *testing.T) {
 	if _, source := ResolvePricing("doubao-mini-32k"); source != PricingExact {
 		t.Fatalf("exact table hit = %q", source)
 	}
-	if _, source := ResolvePricing("doubao-seed-2-1-pro-260628"); source != PricingHeuristic {
-		t.Fatalf("family guess = %q, want heuristic", source)
+	// The seed model's name suggests the pro family, but the pro entries were
+	// dropped from the built-in table (unsourced, 100x off), so the guess leads
+	// nowhere and the call is unpriced rather than priced by a proxy family.
+	if _, source := ResolvePricing("doubao-seed-2-1-pro-260628"); source != PricingUnknown {
+		t.Fatalf("family guess without a priced family = %q, want unknown", source)
+	}
+	// A guess that lands on a priced family is still a guess, and still priced.
+	if _, source := ResolvePricing("doubao-mini-32k-preview"); source != PricingHeuristic {
+		t.Fatalf("family guess with a priced family = %q, want heuristic", source)
 	}
 	if _, source := ResolvePricing("kimi-k2-0711"); source != PricingUnknown {
 		t.Fatalf("unrecognised model = %q, want unknown", source)
@@ -105,12 +112,12 @@ func TestResolvePricing_Sources(t *testing.T) {
 	// With the deployed model priced — the state ARK_PRICING_FILE produces — the
 	// same endpoint becomes exact.
 	if err := ConfigurePricing(map[string]ModelPricing{
-		"doubao-seed-2-1-pro-260628": {InputPricePerKToken: 3, OutputPricePerKToken: 6},
+		"doubao-seed-2-1-pro-260628": {InputMicroYuanPerMillion: 800_000, OutputMicroYuanPerMillion: 2_000_000},
 	}); err != nil {
 		t.Fatalf("ConfigurePricing: %v", err)
 	}
 	price, source := ResolvePricing("ep-20260830204651-pffhf")
-	if source != PricingExact || price.InputPricePerKToken != 3 {
+	if source != PricingExact || price.InputMicroYuanPerMillion != 800_000 {
 		t.Fatalf("endpoint id with a price entry = %q %+v", source, price)
 	}
 }
@@ -121,11 +128,11 @@ func TestCalculateCost_CountsGuessesAndGaps(t *testing.T) {
 	globalMetrics.Reset()
 	t.Cleanup(globalMetrics.Reset)
 
-	if got := CalculateCost("kimi-k2-0711", 1000, 500); got != 0 {
+	if got := CalculateCostMicroYuan("kimi-k2-0711", 1000, 500); got != 0 {
 		t.Fatalf("unpriced cost = %d, want 0", got)
 	}
-	if got := CalculateCost("doubao-seed-2-1-pro-260628", 1000, 500); got == 0 {
-		t.Fatal("a family guess is still priced")
+	if got := CalculateCostMicroYuan("doubao-mini-32k-preview", 1000, 500); got == 0 {
+		t.Fatal("a family guess that lands on a priced family is still priced")
 	}
 
 	metrics := GetMetrics()
@@ -134,7 +141,7 @@ func TestCalculateCost_CountsGuessesAndGaps(t *testing.T) {
 	if metrics.UnpricedModels["kimi-k2-0711"] != 1 {
 		t.Fatalf("unpriced = %+v", metrics.UnpricedModels)
 	}
-	if metrics.HeuristicPricedModels["doubao-seed-2-1-pro-260628"] != 1 {
+	if metrics.HeuristicPricedModels["doubao-mini-32k-preview"] != 1 {
 		t.Fatalf("heuristic = %+v", metrics.HeuristicPricedModels)
 	}
 }
