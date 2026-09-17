@@ -18,12 +18,12 @@ type CompletionRequest struct {
 
 // CompletionResponse 统一的 LLM 响应
 type CompletionResponse struct {
-	Content       string
-	PromptTokens  int
-	OutputTokens  int
-	TotalTokens   int
-	Model         string
-	LatencyMS     int64
+	Content      string
+	PromptTokens int
+	OutputTokens int
+	TotalTokens  int
+	Model        string
+	LatencyMS    int64
 }
 
 // Client LLM 客户端接口（支持 Ark / OpenAI / Mock）
@@ -48,9 +48,7 @@ type CostLog struct {
 	LatencyMS    int64
 }
 
-var (
-	defaultClient Client
-)
+var defaultClient Client
 
 // NewClient 根据 config 返回配置好的 Client
 // 使用单例模式，所有调用共享同一个 HTTP 连接池

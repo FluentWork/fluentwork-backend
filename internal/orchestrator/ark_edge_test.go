@@ -78,7 +78,6 @@ func TestArkClient_CostWriterFailure(t *testing.T) {
 		Prompt:    "test",
 		Operation: "test.op",
 	})
-
 	if err != nil {
 		t.Fatalf("Complete should succeed even when cost write fails: %v", err)
 	}
@@ -147,7 +146,6 @@ func TestArkClient_NilCostWriter(t *testing.T) {
 		Prompt:    "test",
 		Operation: "test.op",
 	})
-
 	if err != nil {
 		t.Fatalf("Complete should handle nil cost writer gracefully: %v", err)
 	}

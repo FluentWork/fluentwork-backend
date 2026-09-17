@@ -29,7 +29,7 @@ func TestArkClient_Complete(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			t.Errorf("expected Bearer token, got %s", r.Header.Get("Authorization"))
 		}
-		
+
 		// 返回模拟响应
 		resp := arkChatResponse{
 			ID:      "test-id",
@@ -66,12 +66,12 @@ func TestArkClient_Complete(t *testing.T) {
 				TotalTokens:      30,
 			},
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
-	
+
 	// 创建客户端
 	costWriter := &mockCostWriter{}
 	client := &ArkClient{
@@ -81,7 +81,7 @@ func TestArkClient_Complete(t *testing.T) {
 		costWriter: costWriter,
 		httpClient: http.DefaultClient,
 	}
-	
+
 	// 调用 Complete
 	resp, err := client.Complete(context.Background(), CompletionRequest{
 		Prompt:      "test prompt",
@@ -89,7 +89,6 @@ func TestArkClient_Complete(t *testing.T) {
 		Temperature: 0.7,
 		Operation:   "test.operation",
 	})
-	
 	// 验证响应
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -106,7 +105,7 @@ func TestArkClient_Complete(t *testing.T) {
 	if resp.TotalTokens != 30 {
 		t.Errorf("expected 30 total tokens, got %d", resp.TotalTokens)
 	}
-	
+
 	// 验证成本记录
 	if len(costWriter.logs) != 1 {
 		t.Fatalf("expected 1 cost log, got %d", len(costWriter.logs))
@@ -126,12 +125,12 @@ func TestNewClient(t *testing.T) {
 		ArkAPIKey:         "test-key",
 		ArkReviewRefineEP: "test-model",
 	}
-	
+
 	client := NewClient(cfg, nil)
 	if client == nil {
 		t.Fatal("expected non-nil client")
 	}
-	
+
 	// 验证类型
 	if _, ok := client.(*ArkClient); !ok {
 		t.Errorf("expected *ArkClient, got %T", client)

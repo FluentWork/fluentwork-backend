@@ -55,9 +55,9 @@ func run() error {
 	defer cancel()
 
 	req := reviewgen.Request{
-		SessionID:  "test-session-" + time.Now().Format("20060102-150405"),
-		UserID:     "test-user",
-		SceneType:  "standup",
+		SessionID: "test-session-" + time.Now().Format("20060102-150405"),
+		UserID:    "test-user",
+		SceneType: "standup",
 		Transcript: `AI: Good morning! Ready for your standup practice?
 User: Yeah, let's do it.
 AI: Great! Go ahead and share your update.

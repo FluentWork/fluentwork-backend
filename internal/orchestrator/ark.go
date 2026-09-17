@@ -30,7 +30,7 @@ func NewArkClient(cfg config.Config, costWriter CostWriter) *ArkClient {
 	if baseURL == "" {
 		baseURL = "https://ark.cn-beijing.volces.com/api/v3"
 	}
-	
+
 	return &ArkClient{
 		baseURL:    baseURL,
 		apiKey:     cfg.ArkAPIKey,
@@ -88,7 +88,7 @@ type arkChatResponse struct {
 // Complete 实现 Client 接口
 func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	start := time.Now()
-	
+
 	// 构造请求
 	messages := []arkChatMessage{
 		{Role: "user", Content: req.Prompt},
@@ -96,7 +96,7 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 	if req.SystemPrompt != "" {
 		messages = append([]arkChatMessage{{Role: "system", Content: req.SystemPrompt}}, messages...)
 	}
-	
+
 	arkReq := arkChatRequest{
 		Model:       a.model,
 		Messages:    messages,
@@ -104,59 +104,59 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 		Temperature: req.Temperature,
 		Thinking:    map[string]any{"type": "disabled"}, // 关闭思考链避免计费
 	}
-	
+
 	if req.ResponseFormat == "json_object" {
 		arkReq.ResponseFormat = map[string]any{"type": "json_object"}
 	}
-	
+
 	body, err := json.Marshal(arkReq)
 	if err != nil {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("marshal request: %w", err)
 	}
-	
+
 	// 调用 Ark API
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("create request: %w", err)
 	}
-	
+
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+a.apiKey)
-	
+
 	httpResp, err := a.httpClient.Do(httpReq)
 	if err != nil {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("do request: %w", err)
 	}
 	defer httpResp.Body.Close()
-	
+
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("read response: %w", err)
 	}
-	
+
 	if httpResp.StatusCode != http.StatusOK {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("ark api error: status=%d body=%s", httpResp.StatusCode, string(respBody))
 	}
-	
+
 	// 解析响应
 	var arkResp arkChatResponse
 	if err := json.Unmarshal(respBody, &arkResp); err != nil {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("unmarshal response: %w", err)
 	}
-	
+
 	if len(arkResp.Choices) == 0 {
 		globalMetrics.incCompletionErrors()
 		return CompletionResponse{}, fmt.Errorf("no choices in response")
 	}
-	
+
 	latency := time.Since(start).Milliseconds()
-	
+
 	resp := CompletionResponse{
 		Content:      arkResp.Choices[0].Message.Content,
 		PromptTokens: arkResp.Usage.PromptTokens,
@@ -165,9 +165,9 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 		Model:        arkResp.Model,
 		LatencyMS:    latency,
 	}
-	
+
 	globalMetrics.incCompletions()
-	
+
 	// 自动写入成本记录
 	if a.costWriter != nil && req.Operation != "" {
 		costLog := CostLog{
@@ -182,6 +182,6 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 			globalMetrics.incCostWriteFailures()
 		}
 	}
-	
+
 	return resp, nil
 }

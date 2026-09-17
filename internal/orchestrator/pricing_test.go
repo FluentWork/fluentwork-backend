@@ -4,11 +4,11 @@ import "testing"
 
 func TestCalculateCost(t *testing.T) {
 	tests := []struct {
-		name          string
-		model         string
-		promptTokens  int
-		outputTokens  int
-		expectedCost  int
+		name         string
+		model        string
+		promptTokens int
+		outputTokens int
+		expectedCost int
 	}{
 		{
 			name:         "doubao-mini-32k (Ark Mini) - most economical",
@@ -92,16 +92,16 @@ func TestNormalizeModelName(t *testing.T) {
 		expected string
 	}{
 		// Exact endpoint mapping (dev) - 实际使用 Ark Mini
-		{"ep-20260830204651-pffhf", "doubao-mini-32k"},   // ARK_EP_REVIEW_REFINE
-		{"ep-20260830204818-8kdfr", "doubao-mini-32k"},   // ARK_EP_DAILY_READ
-		{"ep-20260830204912-wtjw9", "doubao-mini-32k"},   // ARK_EP_TOPIC_CARD
-		{"ep-20260830205333-prddb", "doubao-mini-32k"},   // ARK_EP_HIT_MATCH
-		{"ep-20260830205423-xg4pd", "doubao-mini-32k"},   // ARK_EP_DRILL_JUDGE
-		{"ep-20260830205520-d9d8n", "doubao-mini-32k"},   // ARK_EP_TEXT_DEGRADE
+		{"ep-20260830204651-pffhf", "doubao-mini-32k"}, // ARK_EP_REVIEW_REFINE
+		{"ep-20260830204818-8kdfr", "doubao-mini-32k"}, // ARK_EP_DAILY_READ
+		{"ep-20260830204912-wtjw9", "doubao-mini-32k"}, // ARK_EP_TOPIC_CARD
+		{"ep-20260830205333-prddb", "doubao-mini-32k"}, // ARK_EP_HIT_MATCH
+		{"ep-20260830205423-xg4pd", "doubao-mini-32k"}, // ARK_EP_DRILL_JUDGE
+		{"ep-20260830205520-d9d8n", "doubao-mini-32k"}, // ARK_EP_TEXT_DEGRADE
 
 		// Exact endpoint mapping (prod) - 实际使用 Ark Mini
-		{"ep-20260830211617-26d79", "doubao-mini-32k"},   // ARK_EP_REVIEW_REFINE (Prod)
-		{"ep-20260830211747-vwtrb", "doubao-mini-32k"},   // ARK_EP_HIT_MATCH (Prod)
+		{"ep-20260830211617-26d79", "doubao-mini-32k"}, // ARK_EP_REVIEW_REFINE (Prod)
+		{"ep-20260830211747-vwtrb", "doubao-mini-32k"}, // ARK_EP_HIT_MATCH (Prod)
 
 		// Case insensitivity
 		{"EP-20260830204651-PFFHF", "doubao-mini-32k"},

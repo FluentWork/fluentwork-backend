@@ -39,20 +39,20 @@ var arkPricing = map[string]ModelPricing{
 // 实际使用的是 Ark Mini (doubao-mini-32k)，定价 0.3元/M input, 0.6元/M output
 var endpointToModel = map[string]string{
 	// Dev/POC Endpoints (项目 default) - 使用 Ark Mini
-	"ep-20260830204651-pffhf": "doubao-mini-32k",   // ARK_EP_REVIEW_REFINE
-	"ep-20260830204818-8kdfr": "doubao-mini-32k",   // ARK_EP_DAILY_READ
-	"ep-20260830204912-wtjw9": "doubao-mini-32k",   // ARK_EP_TOPIC_CARD
-	"ep-20260830205333-prddb": "doubao-mini-32k",   // ARK_EP_HIT_MATCH
-	"ep-20260830205423-xg4pd": "doubao-mini-32k",   // ARK_EP_DRILL_JUDGE
-	"ep-20260830205520-d9d8n": "doubao-mini-32k",   // ARK_EP_TEXT_DEGRADE
+	"ep-20260830204651-pffhf": "doubao-mini-32k", // ARK_EP_REVIEW_REFINE
+	"ep-20260830204818-8kdfr": "doubao-mini-32k", // ARK_EP_DAILY_READ
+	"ep-20260830204912-wtjw9": "doubao-mini-32k", // ARK_EP_TOPIC_CARD
+	"ep-20260830205333-prddb": "doubao-mini-32k", // ARK_EP_HIT_MATCH
+	"ep-20260830205423-xg4pd": "doubao-mini-32k", // ARK_EP_DRILL_JUDGE
+	"ep-20260830205520-d9d8n": "doubao-mini-32k", // ARK_EP_TEXT_DEGRADE
 
 	// Prod Endpoints (项目 FluentWork-Prod) - 使用 Ark Mini
-	"ep-20260830211617-26d79": "doubao-mini-32k",   // ARK_EP_REVIEW_REFINE (Prod)
-	"ep-20260830211650-vkdj2": "doubao-mini-32k",   // ARK_EP_DAILY_READ (Prod)
-	"ep-20260830211715-q79x9": "doubao-mini-32k",   // ARK_EP_TOPIC_CARD (Prod)
-	"ep-20260830211747-vwtrb": "doubao-mini-32k",   // ARK_EP_HIT_MATCH (Prod)
-	"ep-20260830211815-pmkg6": "doubao-mini-32k",   // ARK_EP_DRILL_JUDGE (Prod)
-	"ep-20260830211850-pf2ts": "doubao-mini-32k",   // ARK_EP_TEXT_DEGRADE (Prod)
+	"ep-20260830211617-26d79": "doubao-mini-32k", // ARK_EP_REVIEW_REFINE (Prod)
+	"ep-20260830211650-vkdj2": "doubao-mini-32k", // ARK_EP_DAILY_READ (Prod)
+	"ep-20260830211715-q79x9": "doubao-mini-32k", // ARK_EP_TOPIC_CARD (Prod)
+	"ep-20260830211747-vwtrb": "doubao-mini-32k", // ARK_EP_HIT_MATCH (Prod)
+	"ep-20260830211815-pmkg6": "doubao-mini-32k", // ARK_EP_DRILL_JUDGE (Prod)
+	"ep-20260830211850-pf2ts": "doubao-mini-32k", // ARK_EP_TEXT_DEGRADE (Prod)
 }
 
 // CalculateCost 计算 LLM 调用费用（单位：分）

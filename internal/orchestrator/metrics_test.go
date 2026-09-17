@@ -6,12 +6,12 @@ import (
 
 func TestMetrics_Increment(t *testing.T) {
 	m := &Metrics{}
-	
+
 	m.incCostWriteFailures()
 	m.incCostWriteFailures()
 	m.incCompletions()
 	m.incCompletionErrors()
-	
+
 	if m.CostWriteFailuresTotal != 2 {
 		t.Errorf("CostWriteFailuresTotal = %d, want 2", m.CostWriteFailuresTotal)
 	}
@@ -25,13 +25,13 @@ func TestMetrics_Increment(t *testing.T) {
 
 func TestMetrics_Reset(t *testing.T) {
 	m := &Metrics{}
-	
+
 	m.incCostWriteFailures()
 	m.incCompletions()
 	m.incCompletionErrors()
-	
+
 	m.Reset()
-	
+
 	if m.CostWriteFailuresTotal != 0 {
 		t.Errorf("after reset, CostWriteFailuresTotal = %d, want 0", m.CostWriteFailuresTotal)
 	}
@@ -45,18 +45,18 @@ func TestMetrics_Reset(t *testing.T) {
 
 func TestGetMetrics(t *testing.T) {
 	globalMetrics.Reset()
-	
+
 	m := GetMetrics()
 	if m != globalMetrics {
 		t.Errorf("GetMetrics() returned different instance")
 	}
-	
+
 	m.incCompletions()
-	
+
 	m2 := GetMetrics()
 	if m2.CompletionsTotal != 1 {
 		t.Errorf("global metrics not shared: CompletionsTotal = %d, want 1", m2.CompletionsTotal)
 	}
-	
+
 	globalMetrics.Reset()
 }
