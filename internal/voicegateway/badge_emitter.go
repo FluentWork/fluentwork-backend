@@ -47,6 +47,7 @@ type BadgeEmitter struct {
 	dedupe   *dedupeLRU
 	now      func() time.Time
 	wg       *sync.WaitGroup
+	recorder HitRecorder
 
 	// counters are atomic so Stats() can read them without blocking the
 	// emit goroutines. They are best-effort observability, not a billing
@@ -58,11 +59,37 @@ type BadgeEmitter struct {
 	statsDedupDropped atomic.Int64 // LRU suppressed a re-emit
 	statsDetectErrors atomic.Int64 // detector returned an error (incl. timeout)
 	statsWriteErrors  atomic.Int64 // conn.WriteBadge failed
+	statsRecordErrors atomic.Int64 // HitRecorder.RecordHit failed
 }
+
+// HitRecorder records a detected hit so the ledger can credit it.
+//
+// The badge frame is what the learner sees; the record is what the product
+// learns. They are separate because they fail separately: a hit whose badge
+// reached the client but whose ledger write did not is a lost statistic, not a
+// broken session, and the reverse must never happen.
+type HitRecorder interface {
+	// RecordHit reports one detected block. Implementations must be safe for
+	// concurrent use: every session's emit goroutine calls this.
+	RecordHit(ctx context.Context, userID, sessionID, turnID, blockID string, detectedAtMs int64) error
+}
+
+// DefaultHitRecordTimeout bounds one ledger write. It is deliberately not the
+// detection budget (DefaultHitDetectTimeout, 800ms): detection is on the
+// user.speech.end path and must not block, while the ledger write happens after
+// the badge is already on the wire, so it can afford to be slower without
+// costing the learner anything. Two seconds is one app-server round trip with
+// room for a MySQL transaction, not a promise of promptness.
+const DefaultHitRecordTimeout = 2 * time.Second
 
 // BadgeEmitterOptions configures the emitter. Zero values fall back to the
 // package defaults.
 type BadgeEmitterOptions struct {
+	// Recorder receives every hit whose badge reached the client. Nil disables
+	// recording, which is a supported configuration: the dev-echo provider has
+	// no app-server corpus behind it, and a mock deployment has no ledger to
+	// write to.
+	Recorder HitRecorder
 	// Timeout caps one Detect call. Zero uses DefaultHitDetectTimeout.
 	Timeout time.Duration
 	// DedupeTTL bounds a dedupe key's lifetime. Zero uses DefaultDedupeTTL.
@@ -117,6 +144,7 @@ func NewBadgeEmitter(detector *session.HitDetector, logger *slog.Logger, opts Ba
 		dedupe:   newDedupeLRU(opts.DedupeCapacity, opts.DedupeTTL, now),
 		now:      now,
 		wg:       wgPtr,
+		recorder: opts.Recorder,
 	}
 }
 
@@ -252,6 +280,10 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 		return
 	}
 	e.statsHits.Add(1)
+	// After the write, never before: only a badge the learner actually saw is a
+	// hit, and only a hit is worth crediting (PRD §5.2.3). Doing it here also
+	// means a failed ledger write cannot cost the learner their badge.
+	e.recordHit(parent, userID, sessionID, turnID, decision.Hit.ID)
 	e.logger.Info("feedback.badge emitted",
 		"session_id", sessionID,
 		"turn_id", turnID,
@@ -261,6 +293,29 @@ func (e *BadgeEmitter) doEmit(parent context.Context, conn badgeConn, userID, se
 		"tier", decision.Hit.Tier,
 	)
 	onDone()
+}
+
+// recordHit reports one delivered badge to the ledger, best effort.
+//
+// A failure is logged and dropped. The alternative — retrying — would re-credit
+// a use whose session, turn and block are already keyed in the ledger, and the
+// gateway holds no queue that could survive a restart anyway. An undercount
+// that is visible in the logs beats a count nobody can reproduce.
+func (e *BadgeEmitter) recordHit(parent context.Context, userID, sessionID, turnID, blockID string) {
+	if e.recorder == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, DefaultHitRecordTimeout)
+	defer cancel()
+	if err := e.recorder.RecordHit(ctx, userID, sessionID, turnID, blockID, e.now().UnixMilli()); err != nil {
+		e.statsRecordErrors.Add(1)
+		e.logger.Warn("hit record failed",
+			"session_id", sessionID,
+			"turn_id", turnID,
+			"phrase_block_id", blockID,
+			"err", err,
+		)
+	}
 }
 
 // dedupeLRU is a TTL + capacity LRU keyed by feedback.badge dedupe keys.
@@ -351,6 +406,11 @@ type BadgeEmitterStats struct {
 	DedupDropped int64 // LRU suppressed a re-emit
 	DetectErrors int64 // detector returned an error (incl. timeout)
 	WriteErrors  int64 // conn.WriteBadge failed
+	// RecordErrors counts delivered badges whose ledger write failed. A hit
+	// counted here is still a hit the learner saw; it is the count that is
+	// short, which is why this is separate from WriteErrors rather than folded
+	// into it.
+	RecordErrors int64
 }
 
 // Stats returns a snapshot of the emitter's counters. Safe to call from any
@@ -364,5 +424,6 @@ func (e *BadgeEmitter) Stats() BadgeEmitterStats {
 		DedupDropped: e.statsDedupDropped.Load(),
 		DetectErrors: e.statsDetectErrors.Load(),
 		WriteErrors:  e.statsWriteErrors.Load(),
+		RecordErrors: e.statsRecordErrors.Load(),
 	}
 }

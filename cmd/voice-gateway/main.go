@@ -108,12 +108,23 @@ func run() error {
 	} else {
 		source := voicegateway.NewHTTPCorpusSource(cfg.AppServerInternalURL, cfg.InternalAPIToken, logger)
 		detector := session.NewHitDetector(source)
+		// B7 hit write-back (P1-2). The corpus side has credited hits since
+		// 772ce2a — real_use_count, the success ladder, the L1 provenance row —
+		// but nothing ever told it a hit had happened, so every hit was
+		// detected, badged and forgotten. The recorder is the missing caller.
+		//
+		// Wired only on this branch on purpose: the dev-echo branch detects
+		// against a synthetic block ("block-dev-echo") that exists in no ledger,
+		// so reporting it would buy a warning per hit and credit nothing.
 		handler.SetBadgeEmitter(
-			voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{}),
+			voicegateway.NewBadgeEmitter(detector, logger, voicegateway.BadgeEmitterOptions{
+				Recorder: lifecycle,
+			}),
 		)
 		logger.Info("corpus-backed feedback.badge emitter wired",
 			"provider", cfg.Provider,
 			"corpus_source", "app-server-internal",
+			"hit_writeback", "enabled",
 		)
 	}
 	// B13: enable client ASR gate when VOICE_CLIENT_ASR_REQUIRED is set.
