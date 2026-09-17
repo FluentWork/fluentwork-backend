@@ -198,6 +198,10 @@ type EndResponse struct {
 	DurationSec    int    `json:"duration_sec"`
 	UtteranceCount int    `json:"utterance_count"`
 	AlreadyEnded   bool   `json:"already_ended,omitempty"`
+	// ReviewSkipped says no review will ever exist because nobody spoke in this
+	// session (P0-3 方案 A). The client can hide the session instead of showing
+	// a stub review, and the gateway learns its work is done.
+	ReviewSkipped bool `json:"review_skipped,omitempty"`
 }
 
 // ActivateRequest is the body of POST /internal/v1/sessions/activate.
@@ -266,6 +270,11 @@ const (
 	ReviewPollPending = "pending"
 	ReviewPollReady   = "ready"
 	ReviewPollFailed  = "failed"
+	// ReviewPollEmpty is a session the learner never spoke in. It is a terminal
+	// state, not a pending one: nothing will ever be reviewed, because there is
+	// nothing to review. Saying "pending" here left the client polling forever —
+	// or worse, produced a stub review for a session with no speech in it.
+	ReviewPollEmpty = "empty"
 )
 
 // ReviewPollResponse is returned by GET /sessions/:id/review.

@@ -358,7 +358,12 @@ func TestEndReenqueuesMissingFinishedJob(t *testing.T) {
 	ended, err := svc.End(context.Background(), EndRequest{
 		SessionID:   created.SessionID,
 		DurationSec: 5,
-		Utterances:  []EndUtteranceItem{{Seq: 1, Speaker: SpeakerAI, Text: "ready"}},
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "ready"},
+			// A session nobody spoke in never enters the pipeline (P0-3 方案 A),
+			// so the compensation path this test covers needs real speech.
+			{Seq: 2, Speaker: SpeakerUser, Text: "hello"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("End: %v", err)
@@ -1035,5 +1040,127 @@ func TestCreate_ProvisionsStarterCorpusForANewLearner(t *testing.T) {
 	svc.SetCorpusProvisioner(&stubProvisioner{err: errors.New("corpus down")})
 	if _, err := svc.Create(context.Background(), "user-2", CreateRequest{SceneType: "standup"}); err != nil {
 		t.Fatalf("a provisioning failure must not fail the session: %v", err)
+	}
+}
+
+// newTestService is a service over the given store, with logging discarded.
+func newTestService(t *testing.T, store Store) *Service {
+	t.Helper()
+	return NewService(store, config.Config{
+		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
+		SessionTicketTTL:   time.Minute,
+		AuthJWTSecret:      config.DevJWTSecret,
+		AppEnv:             "development",
+		HTTPAddr:           ":0",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+// P0-3 方案 A: a session the learner never spoke in has nothing to review. It
+// must not enqueue a job, must not fall into the stub path, and must not leave
+// the client polling for a review that will never exist.
+func TestEnd_EmptySessionSkipsThePipeline(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newTestService(t, store)
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ended, err := svc.End(context.Background(), EndRequest{
+		SessionID:   created.SessionID,
+		DurationSec: 3,
+		Utterances:  []EndUtteranceItem{{Seq: 1, Speaker: SpeakerAI, Text: "How is the release looking?"}},
+	})
+	if err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	if !ended.ReviewSkipped {
+		t.Fatalf("an empty session must say so: %+v", ended)
+	}
+	exists, err := store.HasSessionJob(context.Background(), created.SessionID, JobTypeSessionFinished,
+		JobStatusPending, JobStatusProcessing, JobStatusDone)
+	if err != nil {
+		t.Fatalf("HasSessionJob: %v", err)
+	}
+	if exists {
+		t.Fatal("an empty session must not enqueue a review job")
+	}
+
+	poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID)
+	if err != nil {
+		t.Fatalf("GetReview: %v", err)
+	}
+	if poll.Status != ReviewPollEmpty {
+		t.Fatalf("poll status = %q, want %q", poll.Status, ReviewPollEmpty)
+	}
+
+	// A replay must not sneak one in either.
+	replay, err := svc.End(context.Background(), EndRequest{
+		SessionID:  created.SessionID,
+		Utterances: []EndUtteranceItem{{Seq: 1, Speaker: SpeakerAI, Text: "ignored"}},
+	})
+	if err != nil {
+		t.Fatalf("End replay: %v", err)
+	}
+	if !replay.AlreadyEnded || !replay.ReviewSkipped {
+		t.Fatalf("replay = %+v", replay)
+	}
+	if exists, _ := store.HasSessionJob(context.Background(), created.SessionID, JobTypeSessionFinished,
+		JobStatusPending, JobStatusProcessing, JobStatusDone); exists {
+		t.Fatal("a replayed empty session must not enqueue either")
+	}
+}
+
+// A blank user row cannot smuggle a session past the empty check: the boundary
+// rejects it outright, so hasUserSpeech only ever sees real text.
+func TestEnd_BlankUserUtteranceIsRejectedAtTheBoundary(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newTestService(t, store)
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID,
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "How is the release looking?"},
+			{Seq: 2, Speaker: SpeakerUser, Text: "   "},
+		},
+	})
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.HTTPStatus != 400 {
+		t.Fatalf("err = %v, want 400 for a blank utterance", err)
+	}
+}
+
+// A session with real speech still takes the normal path.
+func TestEnd_UserSpeechStillEnqueues(t *testing.T) {
+	store := NewMemoryStore()
+	svc := newTestService(t, store)
+	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ended, err := svc.End(context.Background(), EndRequest{
+		SessionID: created.SessionID,
+		Utterances: []EndUtteranceItem{
+			{Seq: 1, Speaker: SpeakerAI, Text: "How is the release looking?"},
+			{Seq: 2, Speaker: SpeakerUser, Text: "The deploy is blocked on the migration."},
+		},
+	})
+	if err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	if ended.ReviewSkipped {
+		t.Fatalf("a session with speech must not be skipped: %+v", ended)
+	}
+	if exists, _ := store.HasSessionJob(context.Background(), created.SessionID, JobTypeSessionFinished,
+		JobStatusPending, JobStatusProcessing, JobStatusDone); !exists {
+		t.Fatal("a session with speech must enqueue a review job")
+	}
+	if poll, err := svc.GetReview(context.Background(), "user-1", created.SessionID); err != nil {
+		t.Fatalf("GetReview: %v", err)
+	} else if poll.Status != ReviewPollPending {
+		t.Fatalf("poll status = %q, want pending", poll.Status)
 	}
 }

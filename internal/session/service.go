@@ -350,7 +350,18 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		if listErr != nil {
 			return EndResponse{}, listErr
 		}
-		// Compensate a prior End that committed before enqueue failed.
+		// Compensate a prior End that committed before enqueue failed — unless
+		// there was no speech, in which case there is nothing to compensate for.
+		if !hasUserSpeech(saved) {
+			return EndResponse{
+				SessionID:      existing.ID,
+				Status:         existing.Status,
+				DurationSec:    existing.DurationSec,
+				UtteranceCount: len(saved),
+				AlreadyEnded:   true,
+				ReviewSkipped:  true,
+			}, nil
+		}
 		if err := s.ensureSessionFinishedEnqueued(ctx, sessionID, now); err != nil {
 			return EndResponse{}, err
 		}
@@ -395,6 +406,24 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		"already_ended", alreadyEnded,
 		"reason", strings.TrimSpace(req.Reason),
 	)
+	// A session nobody spoke in has nothing to review: no job, no eval, no stub.
+	// It used to enter the pipeline, get correctly rejected as empty, and leave a
+	// stub review behind — junk rows and a wasted model call per abandoned tap.
+	if !hasUserSpeech(saved) {
+		s.logger.Info("session ended with no user speech; review skipped",
+			"session_id", session.ID,
+			"user_id", session.UserID,
+			"utterance_count", len(saved),
+		)
+		return EndResponse{
+			SessionID:      session.ID,
+			Status:         session.Status,
+			DurationSec:    session.DurationSec,
+			UtteranceCount: len(saved),
+			AlreadyEnded:   alreadyEnded,
+			ReviewSkipped:  true,
+		}, nil
+	}
 	if err := s.ensureSessionFinishedEnqueued(ctx, session.ID, now); err != nil {
 		return EndResponse{}, err
 	}
@@ -437,6 +466,22 @@ func (s *Service) GetReview(ctx context.Context, userID, sessionID string) (Revi
 	}
 	if session.Status == StatusAbandoned {
 		return ReviewPollResponse{}, apierr.NotFound("session not found")
+	}
+
+	// An ended session with no job behind it and no speech in it is empty, not
+	// pending: telling a client to keep polling for a review that will never
+	// exist is worse than saying there is nothing to review.
+	if session.Status == StatusEnded && len(session.ReviewJSON) == 0 {
+		utterances, err := s.store.ListUtterances(ctx, sessionID)
+		if err != nil {
+			return ReviewPollResponse{}, err
+		}
+		if !hasUserSpeech(utterances) {
+			return ReviewPollResponse{
+				SessionID: session.ID,
+				Status:    ReviewPollEmpty,
+			}, nil
+		}
 	}
 
 	if session.Status == StatusReviewed {
@@ -689,6 +734,18 @@ func (s *Service) PostMessage(ctx context.Context, userID, sessionID string, req
 		Channel:   MessageChannelText,
 		Generator: "stub-text-v1",
 	}, nil
+}
+
+// hasUserSpeech reports whether the learner actually said anything. A session
+// with only AI turns (or none at all) has nothing to review, which is P0-3's
+// empty-session case: the learner tapped start and changed their mind.
+func hasUserSpeech(utterances []Utterance) bool {
+	for _, u := range utterances {
+		if u.Speaker == SpeakerUser && strings.TrimSpace(u.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) ensureSessionFinishedEnqueued(ctx context.Context, sessionID string, now time.Time) error {
