@@ -8,6 +8,9 @@ func TestCalculateCost(t *testing.T) {
 		model        string
 		promptTokens int
 		outputTokens int
+		// pricing, when set, replaces the table for this case — the state
+		// ARK_PRICING_FILE produces in production.
+		pricing      map[string]ModelPricing
 		expectedCost int
 	}{
 		{
@@ -18,11 +21,25 @@ func TestCalculateCost(t *testing.T) {
 			expectedCost: 6, // (1000*3)/1000 + (500*6)/1000 = 3 + 3 = 6
 		},
 		{
-			name:         "endpoint ID maps to doubao-mini-32k (actual usage)",
+			// The endpoint really serves doubao-seed-2-1-pro-260628 (probed
+			// 2026-09-18), and the built-in table has no entry for it. The row
+			// is recorded at 0 and counted as unpriced — the honest answer until
+			// the bill supplies a rate, not a rate borrowed from another model.
+			name:         "endpoint id resolves to a model the table does not price",
 			model:        "ep-20260830204651-pffhf",
 			promptTokens: 2000,
 			outputTokens: 1000,
-			expectedCost: 12, // (2000*3)/1000 + (1000*6)/1000 = 6 + 6 = 12
+			expectedCost: 0,
+		},
+		{
+			// Once the pricing file carries the deployed model, the same call is
+			// priced exactly — this is the state ARK_PRICING_FILE exists for.
+			name:         "deployed model name with a price entry",
+			model:        "doubao-seed-2-1-pro-260628",
+			promptTokens: 2000,
+			outputTokens: 1000,
+			pricing:      map[string]ModelPricing{"doubao-seed-2-1-pro-260628": {InputPricePerKToken: 3, OutputPricePerKToken: 6}},
+			expectedCost: 12,
 		},
 		{
 			name:         "doubao-pro-32k standard usage",
@@ -80,6 +97,12 @@ func TestCalculateCost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.pricing != nil {
+				if err := ConfigurePricing(tt.pricing); err != nil {
+					t.Fatalf("ConfigurePricing: %v", err)
+				}
+				defer restoreDefaultPricing(t)
+			}
 			cost := CalculateCost(tt.model, tt.promptTokens, tt.outputTokens)
 			if cost != tt.expectedCost {
 				t.Errorf("CalculateCost(%q, %d, %d) = %d; want %d",
@@ -94,20 +117,18 @@ func TestNormalizeModelName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		// Exact endpoint mapping (dev) - 实际使用 Ark Mini
-		{"ep-20260830204651-pffhf", "doubao-mini-32k"}, // ARK_EP_REVIEW_REFINE
-		{"ep-20260830204818-8kdfr", "doubao-mini-32k"}, // ARK_EP_DAILY_READ
-		{"ep-20260830204912-wtjw9", "doubao-mini-32k"}, // ARK_EP_TOPIC_CARD
-		{"ep-20260830205333-prddb", "doubao-mini-32k"}, // ARK_EP_HIT_MATCH
-		{"ep-20260830205423-xg4pd", "doubao-mini-32k"}, // ARK_EP_DRILL_JUDGE
-		{"ep-20260830205520-d9d8n", "doubao-mini-32k"}, // ARK_EP_TEXT_DEGRADE
-
-		// Exact endpoint mapping (prod) - 实际使用 Ark Mini
-		{"ep-20260830211617-26d79", "doubao-mini-32k"}, // ARK_EP_REVIEW_REFINE (Prod)
-		{"ep-20260830211747-vwtrb", "doubao-mini-32k"}, // ARK_EP_HIT_MATCH (Prod)
+		// Endpoint → model, as probed from the API on 2026-09-18
+		// (cmd/ark-endpoint-probe). These are the deployed models, not a guess
+		// from the deployment's name.
+		{"ep-20260830204651-pffhf", "doubao-seed-2-1-pro-260628"},   // ARK_EP_REVIEW_REFINE
+		{"ep-20260830204818-8kdfr", "doubao-seed-2-1-pro-260628"},   // ARK_EP_DAILY_READ
+		{"ep-20260830204912-wtjw9", "doubao-seed-2-1-pro-260628"},   // ARK_EP_TOPIC_CARD
+		{"ep-20260830205333-prddb", "doubao-seed-2-1-turbo-260628"}, // ARK_EP_HIT_MATCH
+		{"ep-20260830205423-xg4pd", "doubao-seed-2-1-turbo-260628"}, // ARK_EP_DRILL_JUDGE
+		{"ep-20260830205520-d9d8n", "doubao-seed-2-1-turbo-260628"}, // ARK_EP_TEXT_DEGRADE
 
 		// Case insensitivity
-		{"EP-20260830204651-PFFHF", "doubao-mini-32k"},
+		{"EP-20260830204651-PFFHF", "doubao-seed-2-1-pro-260628"},
 
 		// Direct model names
 		{"doubao-mini-32k", "doubao-mini-32k"},

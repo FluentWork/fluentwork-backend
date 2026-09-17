@@ -79,8 +79,12 @@ func ConfigurePricing(table map[string]ModelPricing) error {
 		if name == "" {
 			return fmt.Errorf("pricing table has an empty model name")
 		}
-		if price.InputPricePerKToken < 0 || price.OutputPricePerKToken < 0 {
-			return fmt.Errorf("pricing for %q must not be negative", model)
+		// Zero is refused as well as negative: a rate nobody knows is expressed
+		// by leaving the model out (it then records 0 fen and is counted as
+		// unpriced), not by writing a zero that silently prices every call at
+		// the 1-fen floor.
+		if price.InputPricePerKToken <= 0 || price.OutputPricePerKToken <= 0 {
+			return fmt.Errorf("pricing for %q must be positive; omit the model instead of pricing it at 0", model)
 		}
 		cleaned[name] = price
 	}
@@ -165,25 +169,41 @@ func ResolvePricing(model string) (ModelPricing, PricingSource) {
 	return price, PricingHeuristic
 }
 
-// Endpoint ID 到模型映射表（基于 configs/volc.env.example 实际使用的 endpoints）
-// 注：根据文档 docs/24_B8_followup 和 meta/docs/30_技术方案/47_API契约冻结，
-// 实际使用的是 Ark Mini (doubao-mini-32k)，定价 0.3元/M input, 0.6元/M output
+// endpointToModel maps a deployment id to the model it actually serves.
+//
+// **This is console state, not something the name tells you.** Verified against
+// the API on 2026-09-18 with `go run ./cmd/ark-endpoint-probe`, which asks each
+// endpoint what model it is:
+//
+//	ep-…4651-pffhf (REVIEW_REFINE)  → doubao-seed-2-1-pro-260628
+//	ep-…4818-8kdfr (DAILY_READ)     → doubao-seed-2-1-pro-260628
+//	ep-…4912-wtjw9 (TOPIC_CARD)     → doubao-seed-2-1-pro-260628
+//	ep-…5333-prddb (HIT_MATCH)      → doubao-seed-2-1-turbo-260628
+//	ep-…5423-xg4pd (DRILL_JUDGE)    → doubao-seed-2-1-turbo-260628
+//	ep-…5520-d9d8n (TEXT_DEGRADE)   → doubao-seed-2-1-turbo-260628
+//
+// The previous revision of this table claimed all six were doubao-mini-32k,
+// which priced every LLM row off a model nobody was running. Re-run the probe
+// after changing a deployment in the console; the map is only true until
+// somebody re-points an endpoint.
 var endpointToModel = map[string]string{
-	// Dev/POC Endpoints (项目 default) - 使用 Ark Mini
-	"ep-20260830204651-pffhf": "doubao-mini-32k", // ARK_EP_REVIEW_REFINE
-	"ep-20260830204818-8kdfr": "doubao-mini-32k", // ARK_EP_DAILY_READ
-	"ep-20260830204912-wtjw9": "doubao-mini-32k", // ARK_EP_TOPIC_CARD
-	"ep-20260830205333-prddb": "doubao-mini-32k", // ARK_EP_HIT_MATCH
-	"ep-20260830205423-xg4pd": "doubao-mini-32k", // ARK_EP_DRILL_JUDGE
-	"ep-20260830205520-d9d8n": "doubao-mini-32k", // ARK_EP_TEXT_DEGRADE
+	// Dev/POC endpoints (project default).
+	"ep-20260830204651-pffhf": "doubao-seed-2-1-pro-260628",   // ARK_EP_REVIEW_REFINE
+	"ep-20260830204818-8kdfr": "doubao-seed-2-1-pro-260628",   // ARK_EP_DAILY_READ
+	"ep-20260830204912-wtjw9": "doubao-seed-2-1-pro-260628",   // ARK_EP_TOPIC_CARD
+	"ep-20260830205333-prddb": "doubao-seed-2-1-turbo-260628", // ARK_EP_HIT_MATCH
+	"ep-20260830205423-xg4pd": "doubao-seed-2-1-turbo-260628", // ARK_EP_DRILL_JUDGE
+	"ep-20260830205520-d9d8n": "doubao-seed-2-1-turbo-260628", // ARK_EP_TEXT_DEGRADE
 
-	// Prod Endpoints (项目 FluentWork-Prod) - 使用 Ark Mini
-	"ep-20260830211617-26d79": "doubao-mini-32k", // ARK_EP_REVIEW_REFINE (Prod)
-	"ep-20260830211650-vkdj2": "doubao-mini-32k", // ARK_EP_DAILY_READ (Prod)
-	"ep-20260830211715-q79x9": "doubao-mini-32k", // ARK_EP_TOPIC_CARD (Prod)
-	"ep-20260830211747-vwtrb": "doubao-mini-32k", // ARK_EP_HIT_MATCH (Prod)
-	"ep-20260830211815-pmkg6": "doubao-mini-32k", // ARK_EP_DRILL_JUDGE (Prod)
-	"ep-20260830211850-pf2ts": "doubao-mini-32k", // ARK_EP_TEXT_DEGRADE (Prod)
+	// Prod endpoints (project FluentWork-Prod). Not probed yet: these were
+	// never called from this machine, so the mapping is the assumption that
+	// they mirror dev. Verify with the probe before trusting a prod bill.
+	"ep-20260830211617-26d79": "doubao-seed-2-1-pro-260628",   // ARK_EP_REVIEW_REFINE (Prod)
+	"ep-20260830211650-vkdj2": "doubao-seed-2-1-pro-260628",   // ARK_EP_DAILY_READ (Prod)
+	"ep-20260830211715-q79x9": "doubao-seed-2-1-pro-260628",   // ARK_EP_TOPIC_CARD (Prod)
+	"ep-20260830211747-vwtrb": "doubao-seed-2-1-turbo-260628", // ARK_EP_HIT_MATCH (Prod)
+	"ep-20260830211815-pmkg6": "doubao-seed-2-1-turbo-260628", // ARK_EP_DRILL_JUDGE (Prod)
+	"ep-20260830211850-pf2ts": "doubao-seed-2-1-turbo-260628", // ARK_EP_TEXT_DEGRADE (Prod)
 }
 
 // CalculateCost 计算 LLM 调用费用（单位：分）。

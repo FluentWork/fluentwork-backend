@@ -63,7 +63,7 @@ func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
 	log := CostLog{
 		UserID:       "user-cost-test",
 		Operation:    "review.eval",
-		Model:        "ep-20260830204651-pffhf", // 映射到 doubao-mini-32k
+		Model:        "doubao-mini-32k", // a model the built-in table prices
 		PromptTokens: 1000,
 		OutputTokens: 500,
 	}
@@ -83,12 +83,51 @@ func TestAICostWriterAdapter_CalculatesCost(t *testing.T) {
 	}
 
 	recorded := logs[0]
-	// endpoint ep-20260830204651-pffhf 映射到 doubao-mini-32k
 	// doubao-mini-32k: 3分/1K input, 6分/1K output
 	// Cost = 1000*3/1000 + 500*6/1000 = 3 + 3 = 6 分
 	expectedCost := 6
 	if recorded.CostFen != expectedCost {
 		t.Errorf("CostFen = %d; want %d (doubao-mini-32k: 1000*3/1000 + 500*6/1000)", recorded.CostFen, expectedCost)
+	}
+}
+
+// The deployed model (probed, not guessed) has no built-in price: the row is
+// written with usage facts and cost_fen = 0, and the model shows up in
+// UnpricedModels so somebody can add it to the pricing file.
+func TestAICostWriterAdapter_UnpricedDeployedModelRecordsUsage(t *testing.T) {
+	store := aicost.NewMemoryStore()
+	adapter := NewAICostWriterAdapter(aicost.NewService(store, nil))
+	globalMetrics.Reset()
+	t.Cleanup(globalMetrics.Reset)
+
+	if err := adapter.Write(context.Background(), CostLog{
+		UserID:       "user-cost-test",
+		Operation:    "review.eval",
+		Model:        "ep-20260830204651-pffhf", // → doubao-seed-2-1-pro-260628
+		PromptTokens: 1000,
+		OutputTokens: 500,
+	}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	logs, err := store.ListRecent(context.Background(), "user-cost-test", 10)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("logs = %+v", logs)
+	}
+	if logs[0].CostFen != 0 {
+		t.Fatalf("cost_fen = %d, want 0 for a model with no rate", logs[0].CostFen)
+	}
+	if logs[0].TokensIn != 1000 || logs[0].TokensOut != 500 {
+		t.Fatalf("usage must still be recorded: %+v", logs[0])
+	}
+	metrics := GetMetrics()
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
+	if metrics.UnpricedModels["ep-20260830204651-pffhf"] != 1 {
+		t.Fatalf("unpriced = %+v", metrics.UnpricedModels)
 	}
 }
 

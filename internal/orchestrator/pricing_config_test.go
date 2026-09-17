@@ -90,14 +90,28 @@ func TestResolvePricing_Sources(t *testing.T) {
 	if _, source := ResolvePricing("doubao-mini-32k"); source != PricingExact {
 		t.Fatalf("exact table hit = %q", source)
 	}
-	if _, source := ResolvePricing("ep-20260830204651-pffhf"); source != PricingExact {
-		t.Fatalf("endpoint id = %q, want exact", source)
-	}
 	if _, source := ResolvePricing("doubao-seed-2-1-pro-260628"); source != PricingHeuristic {
 		t.Fatalf("family guess = %q, want heuristic", source)
 	}
 	if _, source := ResolvePricing("kimi-k2-0711"); source != PricingUnknown {
 		t.Fatalf("unrecognised model = %q, want unknown", source)
+	}
+	// An endpoint id resolves to whatever model the probe found; whether that is
+	// "exact" depends on the model having a price entry. Today the deployed seed
+	// models have none, so the endpoint is unpriced rather than mispriced.
+	if _, source := ResolvePricing("ep-20260830204651-pffhf"); source != PricingUnknown {
+		t.Fatalf("endpoint id without a price entry = %q, want unknown", source)
+	}
+	// With the deployed model priced — the state ARK_PRICING_FILE produces — the
+	// same endpoint becomes exact.
+	if err := ConfigurePricing(map[string]ModelPricing{
+		"doubao-seed-2-1-pro-260628": {InputPricePerKToken: 3, OutputPricePerKToken: 6},
+	}); err != nil {
+		t.Fatalf("ConfigurePricing: %v", err)
+	}
+	price, source := ResolvePricing("ep-20260830204651-pffhf")
+	if source != PricingExact || price.InputPricePerKToken != 3 {
+		t.Fatalf("endpoint id with a price entry = %q %+v", source, price)
 	}
 }
 
