@@ -33,6 +33,14 @@ type ConversationContext struct {
 	ScenarioContext string // 场景上下文（用户素材）
 	UserRole        string // 用户角色（如 "Backend Engineer"）
 	RecentTurns     []Turn // 最近几轮对话
+
+	// SessionID / UserID / TurnID travel with the request so the ladder's model
+	// call is attributed to the learner it was generated for. They are not part
+	// of the prompt and never were: attribution is transport's business, and
+	// leaving it implicit made the ladder the one call with no owner.
+	SessionID string
+	UserID    string
+	TurnID    string
 }
 
 // Turn 对话话轮
@@ -87,11 +95,12 @@ Last AI question: %s
 Scenario context: %s
 User's role: %s
 
-Generate a sentence starter (skeleton) that helps the user continue. The skeleton should:
+Generate a sentence starter (skeleton) that helps the user continue.
+**At most 12 words** — the user has to finish this sentence out loud, so it must
+leave them room to speak, not deliver the answer for them. Then:
 - Start the sentence structure for the user
 - End with "..." to indicate the user should complete it
 - Be natural and directly address the AI's question
-- Be simple and clear
 
 Examples of good skeletons:
 - "I think the main risk is..."
@@ -105,8 +114,11 @@ Return ONLY the skeleton (one line), no explanation.`,
 		conv.UserRole,
 	)
 
+	// Token budget is the enforcement, not the prompt: a 12-word opener is ~20
+	// tokens, so 40 leaves room to finish the sentence and none to lecture. The
+	// instruction above is what makes it good; this is what makes it short.
 	result, err := g.llmClient.Complete(ctx, prompt, CompletionOptions{
-		MaxTokens:   30,
+		MaxTokens:   40,
 		Model:       "doubao-lite-32k", // 小模型足够
 		Temperature: 0.7,
 	})
@@ -169,21 +181,29 @@ Scenario context: %s
 User's role: %s
 %s
 
-Generate ONE complete sentence that directly answers the AI's question. Requirements:
-- Keep it simple and professional
-- Use programmer's terminology naturally
-- Be specific enough to continue the conversation
-- 1-2 sentences maximum
+Generate ONE complete sentence the learner can repeat out loud, right now, from memory.
 
-Return ONLY the response, no explanation.`,
+**At most 12 words. This is the requirement, not a preference** — the learner
+has to say this sentence in one breath, from memory, while sitting in silence.
+A 50-word answer is not a ladder, it is a passage to read aloud, and they will
+freeze on it exactly as they froze on the question. Then:
+- One sentence, no stacked clauses (no "which…, and I'm working to…" chains)
+- Stay inside what this conversation already mentions; do not introduce new specifics
+- Keep it simple and professional, using the learner's own technical terms
+
+Return ONLY the sentence, no explanation, no quotes.`,
 		conv.LastAIMessage,
 		conv.ScenarioContext,
 		conv.UserRole,
 		recentHistory,
 	)
 
+	// 40 tokens is ~25 English words: enough to finish a 12-word sentence, not
+	// enough to grow one. The first real-device run produced a 50-word answer
+	// from this prompt with an 80-token budget — the ceiling has to be in the
+	// request as well as the instructions, or "at most 12 words" is a wish.
 	result, err := g.llmClient.Complete(ctx, prompt, CompletionOptions{
-		MaxTokens:   80,
+		MaxTokens:   40,
 		Model:       "doubao-pro-32k", // 完整表达用大模型保证质量
 		Temperature: 0.7,
 	})
