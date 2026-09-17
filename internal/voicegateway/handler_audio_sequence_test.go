@@ -17,11 +17,21 @@ import (
 )
 
 // sequencedProvider models the one property of volc-duplex that matters here:
-// Open returns a brand-new session object, so its frame counter starts at zero.
+// Open returns a brand-new session object, so anything the session keeps in a
+// field starts over.
+//
+// Note what is NOT a field here any more. The session used to hold its own
+// counter, and the handler carried the value across a reopen
+// (`carryAudioSequence`) — which is exactly the step that got forgotten in
+// production. The allocator is now handed in by Open and shared by every session
+// for one client, so there is no step to forget.
 type sequencedProvider struct {
 	mu    sync.Mutex
 	fail  bool
 	opens int
+	// seq records what Open was handed, so the test can assert the SAME
+	// allocator reaches the replacement session rather than a fresh one.
+	seq *voicegateway.SeqAllocator
 }
 
 func (p *sequencedProvider) setFail(v bool) {
@@ -30,23 +40,23 @@ func (p *sequencedProvider) setFail(v bool) {
 	p.fail = v
 }
 
-func (p *sequencedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *sequencedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, audioSeq *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opens++
 	p.fail = false // a reopen restores a healthy upstream
-	return &sequencedSession{provider: p}, nil
+	p.seq = audioSeq
+	return &sequencedSession{provider: p, audioSeq: audioSeq}, nil
 }
 
-// sequencedSession numbers every binary frame it emits, the way
-// volcDuplexProviderSession does with nextAudioSeq. The assertion matters: if
-// this double stops satisfying the interface, the handler's carry becomes a
-// no-op and the test would pass while asserting nothing.
-var _ voicegateway.SequencedVoiceProviderSession = (*sequencedSession)(nil)
-
+// sequencedSession numbers every binary frame it emits through the session's
+// allocator, the way volcDuplexProviderSession does. If this double stopped using
+// the allocator and kept its own counter, the test would pass while asserting
+// nothing — the counter would restart on reopen and the assertion below would
+// catch it only because the numbers are read off the wire.
 type sequencedSession struct {
 	provider *sequencedProvider
-	seq      uint32
+	audioSeq *voicegateway.SeqAllocator
 }
 
 func (s *sequencedSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
@@ -68,18 +78,14 @@ func (s *sequencedSession) HandleClientAudio(_ context.Context, _ []byte) ([]voi
 		return nil, errors.New("failed to write frame: use of closed network connection")
 	}
 
-	s.seq++
 	frame := make([]byte, 4+3)
-	binary.BigEndian.PutUint32(frame, s.seq)
+	binary.BigEndian.PutUint32(frame, s.audioSeq.Next())
 	copy(frame[4:], []byte{0xAA, 0xBB, 0xCC})
 	return []voicegateway.ProviderOutbound{{Binary: frame}}, nil
 }
 
 func (s *sequencedSession) SnapshotUtterances() []voicegateway.EndUtterance { return nil }
 func (s *sequencedSession) Close(_ context.Context) error                   { return nil }
-
-func (s *sequencedSession) NextAudioSequence() uint32   { return s.seq }
-func (s *sequencedSession) AdoptAudioSequence(v uint32) { s.seq = v }
 
 func readBinaryFrame(ctx context.Context, t *testing.T, conn *websocket.Conn) []byte {
 	t.Helper()
@@ -152,6 +158,19 @@ func TestHandler_AudioSequenceSurvivesTransparentReopen(t *testing.T) {
 		t.Fatalf("write binary: %v", err)
 	}
 	afterReopen := frameSequence(readBinaryFrame(ctx, t, conn))
+
+	// The mechanism, asserted directly: the replacement session was handed the
+	// same allocator. Without this, a future change could pass a fresh allocator
+	// and the number check above would only tell us after the fact.
+	provider.mu.Lock()
+	shared := provider.seq
+	provider.mu.Unlock()
+	if shared == nil {
+		t.Fatal("the provider was never handed an allocator")
+	}
+	if got := shared.Peek(); got < afterReopen {
+		t.Fatalf("allocator last handed out %d, but frame %d reached the client: they disagree", got, afterReopen)
+	}
 
 	if afterReopen <= lastBeforeReopen {
 		t.Fatalf(

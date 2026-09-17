@@ -69,7 +69,7 @@ func (u voiceUsage) measure() VoiceUsage {
 // VoiceUsageReporter is implemented by provider sessions that can say how much
 // audio they moved.
 //
-// Optional, like SequencedVoiceProviderSession: Mock and DevEcho do not carry a
+// Optional, like the audio sequence reporting: Mock and DevEcho do not carry a
 // real conversation, so there is nothing for them to report and no reason to
 // make every provider answer.
 type VoiceUsageReporter interface {

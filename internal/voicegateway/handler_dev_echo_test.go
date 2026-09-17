@@ -612,8 +612,12 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 		if typ != websocket.MessageBinary {
 			t.Fatalf("audio[%d]: expected binary, got %v", i, typ)
 		}
-		if binary.BigEndian.Uint32(data[:4]) != uint32(i) {
-			t.Fatalf("audio[%d] seq = %d", i, binary.BigEndian.Uint32(data[:4]))
+		// 1-based since the session allocator took over the numbering: dev-echo
+		// used to count from 0 while volc-duplex counted from 1, and two
+		// producers numbering one stream differently is the sort of difference
+		// that only shows up in a bug report. See SeqAllocator.
+		if want := uint32(i + 1); binary.BigEndian.Uint32(data[:4]) != want {
+			t.Fatalf("audio[%d] seq = %d, want %d", i, binary.BigEndian.Uint32(data[:4]), want)
 		}
 	}
 

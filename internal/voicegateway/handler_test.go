@@ -80,7 +80,7 @@ type stubProvider struct {
 	calls   int
 }
 
-func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	s.calls++
 	if s.err != nil {
 		return nil, s.err

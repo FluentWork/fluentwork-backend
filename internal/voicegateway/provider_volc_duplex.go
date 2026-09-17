@@ -53,13 +53,14 @@ func NewVolcDuplexProvider(cfg Config, logger *slog.Logger) VolcDuplexProvider {
 }
 
 // Open creates one live duplex session wrapper.
-func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket) (VoiceProviderSession, error) {
+func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error) {
 	if strings.TrimSpace(p.cfg.APIKey) == "" {
 		return nil, fmt.Errorf("volc-duplex provider missing speech API key")
 	}
 	return &volcDuplexProviderSession{
 		cfg:         p.cfg,
 		audioFormat: p.audioFormat,
+		audioSeq:    audioSeq,
 		logger: p.logger.With(
 			"ticket_id", ticket.TicketID,
 			"session_id", ticket.SessionID,
@@ -91,10 +92,12 @@ type volcDuplexProviderSession struct {
 	session     *voicepoc.DuplexSession
 	turnStarted time.Time
 	nextSeq     int
-	// nextAudioSeq numbers the gateway→client binary audio frames. Monotonic
-	// across the session because the client drops frames at or below its
-	// barge-in watermark.
-	nextAudioSeq uint32
+	// audioSeq numbers the gateway→client binary audio frames. It is the
+	// session's allocator, not this provider's: a replaced provider session gets
+	// the same one, so the numbering cannot restart behind the client's barge-in
+	// watermark. See SeqAllocator — and nextSeq below, which is a different
+	// counter for a different purpose.
+	audioSeq     *SeqAllocator
 	utterances   []EndUtterance
 	activeTurnID string
 	// audio moved this session, for cost accounting. See VoiceUsage.
@@ -337,6 +340,21 @@ func (s *volcDuplexProviderSession) markFirstAudio() {
 	)
 }
 
+// seq returns this session's frame allocator, creating one if Open was not what
+// built the session.
+//
+// The fallback exists so a nil allocator cannot silently emit frame number 0.
+// Production always goes through Open, which hands in the session's allocator;
+// but this type is also built directly by tests, and "forgot to wire it" should
+// degrade to a working single-session counter rather than to a wire format the
+// client's codec treats as unset.
+func (s *volcDuplexProviderSession) seq() *SeqAllocator {
+	if s.audioSeq == nil {
+		s.audioSeq = &SeqAllocator{}
+	}
+	return s.audioSeq
+}
+
 // frameAudio resamples one vendor chunk and cuts it into client frames.
 //
 // When flush is set, a trailing partial frame is emitted too. That has to
@@ -351,13 +369,11 @@ func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte 
 
 	var frames [][]byte
 	for len(s.audioPending) >= audioFrameBytes {
-		s.nextAudioSeq++
-		frames = append(frames, encodeAudioFrame(s.nextAudioSeq, s.audioPending[:audioFrameBytes]))
+		frames = append(frames, encodeAudioFrame(s.seq().Next(), s.audioPending[:audioFrameBytes]))
 		s.audioPending = s.audioPending[audioFrameBytes:]
 	}
 	if flush && len(s.audioPending) > 0 {
-		s.nextAudioSeq++
-		frames = append(frames, encodeAudioFrame(s.nextAudioSeq, s.audioPending))
+		frames = append(frames, encodeAudioFrame(s.seq().Next(), s.audioPending))
 		s.audioPending = nil
 	}
 	return frames
@@ -908,12 +924,10 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				if end > len(pcm) {
 					end = len(pcm)
 				}
-				// Pre-increment: the counter belongs to the emission path, so it is
-				// correct whether or not Start() ran. A first frame numbered 0 would
-				// also sit at the client's barge-in watermark.
-				s.nextAudioSeq++
+				// The allocator starts at 1 and belongs to the session, so this is
+				// correct whether or not Start() ran, and correct after a reopen.
 				outbound = append(outbound, ProviderOutbound{
-					Binary: encodeAudioFrame(s.nextAudioSeq, pcm[offset:end]),
+					Binary: encodeAudioFrame(s.seq().Next(), pcm[offset:end]),
 				})
 			}
 		}
@@ -1002,11 +1016,6 @@ func encodeAudioFrame(seq uint32, payload []byte) []byte {
 	return frame
 }
 
-// The gateway carries this session's frame numbering into any session opened to
-// replace it, and nothing else. If these methods go away the reopen silently
-// restarts the sequence and mutes the client — see the interface doc.
-var _ SequencedVoiceProviderSession = (*volcDuplexProviderSession)(nil)
-
 // VoiceUsage implements VoiceUsageReporter. Read at session end, when the
 // gateway hands the session's totals to cost accounting.
 func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage {
@@ -1016,33 +1025,6 @@ func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage {
 }
 
 var _ VoiceUsageReporter = (*volcDuplexProviderSession)(nil)
-
-// NextAudioSequence implements SequencedVoiceProviderSession.
-func (s *volcDuplexProviderSession) NextAudioSequence() uint32 { return s.nextAudioSeq }
-
-// AdoptAudioSequence implements SequencedVoiceProviderSession. A session opened
-// to replace this one has to keep numbering from here — see the interface doc
-// for why restarting is not survivable.
-func (s *volcDuplexProviderSession) AdoptAudioSequence(seq uint32) { s.nextAudioSeq = seq }
-
-// resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
-// client plays: a straight 3:2 linear interpolation.
-//
-// Deliberately plain, and there is no anti-alias filter ahead of the
-// decimation — the vendor's speech carries content up to 12 kHz and this folds
-// the 8–12 kHz band back down. Speech stays intelligible, and this is a first
-// cut to get sound working end to end. If quality becomes a complaint, replace
-// this with a polyphase filter rather than tuning the interpolation.
-// resampleToPlaybackRate converts a whole buffer in one go.
-//
-// It is a thin wrapper over pcmResampler on purpose: the batch and streaming
-// paths are the same code, so they cannot drift. The old standalone
-// implementation lives on in the tests as the reference the streaming form is
-// checked against (see batchResampleReference).
-func resampleToPlaybackRate(pcm []byte) []byte {
-	var r pcmResampler
-	return r.Write(pcm)
-}
 
 func instructionsForSessionStart(start voiceproto.SessionStart, continuation []ContinuationTurn) string {
 	var parts []string
@@ -1090,6 +1072,28 @@ func continuationBlock(turns []ContinuationTurn) string {
 	}
 	lines = append(lines, "开场时用一句话自然承接上面聊到的内容，让用户知道你还记得，然后继续这次练习。")
 	return strings.Join(lines, "\n")
+}
+
+// resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
+// client plays: a straight 3:2 linear interpolation.
+//
+// Deliberately plain, and there is no anti-alias filter ahead of the decimation
+// — the vendor's speech carries content up to 12 kHz and this folds the 8–12 kHz
+// band back down. Speech stays intelligible, and this is a first cut to get sound
+// working end to end. If quality becomes a complaint, replace this with a
+// polyphase filter rather than tuning the interpolation.
+//
+// The batch form is a thin wrapper over pcmResampler on purpose: the batch and
+// streaming paths are then the same code and cannot drift. The old standalone
+// implementation lives on in the tests as the reference the streaming form is
+// checked against (see batchResampleReference).
+//
+// (This used to be two comments stacked on one function — the interpolation note
+// and the wrapper note, the first left dangling above the second when the
+// streaming form was introduced. Same information, one place.)
+func resampleToPlaybackRate(pcm []byte) []byte {
+	var r pcmResampler
+	return r.Write(pcm)
 }
 
 func (s *volcDuplexProviderSession) unixMilli() int64 {

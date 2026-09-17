@@ -86,7 +86,7 @@ func TestSnapshotVoiceUsageIsNilWithoutAReporter(t *testing.T) {
 		t.Fatalf("runtime with no provider reported %+v, want nil", got)
 	}
 
-	sess, err := MockVoiceProvider{}.Open(context.Background(), ConsumedTicket{})
+	sess, err := MockVoiceProvider{}.Open(context.Background(), ConsumedTicket{}, &SeqAllocator{})
 	if err != nil {
 		t.Fatalf("open mock session: %v", err)
 	}

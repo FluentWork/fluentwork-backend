@@ -144,7 +144,7 @@ type rescueProvider struct {
 	bootstrap rescueBootstrap
 }
 
-func (p *rescueProvider) Open(context.Context, ConsumedTicket) (VoiceProviderSession, error) {
+func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator) (VoiceProviderSession, error) {
 	return &rescueProviderSession{bootstrap: p.bootstrap}, nil
 }
 

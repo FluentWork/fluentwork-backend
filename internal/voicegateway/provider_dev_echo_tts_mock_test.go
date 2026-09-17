@@ -20,7 +20,7 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{
 		SessionID: "s-tts",
 		UserID:    "u-tts",
-	})
+	}, &voicegateway.SeqAllocator{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -68,8 +68,8 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 			t.Fatalf("audio[%d] too short: %d", i, len(item.Binary))
 		}
 		seq := binary.BigEndian.Uint32(item.Binary[:4])
-		if seq != uint32(i) {
-			t.Fatalf("audio[%d] seq = %d", i, seq)
+		if want := uint32(i + 1); seq != want {
+			t.Fatalf("audio[%d] seq = %d, want %d", i, seq, want)
 		}
 		wantPayload := []byte("mock-opus-frame-" + itoa(i))
 		gotPayload := item.Binary[4:]
@@ -100,7 +100,7 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.TTSMock = true
-	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"})
+	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"}, &voicegateway.SeqAllocator{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -117,11 +117,13 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 
 	lastFirst := first[10].Binary // start at [0], audio 1-10 → index 10 is last audio
 	firstSecond := second[1].Binary
-	if binary.BigEndian.Uint32(lastFirst[:4]) != 9 {
-		t.Fatalf("first turn last seq = %d", binary.BigEndian.Uint32(lastFirst[:4]))
+	// Ten frames per turn, numbered 1..10 then 11..20 — the allocator is the
+	// session's, so a second turn continues rather than restarting.
+	if got := binary.BigEndian.Uint32(lastFirst[:4]); got != 10 {
+		t.Fatalf("first turn last seq = %d, want 10", got)
 	}
-	if binary.BigEndian.Uint32(firstSecond[:4]) != 10 {
-		t.Fatalf("second turn first seq = %d, want 10", binary.BigEndian.Uint32(firstSecond[:4]))
+	if got := binary.BigEndian.Uint32(firstSecond[:4]); got != 11 {
+		t.Fatalf("second turn first seq = %d, want 11", got)
 	}
 }
 

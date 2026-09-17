@@ -187,7 +187,7 @@ func (h *Handler) sendRescueAudio(
 	turnID string,
 	token uint64,
 ) bool {
-	frames := RescueAudioOutbound(audio, turnID, rt.nextRescueAudioSeq)
+	frames := RescueAudioOutbound(audio, turnID, rt.audioSeq.Next)
 	if len(frames) == 0 {
 		return false
 	}
@@ -525,32 +525,4 @@ func (rt *sessionRuntime) stopRescueSpeech(
 			"err", err,
 		)
 	}
-}
-
-// nextRescueAudioSeq allocates the next binary audio sequence number for a rung.
-//
-// The numbering is shared with the provider on purpose. The client's gate drops
-// whole frames at and below the watermark its last barge-in set, and that
-// watermark lives for the entire WebSocket session — so a rung numbered from
-// zero would be dropped in silence after any interrupt. The allocator therefore
-// jumps to whatever the provider has reached (the provider's counter is only
-// readable with the write lock held, since it advances in the provider's own
-// goroutine) and counts up from there.
-//
-// A gap when the ladder catches up is harmless; the client only requires
-// monotonicity. Collisions are not: the provider's counter lives in the provider
-// goroutine, so an atomic max keeps the two from handing out the same number.
-func (rt *sessionRuntime) nextRescueAudioSeq() uint32 {
-	rt.writeMu.Lock()
-	if seq, ok := rt.provider.(SequencedVoiceProviderSession); ok && seq != nil {
-		for {
-			have := rt.nextRescueSeq.Load()
-			want := seq.NextAudioSequence() + 1
-			if have >= want || rt.nextRescueSeq.CompareAndSwap(have, want) {
-				break
-			}
-		}
-	}
-	rt.writeMu.Unlock()
-	return rt.nextRescueSeq.Add(1)
 }

@@ -84,7 +84,7 @@ func (s *failingAudioSession) Close(_ context.Context) error { return nil }
 
 type failingAudioProvider struct{ session *failingAudioSession }
 
-func (p *failingAudioProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *failingAudioProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	if p.session == nil {
 		p.session = &failingAudioSession{}
 	}

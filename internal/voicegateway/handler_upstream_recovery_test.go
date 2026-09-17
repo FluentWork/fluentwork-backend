@@ -37,7 +37,7 @@ func (p *scriptedProvider) openCount() int {
 	return p.opens
 }
 
-func (p *scriptedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *scriptedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opens++

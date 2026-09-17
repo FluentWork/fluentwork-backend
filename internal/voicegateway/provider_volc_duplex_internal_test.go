@@ -277,7 +277,7 @@ func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"})
+	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestVolcDuplexProviderOpenRequiresSpeechKey(t *testing.T) {
 		Provider:          "volc-duplex",
 		ClientAudioFormat: "pcm-s16le",
 	}, nil)
-	_, err := provider.Open(context.Background(), ConsumedTicket{})
+	_, err := provider.Open(context.Background(), ConsumedTicket{}, &SeqAllocator{})
 	if err == nil || !strings.Contains(err.Error(), "missing speech API key") {
 		t.Fatalf("expected missing key error, got %v", err)
 	}

@@ -394,9 +394,11 @@ type sessionRuntime struct {
 	rescueSpeechMu   sync.Mutex
 	rescueSpeechTurn string
 	rescueSpeechGen  uint64
-	// B8: nextRescueSeq numbers the ladder's own binary audio frames. It shares a
-	// numbering space with the provider — see nextRescueAudioSeq.
-	nextRescueSeq atomic.Uint32
+	// audioSeq numbers every binary audio frame this session sends to the client,
+	// whoever sends it: the provider streaming the AI's speech, or the rescue
+	// ladder. One allocator per client session, because the client's barge-in
+	// watermark is per WebSocket session and does not distinguish producers.
+	audioSeq *SeqAllocator
 }
 
 // clock returns the runtime's clock, defaulting to time.Now so a directly-built
@@ -491,6 +493,7 @@ func (rt *sessionRuntime) sendWithoutRescueState(ctx context.Context, conn *webs
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
 	rt := &sessionRuntime{
+		audioSeq:           &SeqAllocator{},
 		writeTimeout:       h.writeTimeout,
 		silenceDetector:    h.rescueDetectorForSession(),
 		rescueOrchestrator: h.rescueOrchestrator,
@@ -530,27 +533,6 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 	}
 }
 
-// carryAudioSequence hands the gateway→client frame numbering from a provider
-// session being replaced to the one replacing it.
-//
-// The numbers must not restart across the reopen: the client's barge-in
-// watermark outlives the provider session that set it, and it discards every
-// frame at or below itself. See SequencedVoiceProviderSession.
-//
-// Providers that do not number their frames (mock, dev-echo) simply do not
-// implement the interface and are left alone.
-func carryAudioSequence(previous, next VoiceProviderSession) {
-	from, ok := previous.(SequencedVoiceProviderSession)
-	if !ok {
-		return
-	}
-	to, ok := next.(SequencedVoiceProviderSession)
-	if !ok {
-		return
-	}
-	to.AdoptAudioSequence(from.NextAudioSequence())
-}
-
 func (h *Handler) handleAudio(
 	ctx context.Context,
 	conn *websocket.Conn,
@@ -580,7 +562,10 @@ func (h *Handler) handleAudio(
 		// same ticket and retry the chunk before giving up on the session.
 		if !rt.reopenAttempted {
 			rt.reopenAttempted = true
-			reopened, openErr := h.provider.Open(ctx, session)
+			// Same allocator as the session being replaced, so the numbering
+			// continues instead of restarting behind the client's barge-in
+			// watermark. There is nothing to carry: see SeqAllocator.
+			reopened, openErr := h.provider.Open(ctx, session, rt.audioSeq)
 			if openErr == nil {
 				// The same frame the session opened with, not a blank one: a
 				// reopened session that has forgotten what the practice is
@@ -591,7 +576,6 @@ func (h *Handler) handleAudio(
 					reopenStart = *rt.lastStart
 				}
 				if _, startErr := reopened.Start(ctx, reopenStart, rt.continuation); startErr == nil {
-					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
 					attachOutboundEmitter(ctx, conn, rt, reopened)
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
@@ -684,7 +668,7 @@ func (h *Handler) handleControl(
 					})
 				}
 			}
-			provider, err := h.provider.Open(ctx, session)
+			provider, err := h.provider.Open(ctx, session, rt.audioSeq)
 			if err != nil {
 				h.logger.Warn("provider open failed", "session_id", session.SessionID, "err", err)
 				return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
