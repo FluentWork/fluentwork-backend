@@ -3,9 +3,6 @@ package reviewgen
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -174,65 +171,6 @@ func TestOrchestratorAdapter_SchemaViolationKeepsEveryRule(t *testing.T) {
 	}
 }
 
-func TestArkGenerator_ClassifiesHTTPAndTruncation(t *testing.T) {
-	t.Run("http status keeps body", func(t *testing.T) {
-		gen := ArkGenerator{
-			BaseURL:    "https://ark.example.test/api/v3",
-			APIKey:     "key",
-			Endpoint:   "ep-review",
-			HTTPClient: newStubHTTPClient(http.StatusInternalServerError, `{"error":{"message":"boom"}}`),
-		}
-		_, err := gen.Generate(context.Background(), Request{
-			SessionID:  "s1",
-			SceneType:  "standup",
-			Transcript: "hello",
-		})
-		var genErr *GenerateError
-		if !errors.As(err, &genErr) || genErr.Kind != FailureTransport {
-			t.Fatalf("err = %v (%T)", err, err)
-		}
-		if !strings.Contains(genErr.RawBody, "boom") {
-			t.Fatalf("raw body = %q, want provider message", genErr.RawBody)
-		}
-	})
-
-	t.Run("finish_reason length marks truncation", func(t *testing.T) {
-		body := `{"choices":[{"message":{"role":"assistant","content":` + strconv.Quote(truncatedDocument) + `},"finish_reason":"length"}]}`
-		gen := ArkGenerator{
-			BaseURL:    "https://ark.example.test/api/v3",
-			APIKey:     "key",
-			Endpoint:   "ep-review",
-			HTTPClient: newStubHTTPClient(http.StatusOK, body),
-		}
-		_, err := gen.Generate(context.Background(), Request{
-			SessionID:  "s1",
-			SceneType:  "standup",
-			Transcript: "hello",
-		})
-		var genErr *GenerateError
-		if !errors.As(err, &genErr) || genErr.Kind != FailureTruncatedJSON {
-			t.Fatalf("err = %v (%T)", err, err)
-		}
-		if genErr.FinishReason != "length" || genErr.RawContent != truncatedDocument {
-			t.Fatalf("genErr = %+v", genErr)
-		}
-	})
-}
-
-func newStubHTTPClient(status int, body string) *http.Client {
-	return &http.Client{
-		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: status,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     make(http.Header),
-			}, nil
-		}),
-	}
-}
-
-// P1-1: the ladder report reaches the model, and the two paths' anchor rules
-// travel with it — the prompt is the only place those rules can be stated.
 func TestUserPrompt_RendersRescueEvents(t *testing.T) {
 	prompt := userPrompt(Request{
 		SessionID:  "s1",

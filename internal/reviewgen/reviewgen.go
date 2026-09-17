@@ -1,21 +1,18 @@
-// Package reviewgen calls Ark chat-completions for session review/refine generation.
+// Package reviewgen builds review/refine artifacts for a finished session.
+//
+// It speaks to a model through orchestrator.Client (the LLM seam), so nothing in
+// this package knows which vendor answers: prompts, validation and failure
+// classification are provider-neutral.
 package reviewgen
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"net"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/eval"
-	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
 // Generator builds review/refine artifacts from a finished transcript.
@@ -60,216 +57,12 @@ type Result struct {
 	TokensOut int
 }
 
-// ArkGenerator calls the Ark chat-completions endpoint for review/refine generation.
-type ArkGenerator struct {
-	BaseURL    string
-	APIKey     string
-	Endpoint   string
-	HTTPClient *http.Client
-	Logger     *slog.Logger
-}
-
-// Enabled reports whether the generator has enough config to make live calls.
-func (g ArkGenerator) Enabled() bool {
-	return strings.TrimSpace(g.BaseURL) != "" && strings.TrimSpace(g.APIKey) != "" && strings.TrimSpace(g.Endpoint) != ""
-}
-
-// Generate calls Ark once and validates both review and refine artifacts against B15 rules.
-func (g ArkGenerator) Generate(ctx context.Context, req Request) (Result, error) {
-	if !g.Enabled() {
-		return Result{}, fmt.Errorf("ark review generator is not configured")
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.SceneType = strings.TrimSpace(req.SceneType)
-	req.Transcript = strings.TrimSpace(req.Transcript)
-	if req.SessionID == "" {
-		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("session_id is required")}
-	}
-	if req.SceneType == "" {
-		return Result{}, &GenerateError{Kind: FailureInvalidRequest, Err: fmt.Errorf("scene_type is required")}
-	}
-	// Session scene_type predates the closed corpus enum; normalize anything
-	// outside the B15 scene set so refine blocks always validate.
-	if _, ok := eval.SceneTags[req.SceneType]; !ok {
-		req.SceneType = "standup"
-	}
-	if req.Transcript == "" {
-		return Result{}, &GenerateError{
-			Kind:      FailureEmptySession,
-			Err:       fmt.Errorf("transcript is required"),
-			SessionID: req.SessionID,
-		}
-	}
-
-	seg := logx.Begin(g.Logger, "review.generate",
-		"provider", "ark",
-		"model", g.Endpoint,
-		"session_id", req.SessionID,
-		"stage", "orchestration",
-	)
-	var generateErr error
-	var endAttrs []any
-	defer func() {
-		// P0-2: whatever the caller does with the error, this segment records
-		// the model's raw response and the failure classification.
-		if genErr, ok := generateErr.(*GenerateError); ok {
-			endAttrs = append(endAttrs, genErr.LogAttrs()...)
-		}
-		seg.End(generateErr, endAttrs...)
-	}()
-
-	payload := arkChatRequest{
-		Model: g.Endpoint,
-		Messages: []arkMessage{
-			{Role: "system", Content: systemPrompt()},
-			{Role: "user", Content: userPrompt(req)},
-		},
-		MaxTokens:   800,
-		Temperature: 0,
-		ResponseFormat: map[string]any{
-			"type": "json_object",
-		},
-		// Review endpoint is bound to a thinking-capable model; leaving thinking
-		// enabled causes multi-minute / timeout hangs under json_object workloads.
-		Thinking: map[string]any{"type": "disabled"},
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		generateErr = err
-		return Result{}, generateErr
-	}
-
-	httpClient := g.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: 90 * time.Second,
-			Transport: &http.Transport{
-				Proxy:               http.ProxyFromEnvironment,
-				ForceAttemptHTTP2:   false,
-				DialContext:         (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-				TLSHandshakeTimeout: 15 * time.Second,
-			},
-		}
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(g.BaseURL, "/")+"/chat/completions", bytes.NewReader(raw))
-	if err != nil {
-		generateErr = err
-		return Result{}, generateErr
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.APIKey))
-
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		generateErr = err
-		return Result{}, generateErr
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		generateErr = err
-		return Result{}, generateErr
-	}
-	if resp.StatusCode != http.StatusOK {
-		generateErr = &GenerateError{
-			Kind:      FailureTransport,
-			Err:       fmt.Errorf("ark chat completions http=%d", resp.StatusCode),
-			SessionID: req.SessionID,
-			RawBody:   string(body),
-		}
-		return Result{}, generateErr
-	}
-
-	var decoded arkChatResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		generateErr = &GenerateError{
-			Kind:      FailureInvalidJSON,
-			Err:       fmt.Errorf("decode ark response: %w", err),
-			SessionID: req.SessionID,
-			RawBody:   string(body),
-		}
-		return Result{}, generateErr
-	}
-	content := strings.TrimSpace(firstChoiceContent(decoded))
-	finishReason := firstChoiceFinishReason(decoded)
-	if content == "" {
-		generateErr = &GenerateError{
-			Kind:         FailureEmptyContent,
-			Err:          fmt.Errorf("ark response missing message content"),
-			SessionID:    req.SessionID,
-			FinishReason: finishReason,
-			RawBody:      string(body),
-		}
-		return Result{}, generateErr
-	}
-
-	doc, err := parseGeneratedDocument(content, finishReason)
-	if err != nil {
-		generateErr = withSession(err, req.SessionID)
-		return Result{}, generateErr
-	}
-	findings := eval.ValidateSample(eval.Sample{
-		ID:         req.SessionID,
-		Transcript: req.Transcript,
-		Review:     doc.Review,
-		Refine:     doc.Refine,
-	})
-	if len(findings) > 0 {
-		generateErr = schemaViolation(req.SessionID, content, finishReason, findings)
-		return Result{}, generateErr
-	}
-
-	result := Result{
-		Review:    doc.Review,
-		Refine:    doc.Refine,
-		Generator: "ark-review-refine-v1",
-		Model:     g.Endpoint,
-	}
-	if decoded.Usage != nil {
-		result.TokensIn = decoded.Usage.PromptTokens
-		result.TokensOut = decoded.Usage.CompletionTokens
-		endAttrs = []any{
-			"tokens_in", result.TokensIn,
-			"tokens_out", result.TokensOut,
-		}
-	}
-	return result, nil
-}
-
+// generatedDocument is the two-key document the model must return.
 type generatedDocument struct {
 	Review json.RawMessage `json:"review"`
 	Refine json.RawMessage `json:"refine"`
 }
 
-type arkChatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []arkMessage   `json:"messages"`
-	MaxTokens      int            `json:"max_tokens"`
-	Temperature    float64        `json:"temperature"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
-	Thinking       map[string]any `json:"thinking,omitempty"`
-}
-
-type arkMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type arkChatResponse struct {
-	Choices []struct {
-		Message      arkMessage `json:"message"`
-		FinishReason string     `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
-}
-
-// parseGeneratedDocument decodes the model's JSON document. Failures come back
-// as *GenerateError carrying the raw content and a FailureKind (P0-2) so the
-// caller can log what the model actually said.
 func parseGeneratedDocument(raw, finishReason string) (generatedDocument, error) {
 	trimmed := strings.TrimSpace(raw)
 	trimmed = strings.TrimPrefix(trimmed, "```json")
@@ -312,22 +105,6 @@ func classifyJSONError(finishReason string, err error) FailureKind {
 	return FailureInvalidJSON
 }
 
-func firstChoiceContent(resp arkChatResponse) string {
-	if len(resp.Choices) == 0 {
-		return ""
-	}
-	return resp.Choices[0].Message.Content
-}
-
-func firstChoiceFinishReason(resp arkChatResponse) string {
-	if len(resp.Choices) == 0 {
-		return ""
-	}
-	return resp.Choices[0].FinishReason
-}
-
-// withSession stamps the session ID onto a *GenerateError built deeper down;
-// other errors pass through unchanged.
 func withSession(err error, sessionID string) error {
 	var genErr *GenerateError
 	if errors.As(err, &genErr) && genErr != nil {

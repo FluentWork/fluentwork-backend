@@ -25,6 +25,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
+	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
@@ -73,11 +74,10 @@ func run() error {
 	sessionSvc := session.NewService(sessionStore, cfg, logger)
 	costSvc := aicost.NewService(costStore, logger)
 	costHandler := aicost.NewHandler(costSvc)
-	reviewGenerator := reviewgen.ArkGenerator{
-		BaseURL:  cfg.ArkBaseURL,
-		APIKey:   cfg.ArkAPIKey,
-		Endpoint: cfg.ArkReviewRefineEP,
-		Logger:   logger.With("component", "reviewgen.ark"),
+	// The review generator goes through the LLM seam (orchestrator.Client), the
+	// same path app-server uses — including its per-operation endpoint routing.
+	reviewGenerator := &reviewgen.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, orchestrator.NewAICostWriterAdapter(costSvc)),
 	}
 	arkEnabled := reviewGenerator.Enabled()
 	if arkEnabled {
@@ -129,8 +129,8 @@ func run() error {
 	}
 
 	if arkEnabled {
-		if evidence.Generator != "ark-review-refine-v1" {
-			return fmt.Errorf("expected generator ark-review-refine-v1 with Ark enabled, got %q", evidence.Generator)
+		if evidence.Generator != "orchestrator-review-refine-v1" {
+			return fmt.Errorf("expected generator orchestrator-review-refine-v1 with a live model configured, got %q", evidence.Generator)
 		}
 		logs, listErr := costSvc.ListRecent(context.Background(), "", 10)
 		if listErr != nil {
@@ -138,7 +138,9 @@ func run() error {
 		}
 		evidence.CostLogCount = len(logs)
 		for _, row := range logs {
-			if row.TaskType == "review.eval" {
+			// The orchestrator records the call under this operation; the session
+			// no longer writes a second row of its own.
+			if row.TaskType == "reviewgen.generate" {
 				evidence.CostTaskType = row.TaskType
 				evidence.CostModel = row.Model
 				evidence.CostTokensIn = row.TokensIn
@@ -147,7 +149,7 @@ func run() error {
 			}
 		}
 		if evidence.CostTaskType == "" {
-			return fmt.Errorf("expected ai_cost_logs row task_type=review.eval, got %d rows", len(logs))
+			return fmt.Errorf("expected ai_cost_logs row task_type=reviewgen.generate, got %d rows", len(logs))
 		}
 		if evidence.ReadyWaitMS > 15000 {
 			return fmt.Errorf("review ready wait %dms exceeds 15s SLA (duration_ms proxy)", evidence.ReadyWaitMS)

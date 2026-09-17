@@ -26,7 +26,11 @@ type ArkClient struct {
 	model string
 	// endpoints routes an operation to its own deployment, so the per-task
 	// endpoints configured in the console are actually used.
-	endpoints  map[string]string
+	endpoints map[string]string
+	// thinking is this vendor's chain-of-thought switch. It is sent only by this
+	// client: the field is Volc-specific, and a request built for one provider
+	// must not carry another's knobs.
+	thinking   string
 	costWriter CostWriter
 	httpClient *http.Client
 }
@@ -43,6 +47,7 @@ func NewArkClient(cfg config.Config, costWriter CostWriter) *ArkClient {
 		apiKey:     cfg.ArkAPIKey,
 		model:      strings.TrimSpace(cfg.ArkReviewRefineEP),
 		endpoints:  endpointRouting(cfg),
+		thinking:   thinkingMode(cfg),
 		costWriter: costWriter,
 		httpClient: &http.Client{
 			Timeout: httpTimeout(cfg),
@@ -57,6 +62,24 @@ func NewArkClient(cfg config.Config, costWriter CostWriter) *ArkClient {
 			},
 		},
 	}
+}
+
+// thinkingMode reads the configured chain-of-thought switch.
+func thinkingMode(cfg config.Config) string {
+	mode := strings.TrimSpace(cfg.ArkThinking)
+	if mode == "" {
+		return "disabled"
+	}
+	return mode
+}
+
+// thinkingPayload renders the vendor's thinking field.
+func (a *ArkClient) thinkingPayload() map[string]any {
+	mode := a.thinking
+	if mode == "" {
+		mode = "disabled"
+	}
+	return map[string]any{"type": mode}
 }
 
 // httpTimeout bounds one provider call; zero or unset means the shipping default.
@@ -167,7 +190,7 @@ func (a *ArkClient) Complete(ctx context.Context, req CompletionRequest) (Comple
 		Messages:    messages,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
-		Thinking:    map[string]any{"type": "disabled"}, // 关闭思考链避免计费
+		Thinking:    a.thinkingPayload(), // 供应商特有字段，只有本客户端会发
 	}
 
 	if req.ResponseFormat == "json_object" {

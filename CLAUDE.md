@@ -178,6 +178,7 @@ test(provider): add B15 regression tests
 
 | 变量 | 描述 | 默认值 |
 |------|------|--------|
+| `ARK_THINKING` | 思考链开关（供应商特有字段，仅 Ark 客户端发送） | `disabled` |
 | `ARK_HTTP_TIMEOUT` | 单次供应商调用上限（默认 30s；大 prompt 可调高） | `30s` |
 | `ARK_PRICING_FILE` | 模型费率表 JSON，设置后**替换**内置表。单位用供应商公布口径：`{"doubao-seed-2-1-pro-260628":{"input_cny_per_million":0.8,"output_cny_per_million":2.0}}`。解析失败则启动失败——静默沿用旧费率等于用没人选过的数字记账；`_` 开头的键是注释。查该配哪些模型：`go run ./cmd/ark-endpoint-probe` | `""`（用内置表） |
 

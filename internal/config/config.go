@@ -42,6 +42,10 @@ const (
 	defaultDrillJudgeTimeout = 6 * time.Second
 	// defaultArkHTTPTimeout is the shipping bound on one provider call.
 	defaultArkHTTPTimeout = 30 * time.Second
+	// defaultArkThinking keeps the chain of thought off: the deployed endpoints
+	// answer json_object workloads in seconds with it disabled and hang for
+	// minutes with it on (see reviewgen's history).
+	defaultArkThinking = "disabled"
 	// defaultTopicMinBlocks is the PRD §7.8 H1 threshold (话术块 ≥ 20).
 	defaultTopicMinBlocks = 20
 )
@@ -65,6 +69,10 @@ type Config struct {
 	ArkHitMatchEP      string
 	ArkDrillJudgeEP    string
 	ArkTextDegradeEP   string
+	// ArkThinking is the vendor's chain-of-thought switch: "disabled" (default)
+	// or "auto". It exists because the setting is vendor-specific — a different
+	// provider simply ignores it.
+	ArkThinking string
 	// ArkHTTPTimeout bounds one provider call. 30s is the default a chat
 	// completion normally needs; a caller that sends a large prompt (a whole
 	// corpus, say) can raise it without a code change.
@@ -128,6 +136,7 @@ func Load() Config {
 		ArkTextDegradeEP:   strings.TrimSpace(os.Getenv("ARK_EP_TEXT_DEGRADE")),
 		ArkPricingFile:     strings.TrimSpace(os.Getenv("ARK_PRICING_FILE")),
 		ArkHTTPTimeout:     durationOr("ARK_HTTP_TIMEOUT", defaultArkHTTPTimeout),
+		ArkThinking:        envOr("ARK_THINKING", defaultArkThinking),
 
 		DrillPromoteStreak:           intOr("DRILL_PROMOTE_STREAK", defaultDrillPromoteStreak),
 		DrillTrainingInterval:        durationOr("DRILL_TRAINING_INTERVAL", defaultDrillTrainingInterval),

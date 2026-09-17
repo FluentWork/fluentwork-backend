@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -26,14 +27,11 @@ func run() error {
 	logger := logx.New("smoke-review-ark")
 	slog.SetDefault(logger)
 
-	gen := reviewgen.ArkGenerator{
-		BaseURL:  cfg.ArkBaseURL,
-		APIKey:   cfg.ArkAPIKey,
-		Endpoint: cfg.ArkReviewRefineEP,
-		Logger:   logger.With("component", "reviewgen.ark"),
-	}
+	// Through the LLM seam, not around it: this smoke exercises the same client
+	// the app-server uses, so a provider swap needs no change here.
+	gen := &reviewgen.OrchestratorAdapter{Client: orchestrator.NewClient(cfg, nil)}
 	if !gen.Enabled() {
-		return fmt.Errorf("ark review generator is not configured; require ARK_API_KEY/ARK_API_KEY_DEV and ARK_EP_REVIEW_REFINE")
+		return fmt.Errorf("review generator is not configured; require ARK_API_KEY/ARK_API_KEY_DEV and ARK_EP_REVIEW_REFINE")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -50,7 +48,7 @@ func run() error {
 	}
 
 	out := map[string]any{
-		"provider":      "ark",
+		"provider":      "orchestrator",
 		"generator":     result.Generator,
 		"model":         result.Model,
 		"tokens_in":     result.TokensIn,
