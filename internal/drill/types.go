@@ -44,6 +44,34 @@ type JudgeResponse struct {
 	State         string `json:"state"`
 	NextDueAt     string `json:"next_due_at"`
 	Recorded      bool   `json:"recorded"`
+	// RecordID names this attempt so an appeal can point at it (E2). Zero when
+	// the ledger write failed after the schedule had already moved.
+	RecordID int64 `json:"record_id,omitempty"`
+	// ASRText echoes what the judge actually read. The client shows it next to
+	// the verdict (E2: 判定前展示 ASR 识别文本) so a user who was misheard can
+	// see that for themselves instead of guessing.
+	ASRText string `json:"asr_text,omitempty"`
+}
+
+// AppealRequest is POST /drill/appeal: one tap of "我说的是对的".
+type AppealRequest struct {
+	RecordID int64 `json:"record_id"`
+}
+
+// AppealResponse reports what the appeal did to the block's schedule.
+type AppealResponse struct {
+	RecordID int64  `json:"record_id"`
+	BlockID  string `json:"block_id"`
+	// Restored is true when the pre-attempt schedule was put back.
+	Restored bool `json:"restored"`
+	// AlreadyAppealed is true when this attempt had been appealed before; the
+	// call then changes nothing and answers with the block's current state.
+	AlreadyAppealed bool   `json:"already_appealed"`
+	State           string `json:"state"`
+	SuccessStreak   int    `json:"success_streak"`
+	NextDueAt       string `json:"next_due_at"`
+	// Note explains a non-restoring outcome in one line for the client log.
+	Note string `json:"note,omitempty"`
 }
 
 // Record is one drill_records row.
@@ -57,7 +85,17 @@ type Record struct {
 	ResponseMS   int
 	ASRText      string
 	JudgeReason  string
-	CreatedAt    time.Time
+	// Prev* snapshots the block's schedule as it stood before this attempt, so
+	// an appeal can restore it without guessing (PRD §7.5: 状态不回退、
+	// next_due_at 保持原到期时间). Empty PrevState means the snapshot is
+	// missing — a row written before the appeal feature — and nothing is
+	// restored.
+	PrevState         string
+	PrevSuccessStreak int
+	PrevNextDueAt     time.Time
+	// AppealedAt is set once, on the first appeal of this attempt.
+	AppealedAt *time.Time
+	CreatedAt  time.Time
 }
 
 // JudgeResult is the parsed LLM JSON.

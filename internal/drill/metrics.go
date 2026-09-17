@@ -10,12 +10,17 @@ import (
 var (
 	parseErrors  atomic.Int64
 	judgeErrors  atomic.Int64
+	appeals      atomic.Int64
 	transitionMu sync.Mutex
 	transitions  = map[string]int64{}
 )
 
 func incParseError() { parseErrors.Add(1) }
 func incJudgeError() { judgeErrors.Add(1) }
+
+// incAppeal counts first appeals. Appeal rate is the ASR-quality signal behind
+// E2: a rising rate means the recogniser, not the user, is failing the drill.
+func incAppeal() { appeals.Add(1) }
 
 func incStateTransition(from, to string) {
 	key := from + "->" + to
@@ -33,6 +38,9 @@ func PrometheusMetrics() string {
 	b.WriteString("# HELP refine_timeout_total Drill/judge LLM timeouts or call failures.\n")
 	b.WriteString("# TYPE refine_timeout_total counter\n")
 	fmt.Fprintf(&b, "refine_timeout_total %d\n", judgeErrors.Load())
+	b.WriteString("# HELP drill_appeal_total E2 appeals filed (one per disputed attempt).\n")
+	b.WriteString("# TYPE drill_appeal_total counter\n")
+	fmt.Fprintf(&b, "drill_appeal_total %d\n", appeals.Load())
 	b.WriteString("# HELP drill_state_transition_total SM-2 state changes after a judge.\n")
 	b.WriteString("# TYPE drill_state_transition_total counter\n")
 	transitionMu.Lock()

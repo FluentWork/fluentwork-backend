@@ -2,6 +2,7 @@ package drill
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -117,9 +118,15 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		ResponseMS:   req.ResponseMS,
 		ASRText:      asr,
 		JudgeReason:  result.Reason,
-		CreatedAt:    now,
+		// E2 snapshot: the schedule as it stood before this attempt, so an
+		// appeal can restore it exactly instead of re-deriving it (PRD §7.5).
+		PrevState:         block.State,
+		PrevSuccessStreak: block.SuccessStreak,
+		PrevNextDueAt:     block.NextDueAt,
+		CreatedAt:         now,
 	}
-	if err := s.records.Insert(ctx, rec); err != nil {
+	recordID, err := s.records.Insert(ctx, rec)
+	if err != nil {
 		return JudgeResponse{}, err
 	}
 	return JudgeResponse{
@@ -129,7 +136,122 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		State:         saved.State,
 		NextDueAt:     saved.NextDueAt.UTC().Format(time.RFC3339Nano),
 		Recorded:      true,
+		RecordID:      recordID,
+		ASRText:       asr,
 	}, nil
+}
+
+// Appeal implements E2's 一键申诉 (PRD §7.5, V1.7 定案).
+//
+// Two things are kept apart on purpose:
+//
+//   - **The round's settlement stands.** The record keeps whatever the judge
+//     said, because a spoken appeal is not evidence — treating it as fact would
+//     turn the button into a self-comfort button.
+//   - **The block is not charged for a failure it may not have earned.** The
+//     schedule returns to its pre-attempt snapshot: the streak is not zeroed,
+//     the state does not fall back, and next_due_at goes back to its original
+//     time — "未做判定", waiting for the next normal review.
+//
+// The restore applies only to an attempt the judge failed, only where the
+// snapshot exists, and only while no newer attempt sits on that block; each of
+// those refusals answers with a note instead of silently doing nothing.
+func (s *Service) Appeal(ctx context.Context, userID string, req AppealRequest) (AppealResponse, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return AppealResponse{}, apierr.Unauthenticated("missing authenticated user")
+	}
+	if req.RecordID <= 0 {
+		return AppealResponse{}, apierr.InvalidArgument("record_id is required")
+	}
+	rec, err := s.records.GetRecord(ctx, userID, req.RecordID)
+	if err != nil {
+		if errors.Is(err, ErrRecordNotFound) {
+			return AppealResponse{}, apierr.NotFound("drill record not found")
+		}
+		return AppealResponse{}, err
+	}
+
+	resp := AppealResponse{RecordID: rec.ID, BlockID: rec.BlockID}
+	if rec.AppealedAt != nil {
+		// Repeat appeal: nothing changes, and the answer still tells the
+		// client where the block stands.
+		resp.AlreadyAppealed = true
+		resp.Note = "already appealed"
+		s.fillAppealBlockState(ctx, userID, &resp)
+		return resp, nil
+	}
+
+	now := s.now().UTC()
+	switch {
+	case rec.SemanticPass:
+		resp.Note = "attempt passed; nothing to restore"
+	case rec.PrevState == "":
+		resp.Note = "no schedule snapshot on this attempt"
+	default:
+		latest, err := s.records.IsLatestForBlock(ctx, userID, rec.BlockID, rec.ID)
+		if err != nil {
+			return AppealResponse{}, err
+		}
+		switch {
+		case !latest:
+			// A newer attempt already moved this block; rolling back to an
+			// older snapshot would erase it.
+			resp.Note = "a newer attempt exists on this block"
+		default:
+			saved, err := s.blocks.UpdateSchedule(ctx, userID, rec.BlockID,
+				rec.PrevState, rec.PrevSuccessStreak, rec.PrevNextDueAt, now)
+			if err != nil {
+				if errors.Is(err, corpus.ErrNotFound) {
+					return AppealResponse{}, apierr.NotFound("phrase block not found")
+				}
+				return AppealResponse{}, err
+			}
+			resp.Restored = true
+			resp.State = saved.State
+			resp.SuccessStreak = saved.SuccessStreak
+			resp.NextDueAt = saved.NextDueAt.UTC().Format(time.RFC3339Nano)
+		}
+	}
+
+	first, err := s.records.MarkAppealed(ctx, userID, rec.ID, now)
+	if err != nil {
+		if errors.Is(err, ErrRecordNotFound) {
+			return AppealResponse{}, apierr.NotFound("drill record not found")
+		}
+		return AppealResponse{}, err
+	}
+	if !first {
+		// A parallel appeal stamped it between our read and our write.
+		resp.AlreadyAppealed = true
+	}
+	if first {
+		incAppeal()
+	}
+	if resp.State == "" {
+		s.fillAppealBlockState(ctx, userID, &resp)
+	}
+	s.logger.Info("drill appeal recorded",
+		"block_id", rec.BlockID,
+		"record_id", rec.ID,
+		"user_id", userID,
+		"restored", resp.Restored,
+		"already_appealed", resp.AlreadyAppealed,
+		"note", resp.Note,
+	)
+	return resp, nil
+}
+
+// fillAppealBlockState reports where the block stands now, for the appeal
+// answers that changed nothing.
+func (s *Service) fillAppealBlockState(ctx context.Context, userID string, resp *AppealResponse) {
+	block, err := s.blocks.PeekBlock(ctx, resp.BlockID)
+	if err != nil || block.UserID != userID || block.DeletedAt != nil {
+		return
+	}
+	resp.State = block.State
+	resp.SuccessStreak = block.SuccessStreak
+	resp.NextDueAt = block.NextDueAt.UTC().Format(time.RFC3339Nano)
 }
 
 // WipeRecords hard-deletes drill_records for A4.

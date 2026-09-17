@@ -73,7 +73,7 @@ func newPrivacyFixture(t *testing.T) (*account.PrivacyService, *account.MemorySt
 		t.Fatalf("seed cost: %v", err)
 	}
 	recs := drill.NewMemoryRecordStore()
-	if err := recs.Insert(context.Background(), drill.Record{UserID: user.ID, BlockID: "block-1", ASRText: "hi", CreatedAt: now}); err != nil {
+	if _, err := recs.Insert(context.Background(), drill.Record{UserID: user.ID, BlockID: "block-1", ASRText: "hi", CreatedAt: now}); err != nil {
 		t.Fatalf("seed record: %v", err)
 	}
 	svc := account.NewPrivacyService(users, []account.DataWiper{

@@ -22,13 +22,14 @@ func NewHandler(svc *Service, accounts *account.Handler) *Handler {
 	return &Handler{svc: svc, accounts: accounts}
 }
 
-// RegisterRoutes mounts GET /drill/round and POST /drill/judge under /api/v1.
+// RegisterRoutes mounts the drill endpoints under /api/v1.
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	if h == nil || h.accounts == nil {
 		return
 	}
 	rg.GET("/drill/round", h.accounts.RequireAuth(), h.GetRound)
 	rg.POST("/drill/judge", h.accounts.RequireAuth(), h.PostJudge)
+	rg.POST("/drill/appeal", h.accounts.RequireAuth(), h.PostAppeal)
 }
 
 // GetRound handles GET /api/v1/drill/round.
@@ -58,6 +59,25 @@ func (h *Handler) PostJudge(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.Judge(c.Request.Context(), userID, req)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostAppeal handles POST /api/v1/drill/appeal — E2's 一键申诉.
+func (h *Handler) PostAppeal(c *gin.Context) {
+	userID, ok := actorID(c)
+	if !ok {
+		return
+	}
+	var req AppealRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.Appeal(c.Request.Context(), userID, req)
 	if err != nil {
 		httpjson.Error(c, err)
 		return
