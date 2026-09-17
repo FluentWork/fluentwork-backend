@@ -4,40 +4,75 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
-// Rescue audio should sound like help, not like the AI taking its turn. These
-// are the frozen product parameters (docs/78 §8.3): a slightly slower, slightly
-// quieter voice than the conversation itself uses. They are declared here, next
-// to the interface that will have to honour them, so the eventual synthesizer
-// has one place to read them from rather than re-deriving them from prose.
+// Rescue audio should sound like help, not like the AI taking its turn. These are
+// the frozen product parameters (docs/78 §8.3): a slightly slower, slightly
+// quieter voice than the conversation itself uses.
+//
+// They are stated here as the product's numbers, but neither is applied in this
+// package — and that split is deliberate (docs/92 §5):
+//
+//   - **Speed** is a synthesis parameter, so it lives in app-server's voice
+//     catalog as tts.VoiceRescueLadder, which the gateway asks for by name
+//     ("rescue_ladder"). Slowing PCM down after it is synthesized is not a thing
+//     a byte stream can do.
+//   - **Volume** is applied at playback. The ladder arrives as PCM with no gain
+//     applied, and the client is where a gain can be applied without resampling
+//     it into the conversation's stream.
+//
+// Kept as constants because the numbers are the product's decision and both
+// sides need to agree on them; the synthesizer that reads them is elsewhere.
 const (
 	RescueVoiceSpeed  = 0.9
 	RescueVoiceVolume = 0.85
 )
 
-// RescueSynthesizer turns rescue text into audio the client can play.
+// RescueAudio is a synthesized rung the gateway can put on the wire.
 //
-// # Why this is an interface with no implementation
+// It is bytes rather than a URL because of how the client plays audio: binary
+// frames are only played between an ai.tts.start and an ai.tts.end, and the
+// player's buffer is 16 kHz mono PCM16. A URL would mean inventing a fetch path,
+// a store to fetch from and a decoder for whatever format came out of it; the
+// bytes the vendor already returns are what the client already plays (docs/92).
+type RescueAudio struct {
+	PCM        []byte
+	SampleRate int
+	Codec      string
+	VoiceID    string
+}
+
+// DurationMS is how long the rung takes to speak, from the PCM itself.
+// 16 kHz mono s16le: two bytes per sample.
+func (a RescueAudio) DurationMS() int64 {
+	if a.SampleRate <= 0 {
+		return 0
+	}
+	return int64(len(a.PCM)) / 2 * 1000 / int64(a.SampleRate)
+}
+
+// RescueSynthesizer turns rescue text into audio.
 //
-// The audio path is not built. B17's TTS package (internal/content/tts) carries
-// its own "built, not turned on" warning, it lives in app-server rather than in
-// the gateway process, and its internal endpoint answers base64 chunks rather
-// than a URL the client could fetch — so there is no in-process way for the
-// gateway to synthesize anything today. Rather than have the orchestrator
-// fabricate a URL that iOS would then fail to fetch, it takes a synthesizer and
-// runs with nil until one exists, emitting a text-only ladder in the meantime.
-//
-// A nil synthesizer is therefore a supported configuration, not an error: the
-// user still gets the prompt, and the client decides whether to speak it itself.
+// A nil synthesizer is a supported configuration, not an error: the ladder goes
+// out as text and the client decides whether to speak it itself. The same holds
+// when synthesis fails — text is the payload that makes the feature work, audio
+// is how it lands.
 type RescueSynthesizer interface {
-	// Synthesize returns a URL the client can play and the audio's duration.
-	// Implementations must use RescueVoiceSpeed / RescueVoiceVolume.
-	Synthesize(ctx context.Context, text, turnID string) (audioURL string, durationMS int64, err error)
+	// Synthesize speaks one rung. Implementations must use the rescue voice
+	// (slower than the conversation — see tts.VoiceRescueLadder).
+	Synthesize(ctx context.Context, text, turnID string) (RescueAudio, error)
+}
+
+// RescueDelivery is one rung ready to send: the ladder frame plus, when it could
+// be synthesized, the audio that speaks it.
+type RescueDelivery struct {
+	Frame *voiceproto.RescueLadder
+	Audio *RescueAudio
 }
 
 // RescueOrchestrator coordinates rescue ladder generation and TTS synthesis.
@@ -72,21 +107,104 @@ func NewRescueOrchestrator(
 	}
 }
 
-// GenerateAndSynthesize generates rescue text and, when a synthesizer is
-// wired, synthesizes it. Returns a RescueLadder frame ready to send.
+// RescueAudioFrameBytes is how much PCM one binary frame carries: 100 ms of
+// 16 kHz mono s16le, the same size the provider uses for the AI's own speech.
 //
-// Both halves degrade rather than fail. Text generation falls back to a fixed
-// library (docs/78 §8.1); synthesis failure leaves AudioURL empty. In neither
-// case does the ladder go unsent — a prompt the user can read beats no prompt,
-// and the text is the payload that makes the feature work.
+// Matching the provider's chunking is not cosmetic. The client drops whole
+// frames at and below the barge-in watermark, so one frame per rung (a 3s rung
+// is 96 KB) would leave nothing to drop — the user would interrupt the ladder
+// and keep hearing it.
+const RescueAudioFrameBytes = 3200
+
+// RescueAudioOutbound turns a synthesized rung into the frames that speak it:
+// an ai.tts.start, one binary frame per 100 ms, and an ai.tts.end.
+//
+// nextSeq is the caller's audio sequence allocator. The rung must be numbered
+// from the same counter the provider draws on, because the client's gate compares
+// every frame against a watermark that lives for the whole WebSocket session:
+// numbering the ladder from zero would put it below a watermark the user's last
+// barge-in set, and every frame would be dropped in silence.
+func RescueAudioOutbound(
+	audio RescueAudio,
+	turnID string,
+	nextSeq func() uint32,
+) []ProviderOutbound {
+	if len(audio.PCM) == 0 || nextSeq == nil {
+		return nil
+	}
+	sampleRate := audio.SampleRate
+	if sampleRate <= 0 {
+		sampleRate = 16000
+	}
+	codec := strings.TrimSpace(audio.Codec)
+	if codec == "" {
+		codec = "pcm"
+	}
+	out := make([]ProviderOutbound, 0, len(audio.PCM)/RescueAudioFrameBytes+2)
+	out = append(out, ProviderOutbound{Control: voiceproto.AITTSStart{
+		Type:       voiceproto.TypeAITTSStart,
+		TurnID:     turnID,
+		VoiceID:    audio.VoiceID,
+		SampleRate: sampleRate,
+		Codec:      codec,
+	}})
+	for offset := 0; offset < len(audio.PCM); offset += RescueAudioFrameBytes {
+		end := offset + RescueAudioFrameBytes
+		if end > len(audio.PCM) {
+			end = len(audio.PCM)
+		}
+		frame, err := (voiceproto.AITTSAudio{
+			Seq:     nextSeq(),
+			Payload: audio.PCM[offset:end],
+		}).Encode()
+		if err != nil {
+			// Payload is non-empty by construction, so this cannot fire; stop
+			// rather than emit a truncated stream the client would wait on.
+			break
+		}
+		out = append(out, ProviderOutbound{Binary: frame})
+	}
+	durationMS := int(audio.DurationMS())
+	out = append(out, ProviderOutbound{Control: voiceproto.AITTSEnd{
+		Type:             voiceproto.TypeAITTSEnd,
+		TurnID:           turnID,
+		CompletionStatus: "ok",
+		DurationMs:       &durationMS,
+	}})
+	return out
+}
+
+// RescueAudioInterrupted is the frame that stops a rung already being spoken.
+//
+// Without it the client keeps playing: its stream stays active until an
+// ai.tts.end arrives, and the ladder's whole purpose is to get the user talking,
+// so the moment they do is exactly when it should stop.
+func RescueAudioInterrupted(turnID string) ProviderOutbound {
+	return ProviderOutbound{Control: voiceproto.AITTSEnd{
+		Type:             voiceproto.TypeAITTSEnd,
+		TurnID:           turnID,
+		CompletionStatus: "interrupted",
+	}}
+}
+
+// GenerateAndSynthesize generates rescue text and, when a synthesizer is wired,
+// speaks it. Both halves degrade rather than fail: text generation falls back to
+// a fixed library (docs/78 §8.1), and a failed synthesis returns the frame with
+// no audio. In neither case does the ladder go unsent — a prompt the user can
+// read beats no prompt, and the text is the payload that makes the feature work.
+//
+// Audio never delays text. The caller sends the frame first and the audio after
+// (see handler_rescue.emitRescue): waiting for a model to speak before showing
+// the learner what to say would spend the rung's whole budget on the half that
+// is optional.
 func (o *RescueOrchestrator) GenerateAndSynthesize(
 	ctx context.Context,
 	level int,
 	turnID string,
 	convCtx conversation.ConversationContext,
-) (*voiceproto.RescueLadder, error) {
+) (RescueDelivery, error) {
 	if !voiceproto.ValidRescueLevel(level) {
-		return nil, fmt.Errorf("invalid rescue level: %d", level)
+		return RescueDelivery{}, fmt.Errorf("invalid rescue level: %d", level)
 	}
 
 	text, err := o.generateText(ctx, level, convCtx)
@@ -106,6 +224,7 @@ func (o *RescueOrchestrator) GenerateAndSynthesize(
 		Text:   text,
 		TS:     time.Now().UnixMilli(),
 	}
+	delivery := RescueDelivery{Frame: frame}
 
 	if o.synth == nil {
 		o.logger.Warn("B8 rescue audio unavailable; emitting text-only ladder",
@@ -113,10 +232,10 @@ func (o *RescueOrchestrator) GenerateAndSynthesize(
 			"turn_id", turnID,
 			"stage", "b8_rescue",
 		)
-		return frame, nil
+		return delivery, nil
 	}
 
-	audioURL, durationMS, err := o.synth.Synthesize(ctx, text, turnID)
+	audio, err := o.synth.Synthesize(ctx, text, turnID)
 	if err != nil {
 		o.logger.Warn("B8 rescue TTS synthesis failed; emitting text-only ladder",
 			"level", level,
@@ -124,12 +243,20 @@ func (o *RescueOrchestrator) GenerateAndSynthesize(
 			"err", err,
 			"stage", "b8_rescue",
 		)
-		return frame, nil
+		return delivery, nil
 	}
-
-	frame.AudioURL = audioURL
-	frame.DurationMS = durationMS
-	return frame, nil
+	if len(audio.PCM) == 0 {
+		// A 200 with no bytes is a failure that looks like success; treat it as
+		// one rather than sending an ai.tts.start the client can never finish.
+		o.logger.Warn("B8 rescue TTS returned no audio; emitting text-only ladder",
+			"level", level,
+			"turn_id", turnID,
+			"stage", "b8_rescue",
+		)
+		return delivery, nil
+	}
+	delivery.Audio = &audio
+	return delivery, nil
 }
 
 func (o *RescueOrchestrator) generateText(

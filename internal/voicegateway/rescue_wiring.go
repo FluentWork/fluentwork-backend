@@ -23,7 +23,12 @@ func WireRescue(handler *Handler, cfg Config, logger *slog.Logger) bool {
 			// prompt home, one cost ledger. Any failure falls back to the
 			// reviewed static library inside the orchestrator.
 			NewHTTPRescueGenerator(cfg.AppServerInternalURL, cfg.InternalAPIToken, logger),
-			nil, // synthesizer: TTS is built but not turned on (B17/P2-4)
+			// …and speaks it, through the same app-server. The rung's audio is
+			// PCM the client already plays, delivered as an ai.tts.* stream
+			// (docs/92). "rescue_ladder" rather than a speaker id because the
+			// ladder is deliberately slower than the conversation, and pace is a
+			// synthesis parameter — app-server owns the voice catalog.
+			NewHTTPRescueSynthesizer(cfg.AppServerInternalURL, cfg.InternalAPIToken, "rescue_ladder", logger),
 			logger,
 		),
 	)

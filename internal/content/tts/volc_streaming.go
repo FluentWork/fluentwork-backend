@@ -21,9 +21,22 @@ import (
 const (
 	defaultVolcTTSEndpoint   = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 	defaultVolcTTSResourceID = "seed-tts-2.0"
-	defaultVolcTTSSpeaker    = "zh_female_vv_jupiter_bigtts"
-	defaultVolcTTSFormat     = "ogg_opus"
-	defaultVolcTTSSampleRate = 24000
+	// defaultVolcTTSSpeaker is a **2.0** speaker, and that is not a preference:
+	// the account's resource is seed-tts-2.0, which only accepts speakers of the
+	// 2.0 lineage (`*_uranus_bigtts`). The previous value was a 1.0 speaker
+	// (`*_jupiter_bigtts`) and every synthesis came back
+	// `55000000 resource ID is mismatched with speaker related resource` — a
+	// mismatch reported as if it were a missing entitlement, which is why this
+	// sat for a week looking like a vendor authorization problem (docs/92 §2).
+	defaultVolcTTSSpeaker = "zh_female_vv_uranus_bigtts"
+	// defaultVolcTTSFormat/SampleRate are what the voice gateway's client plays:
+	// 16 kHz mono s16le PCM. The client's RawPCM16FrameDecoder hands the payload
+	// straight to the audio engine, which builds every buffer as 16 kHz mono
+	// int16 — any other rate comes out at the wrong speed and pitch. Opus would
+	// halve the bytes, but the client's Opus decoder is a deliberate stub, so PCM
+	// is the format that needs no new code on either side (docs/92 §3).
+	defaultVolcTTSFormat     = "pcm"
+	defaultVolcTTSSampleRate = 16000
 	defaultVolcTTSUID        = "fluentwork"
 	volcTTSSuccessCode       = 20000000
 	volcTTSMaxAttempts       = 2
@@ -35,6 +48,28 @@ var (
 	// ErrHTTPStatus means the TTS endpoint returned a non-success HTTP status.
 	ErrHTTPStatus = errors.New("tts: unexpected http status")
 )
+
+// ErrSpeakerResourceMismatch means the configured speaker does not belong to the
+// resource generation the account is entitled to. It is caught here rather than
+// left to the vendor because the vendor reports it as code 55000000, which reads
+// like a missing entitlement and sends you to the console to argue about SKUs
+// when the fix is a different speaker name (docs/92 §2).
+var ErrSpeakerResourceMismatch = errors.New("tts: speaker does not belong to the configured resource")
+
+// speakerMatchesResource reports whether a speaker may be used with a resource id.
+//
+// The rule is the vendor's: the 2.0 resource serves 2.0 speakers, whose ids end
+// in `_uranus_bigtts`. Unknown resource ids are not judged — an account with a
+// different SKU knows its own pairing, and refusing to synthesize on a guess
+// would be worse than the vendor's own error.
+func speakerMatchesResource(resourceID, speaker string) bool {
+	resourceID = strings.TrimSpace(resourceID)
+	speaker = strings.TrimSpace(speaker)
+	if resourceID != "seed-tts-2.0" {
+		return true
+	}
+	return strings.HasSuffix(speaker, "_uranus_bigtts")
+}
 
 // VolcStreamingProvider calls Volc HTTP Chunked unidirectional TTS (no SDK).
 //
@@ -129,6 +164,12 @@ func (p *VolcStreamingProvider) Stream(ctx context.Context, text string, voice V
 	text, voice, err := NormalizeStreamInput(text, voice)
 	if err != nil {
 		return nil, err
+	}
+	// Refuse the pairing the vendor would refuse, with a message that names the
+	// actual fix. See ErrSpeakerResourceMismatch.
+	if !speakerMatchesResource(p.resourceID(), voice.VoiceID) {
+		return nil, fmt.Errorf("%w: speaker %q with resource %q",
+			ErrSpeakerResourceMismatch, voice.VoiceID, p.resourceID())
 	}
 
 	raw, err := json.Marshal(p.buildRequest(text, voice))

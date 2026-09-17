@@ -67,7 +67,7 @@ func TestProvider_Interface_Contract(t *testing.T) {
 		t.Fatalf("empty text err = %v, want ErrEmptyText", err)
 	}
 
-	ch, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: "zh_female_vv_jupiter_bigtts"})
+	ch, err := provider.Stream(context.Background(), "hello", VoiceConfig{VoiceID: VoiceIDAIFemalePro})
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}

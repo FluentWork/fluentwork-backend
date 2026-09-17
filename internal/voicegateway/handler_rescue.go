@@ -125,7 +125,7 @@ func (h *Handler) emitRescue(
 ) {
 	convCtx, turnID := rt.rescueSnapshot(session)
 
-	frame, err := rt.rescueOrchestrator.GenerateAndSynthesize(ctx, level, turnID, convCtx)
+	delivery, err := rt.rescueOrchestrator.GenerateAndSynthesize(ctx, level, turnID, convCtx)
 	if err != nil {
 		h.logWarn(rt, "rescue_generate_failed",
 			"B8 rescue ladder generation failed; no prompt sent",
@@ -135,8 +135,13 @@ func (h *Handler) emitRescue(
 		)
 		return
 	}
+	frame := delivery.Frame
 
-	if err := rt.sendJSON(ctx, conn, frame); err != nil {
+	// Text first, always. The learner is sitting in silence and the text is the
+	// payload; the audio is how it lands. Sending them in one batch keeps the
+	// rung's cost off the client's critical path either way, and guarantees that
+	// a slow synthesis cannot delay the prompt.
+	if err := rt.sendOutbound(ctx, conn, []ProviderOutbound{{Control: frame}}); err != nil {
 		h.logWarn(rt, "rescue_send_failed",
 			"B8 rescue ladder write failed",
 			"session_id", session.SessionID,
@@ -149,12 +154,79 @@ func (h *Handler) emitRescue(
 	// user could have been stuck on.
 	rt.rescueLog.noteLadder(frame.TurnID, frame.Level, frame.Text)
 
+	token := rt.beginRescueSpeech(frame.TurnID)
+	spoken := false
+	if delivery.Audio != nil {
+		spoken = h.sendRescueAudio(ctx, conn, rt, *delivery.Audio, frame.TurnID, token)
+	}
+
 	h.logger.Info("B8 rescue ladder emitted",
 		"session_id", session.SessionID,
 		"turn_id", frame.TurnID,
 		"level", frame.Level,
 		"text_length", len(frame.Text),
-		"has_audio", frame.AudioURL != "",
+		"spoken", spoken,
+		"stage", "b8_rescue",
+	)
+}
+
+// sendRescueAudio speaks one rung and reports whether it finished uninterrupted.
+//
+// The rung goes out **at the pace it is spoken**, not as fast as the socket
+// accepts it. Writing all ~25 frames the moment they are synthesised means the
+// audio is over before the learner could react to it: the frames sit in the
+// kernel buffer, the interrupt arrives afterwards, and the client plays the
+// whole rung anyway. The pacing is one frame per 100 ms of audio — exactly the
+// rate the provider streams the AI's own speech, and the rate the client's
+// playback gate was built around.
+func (h *Handler) sendRescueAudio(
+	ctx context.Context,
+	conn *websocket.Conn,
+	rt *sessionRuntime,
+	audio RescueAudio,
+	turnID string,
+	token uint64,
+) bool {
+	frames := RescueAudioOutbound(audio, turnID, rt.nextRescueAudioSeq)
+	if len(frames) == 0 {
+		return false
+	}
+	// The last frame is the ai.tts.end for the uninterrupted case: it is sent
+	// only if the rung survives to the end. Interruption sends its own end.
+	end := frames[len(frames)-1]
+	// The start frame is written immediately — it carries no audio, and the
+	// client will not accept binary frames until it has seen one.
+	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{frames[0]}); err != nil {
+		h.logRescueAudioFailure(turnID, err)
+		return false
+	}
+
+	pace := time.NewTicker(RescueAudioFrameBytes * time.Millisecond / 32) // 100 ms of 16 kHz s16le
+	defer pace.Stop()
+	for _, frame := range frames[1 : len(frames)-1] {
+		if !rt.rescueSpeechCurrent(token) {
+			return false
+		}
+		select {
+		case <-pace.C:
+		case <-ctx.Done():
+			return false
+		}
+		if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{frame}); err != nil {
+			h.logRescueAudioFailure(turnID, err)
+			return false
+		}
+	}
+	return rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{end}) == nil
+}
+
+// logRescueAudioFailure records a failed audio write. Not deduplicated: the text
+// ladder has already reached the learner, so this is one lost enhancement rather
+// than a cascade on the session's hot path.
+func (h *Handler) logRescueAudioFailure(turnID string, err error) {
+	h.logger.Warn("B8 rescue ladder audio write failed",
+		"turn_id", turnID,
+		"err", err,
 		"stage", "b8_rescue",
 	)
 }
@@ -265,7 +337,7 @@ func (rt *sessionRuntime) noteUserSpeechStart() {
 // counts as complete: guessing "incomplete" would leave a ladder armed against a
 // user who did answer, and a spurious skeleton prompt is a worse failure than a
 // missing one.
-func (rt *sessionRuntime) noteUserSpeechEnd(data []byte) {
+func (h *Handler) noteUserSpeechEnd(ctx context.Context, conn *websocket.Conn, rt *sessionRuntime, data []byte) {
 	if !rt.rescueEnabled() {
 		return
 	}
@@ -280,6 +352,12 @@ func (rt *sessionRuntime) noteUserSpeechEnd(data []byte) {
 		complete = !incompleteDetector.IsIncomplete(text)
 	}
 	rt.silenceDetector.OnUserSpeechEnd(rt.clock(), complete)
+	// The learner is speaking again, which is what the ladder was for. Stop any
+	// rung still being spoken so the client is not talked over.
+	rt.stopRescueSpeech(ctx, conn, func(key, msg string, args ...any) {
+		h.logWarn(rt, key, msg, args...)
+	})
+
 	if !complete {
 		// §5.2.2: the half-sentence is the incomplete path's anchor. Whether a
 		// ladder actually follows is the poller's decision, so this is held
@@ -389,4 +467,90 @@ func (rt *sessionRuntime) rescueSnapshot(session ConsumedTicket) (conversation.C
 	conv.UserID = session.UserID
 	conv.TurnID = turnID
 	return conv, turnID
+}
+
+// beginRescueSpeech marks a rung as the one currently being spoken and returns
+// the token that says whether it still is.
+//
+// The token exists because two goroutines touch one rung: the ladder goroutine
+// writes its frames, and the read loop stops it the moment the learner speaks.
+// A counter rather than a bool because the stop must also cancel a *pending*
+// start — a bool would let the next rung inherit the previous one's liveness.
+func (rt *sessionRuntime) beginRescueSpeech(turnID string) uint64 {
+	rt.rescueSpeechMu.Lock()
+	defer rt.rescueSpeechMu.Unlock()
+	rt.rescueSpeechGen++
+	rt.rescueSpeechTurn = turnID
+	return rt.rescueSpeechGen
+}
+
+// rescueSpeechCurrent reports whether token still owns the audio stream.
+func (rt *sessionRuntime) rescueSpeechCurrent(token uint64) bool {
+	rt.rescueSpeechMu.Lock()
+	defer rt.rescueSpeechMu.Unlock()
+	return rt.rescueSpeechGen == token
+}
+
+// stopRescueSpeech interrupts a rung that is still being spoken, if any.
+//
+// Called when the user starts talking. Sending the ai.tts.end is what actually
+// stops playback: the client keeps playing a stream until it is ended, and an
+// unterminated rung would talk over the answer the ladder just successfully
+// prompted. A no-op when nothing is being spoken, so the caller does not have to
+// know whether the ladder had audio.
+// The state is read and bumped under a mutex so the stop is one atomic step:
+// bumping the generation *before* the turn id is read is what guarantees the
+// ladder goroutine cannot allocate a sequence from a rung it no longer owns.
+func (rt *sessionRuntime) stopRescueSpeech(
+	ctx context.Context,
+	conn *websocket.Conn,
+	warn func(key, msg string, args ...any),
+) {
+	rt.rescueSpeechMu.Lock()
+	turnID := rt.rescueSpeechTurn
+	if turnID == "" {
+		rt.rescueSpeechMu.Unlock()
+		return
+	}
+	rt.rescueSpeechGen++ // cancels the token the ladder goroutine holds
+	rt.rescueSpeechTurn = ""
+	rt.rescueSpeechMu.Unlock()
+
+	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{RescueAudioInterrupted(turnID)}); err != nil && warn != nil {
+		// The learner has already started talking; a failed stop costs them a
+		// second of talking over the ladder, not the session.
+		warn("rescue_interrupt_failed",
+			"B8 rescue ladder interrupt failed",
+			"turn_id", turnID,
+			"err", err,
+		)
+	}
+}
+
+// nextRescueAudioSeq allocates the next binary audio sequence number for a rung.
+//
+// The numbering is shared with the provider on purpose. The client's gate drops
+// whole frames at and below the watermark its last barge-in set, and that
+// watermark lives for the entire WebSocket session — so a rung numbered from
+// zero would be dropped in silence after any interrupt. The allocator therefore
+// jumps to whatever the provider has reached (the provider's counter is only
+// readable with the write lock held, since it advances in the provider's own
+// goroutine) and counts up from there.
+//
+// A gap when the ladder catches up is harmless; the client only requires
+// monotonicity. Collisions are not: the provider's counter lives in the provider
+// goroutine, so an atomic max keeps the two from handing out the same number.
+func (rt *sessionRuntime) nextRescueAudioSeq() uint32 {
+	rt.writeMu.Lock()
+	if seq, ok := rt.provider.(SequencedVoiceProviderSession); ok && seq != nil {
+		for {
+			have := rt.nextRescueSeq.Load()
+			want := seq.NextAudioSequence() + 1
+			if have >= want || rt.nextRescueSeq.CompareAndSwap(have, want) {
+				break
+			}
+		}
+	}
+	rt.writeMu.Unlock()
+	return rt.nextRescueSeq.Add(1)
 }
