@@ -45,8 +45,8 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Log, error) {
 	if model == "" {
 		return Log{}, apierr.InvalidArgument("model is required")
 	}
-	if req.TokensIn < 0 || req.TokensOut < 0 || req.AudioSec < 0 || req.CostFen < 0 {
-		return Log{}, apierr.InvalidArgument("tokens/audio_sec/cost_fen must be non-negative")
+	if req.TokensIn < 0 || req.TokensOut < 0 || req.AudioSec < 0 || req.Chars < 0 || req.CostFen < 0 {
+		return Log{}, apierr.InvalidArgument("tokens/audio_sec/chars/cost_fen must be non-negative")
 	}
 
 	log := Log{
@@ -56,6 +56,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Log, error) {
 		TokensIn:  req.TokensIn,
 		TokensOut: req.TokensOut,
 		AudioSec:  req.AudioSec,
+		Chars:     req.Chars,
 		CostFen:   req.CostFen,
 		CreatedAt: s.now().UTC(),
 	}
@@ -74,6 +75,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Log, error) {
 		"tokens_in", log.TokensIn,
 		"tokens_out", log.TokensOut,
 		"audio_sec", log.AudioSec,
+		"chars", log.Chars,
 		"cost_fen", log.CostFen,
 	)
 	return log, nil

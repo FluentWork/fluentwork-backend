@@ -231,3 +231,38 @@ func TestHandler_DoesNotPanicWithRealConfig(t *testing.T) {
 		t.Fatal("NewHandler returned nil")
 	}
 }
+
+// P1-5 item 3: the roll-up route, including its honesty field.
+func TestSummarizeInternal_OverHTTP(t *testing.T) {
+	engine, svc := newTestServer(t)
+	// The window is half-open [since, until), so a row written at exactly the
+	// window's end falls outside it. Production rows are always written before
+	// the query, which is why this only shows up with a pinned test clock; seed
+	// an hour back to stay on the realistic side of the boundary.
+	seedCost(t, svc, svc.now().Add(-time.Hour), "", TaskTypeVoiceDuplex, "volc-duplex", 0, 0, 30, 0)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/ai-cost-logs/summary?group_by=task_type", nil)
+	req.Header.Set("X-Internal-Token", testInternalToken)
+	engine.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var summary SummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(summary.Rows) != 1 || summary.Rows[0].Key != TaskTypeVoiceDuplex || summary.Rows[0].AudioSec != 30 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if summary.CostFenIsNotMoney == "" {
+		t.Fatal("the fen column must carry its own caveat")
+	}
+
+	bad := httptest.NewRecorder()
+	badReq := httptest.NewRequest(http.MethodGet, "/internal/v1/ai-cost-logs/summary?group_by=planet", nil)
+	badReq.Header.Set("X-Internal-Token", testInternalToken)
+	engine.ServeHTTP(bad, badReq)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("bad group_by status=%d", bad.Code)
+	}
+}

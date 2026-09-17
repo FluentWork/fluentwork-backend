@@ -23,6 +23,8 @@ type Store interface {
 	// Implementations that cannot participate in external transactions (e.g. in-memory
 	// stores) return nil — callers must check the return value and handle accordingly.
 	RecordCostTx(ctx context.Context, tx any, log Log) error
+	// SummarizeCosts groups ledger rows over a window, one bucket per key.
+	SummarizeCosts(ctx context.Context, filter SummaryFilter) ([]SummaryRow, error)
 }
 
 // OpenStore returns a MySQL store when MYSQL_DSN is set, otherwise memory.

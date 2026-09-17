@@ -4,16 +4,19 @@ import "time"
 
 // Log is one immutable ai_cost_logs ledger row.
 type Log struct {
-	ID               string    `json:"id"`
-	UserID           *string   `json:"user_id,omitempty"`
-	UserIDAnonymized *string   `json:"-"`
-	TaskType         string    `json:"task_type"`
-	Model            string    `json:"model"`
-	TokensIn         int       `json:"tokens_in"`
-	TokensOut        int       `json:"tokens_out"`
-	AudioSec         int       `json:"audio_sec"`
-	CostFen          int       `json:"cost_fen"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               string  `json:"id"`
+	UserID           *string `json:"user_id,omitempty"`
+	UserIDAnonymized *string `json:"-"`
+	TaskType         string  `json:"task_type"`
+	Model            string  `json:"model"`
+	TokensIn         int     `json:"tokens_in"`
+	TokensOut        int     `json:"tokens_out"`
+	AudioSec         int     `json:"audio_sec"`
+	// Chars is the TTS billing unit (voice.tts). One unit per column: characters
+	// in tokens_in would be a number under a label that does not mean it.
+	Chars     int       `json:"chars"`
+	CostFen   int       `json:"cost_fen"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // RecordRequest is the validated input used by Service.Record.
@@ -24,5 +27,6 @@ type RecordRequest struct {
 	TokensIn  int
 	TokensOut int
 	AudioSec  int
+	Chars     int
 	CostFen   int
 }

@@ -125,6 +125,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_AtomicOnEnded(t *testing.T) {
 			costLog.TokensIn,
 			costLog.TokensOut,
 			costLog.AudioSec,
+			costLog.Chars, // P1-5: TTS 计费列，此处恒为 0（review 走 token）
 			costLog.CostFen,
 			costLog.CreatedAt,
 		).
@@ -178,6 +179,7 @@ func TestMySQLStore_MarkSessionReviewedWithCost_RollsBackOnCostInsertFailure(t *
 			costLog.TokensIn,
 			costLog.TokensOut,
 			costLog.AudioSec,
+			costLog.Chars, // P1-5: TTS 计费列，此处恒为 0（review 走 token）
 			costLog.CostFen,
 			costLog.CreatedAt,
 		).

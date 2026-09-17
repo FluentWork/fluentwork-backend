@@ -31,6 +31,57 @@ func (s *MemoryStore) CreateLog(_ context.Context, log Log) error {
 	return nil
 }
 
+// SummarizeCosts implements Store.
+func (s *MemoryStore) SummarizeCosts(_ context.Context, filter SummaryFilter) ([]SummaryRow, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	buckets := map[string]*SummaryRow{}
+	order := make([]string, 0, 8)
+	for _, log := range s.logs {
+		if filter.UserID != "" {
+			if log.UserID == nil || *log.UserID != filter.UserID {
+				continue
+			}
+		}
+		at := log.CreatedAt.UTC()
+		if at.Before(filter.Since) || !at.Before(filter.Until) {
+			continue
+		}
+		key := summaryKey(log, filter.GroupBy)
+		row, ok := buckets[key]
+		if !ok {
+			row = &SummaryRow{Key: key}
+			buckets[key] = row
+			order = append(order, key)
+		}
+		row.Rows++
+		row.TokensIn += log.TokensIn
+		row.TokensOut += log.TokensOut
+		row.AudioSec += log.AudioSec
+		row.Chars += log.Chars
+		row.CostFen += log.CostFen
+	}
+	slices.Sort(order)
+	out := make([]SummaryRow, 0, len(order))
+	for _, key := range order {
+		out = append(out, *buckets[key])
+	}
+	return out, nil
+}
+
+// summaryKey buckets one row. Day keys are UTC dates, the same calendar the
+// scheduler and the drill windows use.
+func summaryKey(log Log, groupBy string) string {
+	switch groupBy {
+	case GroupByModel:
+		return log.Model
+	case GroupByDay:
+		return log.CreatedAt.UTC().Format("2006-01-02")
+	default:
+		return log.TaskType
+	}
+}
+
 // ListRecent implements Store.
 func (s *MemoryStore) ListRecent(_ context.Context, userID string, limit int) ([]Log, error) {
 	s.mu.RLock()

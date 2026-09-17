@@ -129,6 +129,8 @@ func run() error {
 	}, logger)
 	sessionSvc.SetEvalProcessor(reviewEval)
 	ttsHandler := tts.NewHandler(newTTSProvider(logger))
+	// P1-5: synthesis is unaccounted without this, and TTS bills by character.
+	ttsHandler.SetUsageRecorder(aicost.TTSRecorder{Svc: costSvc})
 
 	drillRecords, drillCloser, err := drill.OpenRecordStore(cfg, logger)
 	if err != nil {

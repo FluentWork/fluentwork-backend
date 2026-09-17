@@ -76,7 +76,10 @@ type evidence struct {
 	StatsBlocksUsed  int     `json:"stats_blocks_used"`
 	StatsGreenBlocks int     `json:"stats_green_blocks"`
 	StatsConversion  float64 `json:"stats_conversion_rate"`
-	ReviewReadyMS    int64   `json:"review_ready_ms"`
+	// P1-5: the roll-up is wired (0 rows: this smoke stubs both LLM calls).
+	CostSummaryRows      []any `json:"-"`
+	CostSummaryRowsCount int   `json:"cost_summary_rows"`
+	ReviewReadyMS        int64 `json:"review_ready_ms"`
 }
 
 func run() error {
@@ -324,13 +327,16 @@ func postJSON(client *http.Client, url, token string, payload any, headers ...he
 	return doJSON(client, req)
 }
 
-func getJSON(client *http.Client, url, token string) (map[string]any, error) {
+func getJSON(client *http.Client, url, token string, headers ...header) (map[string]any, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, h := range headers {
+		req.Header.Set(h[0], h[1])
 	}
 	return doJSON(client, req)
 }
@@ -642,6 +648,22 @@ func exercise(
 		return ev, fmt.Errorf("the hit from chain 2 must show up as a used block: %#v", stats)
 	}
 	step("practice stats count the used block")
+
+	// --- P1-5: the cost roll-up answers, and says what its fen column is ---
+	// No rows are expected here: this smoke stubs both LLM calls, so nothing has
+	// been billed. The check is that the route, the internal token and the
+	// honesty field are wired.
+	summary, err := getJSON(client, baseURL+"/internal/v1/ai-cost-logs/summary?group_by=task_type", "",
+		header{"X-Internal-Token", internalToken})
+	if err != nil {
+		return ev, fmt.Errorf("cost summary: %w", err)
+	}
+	if note := stringField(summary, "cost_fen_is_not_money"); note == "" {
+		return ev, fmt.Errorf("cost summary must carry its caveat: %#v", summary)
+	}
+	ev.CostSummaryRows, _ = summary["rows"].([]any)
+	ev.CostSummaryRowsCount = len(ev.CostSummaryRows)
+	step("cost roll-up answers with its caveat")
 
 	return ev, nil
 }

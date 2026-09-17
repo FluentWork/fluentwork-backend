@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -49,6 +50,52 @@ func NewHandler(svc *Service) *Handler {
 // internal tooling (smoke harness, ops scripts, future admin UI).
 func RegisterInternalRoutes(rg gin.IRouter, h *Handler, expectedToken string) {
 	rg.GET("/ai-cost-logs", requireInternalToken(expectedToken), h.ListRecentInternal)
+	rg.GET("/ai-cost-logs/summary", requireInternalToken(expectedToken), h.SummarizeInternal)
+}
+
+// SummarizeInternal handles GET /internal/v1/ai-cost-logs/summary.
+//
+// The roll-up behind 归因与熔断 (51_ §4.3): which task type, model or day is
+// spending the audio seconds and tokens. Query parameters: since, until (RFC3339,
+// default last 7 days), group_by (task_type | model | day), user_id.
+func (h *Handler) SummarizeInternal(c *gin.Context) {
+	since, err := parseTimeParam(c.Query("since"))
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	until, err := parseTimeParam(c.Query("until"))
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	summary, err := h.svc.Summary(c.Request.Context(), SummaryFilter{
+		UserID:  c.Query("user_id"),
+		Since:   since,
+		Until:   until,
+		GroupBy: c.Query("group_by"),
+	})
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, summary)
+}
+
+// parseTimeParam accepts RFC3339 or a date, and rejects anything else instead of
+// silently widening the window to "everything".
+func parseTimeParam(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return parsed.UTC(), nil
+	}
+	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+		return parsed.UTC(), nil
+	}
+	return time.Time{}, apierr.InvalidArgument("time must be RFC3339 or YYYY-MM-DD")
 }
 
 func requireInternalToken(expected string) gin.HandlerFunc {
