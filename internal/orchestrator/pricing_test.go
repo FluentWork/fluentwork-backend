@@ -60,11 +60,14 @@ func TestCalculateCost(t *testing.T) {
 			expectedCost: 1, // Too small to round to 0, returns 1
 		},
 		{
-			name:         "unknown model defaults to doubao-mini-32k",
+			// A model no rule recognises is recorded at 0 and counted, not
+			// priced as whatever family its name resembles: a plausible wrong
+			// number is worse than a visible gap.
+			name:         "unknown model is not priced",
 			model:        "unknown-model",
 			promptTokens: 1000,
 			outputTokens: 500,
-			expectedCost: 6, // 默认使用最经济的 mini 模型
+			expectedCost: 0,
 		},
 		{
 			name:         "doubao-pro-256k premium pricing",
@@ -122,9 +125,10 @@ func TestNormalizeModelName(t *testing.T) {
 		{"some-model-with-mini", "doubao-mini-32k"},
 		{"some-model-with-lite", "doubao-lite-32k"},
 
-		// Unknown models default to mini (most economical)
-		{"unknown", "doubao-mini-32k"},
-		{"", "doubao-mini-32k"},
+		// No family matches: the name is returned unchanged, and CalculateCost
+		// records it as unpriced rather than guessing.
+		{"unknown", "unknown"},
+		{"", ""},
 	}
 
 	for _, tt := range tests {

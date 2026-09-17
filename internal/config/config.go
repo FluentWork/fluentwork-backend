@@ -55,6 +55,10 @@ type Config struct {
 	ArkBaseURL         string
 	ArkAPIKey          string
 	ArkReviewRefineEP  string
+	// ArkPricingFile, when set, replaces the built-in model price table
+	// (doc 79). P2-2's "以账单为准" then lands as a data change; a file that does
+	// not parse fails startup instead of silently billing at the old rates.
+	ArkPricingFile string
 
 	// Drill scheduling ladder (PRD §5.3.2, E3). One ladder serves both the
 	// flash drill's judging and the B7 hit writeback: corpus.ScheduleFromConfig
@@ -99,6 +103,7 @@ func Load() Config {
 		ArkBaseURL:         envOr("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
 		ArkAPIKey:          firstNonEmpty(strings.TrimSpace(os.Getenv("ARK_API_KEY")), strings.TrimSpace(os.Getenv("ARK_API_KEY_DEV"))),
 		ArkReviewRefineEP:  strings.TrimSpace(os.Getenv("ARK_EP_REVIEW_REFINE")),
+		ArkPricingFile:     strings.TrimSpace(os.Getenv("ARK_PRICING_FILE")),
 
 		DrillPromoteStreak:           intOr("DRILL_PROMOTE_STREAK", defaultDrillPromoteStreak),
 		DrillTrainingInterval:        durationOr("DRILL_TRAINING_INTERVAL", defaultDrillTrainingInterval),

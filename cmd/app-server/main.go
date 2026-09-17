@@ -49,6 +49,14 @@ func run() error {
 	}
 
 	logger := logx.New("app-server")
+	// P2-2/79: rates are ops data. A file that does not parse fails startup —
+	// running on the defaults would bill at numbers nobody chose.
+	if cfg.ArkPricingFile != "" {
+		if err := orchestrator.LoadPricingFile(cfg.ArkPricingFile); err != nil {
+			return fmt.Errorf("pricing file: %w", err)
+		}
+		logger.Info("ark pricing table loaded from file", "path", cfg.ArkPricingFile)
+	}
 	slog.SetDefault(logger)
 	gin.SetMode(gin.ReleaseMode)
 

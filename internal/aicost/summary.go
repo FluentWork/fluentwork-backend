@@ -53,13 +53,17 @@ type SummaryResponse struct {
 	Since   string       `json:"since"`
 	Until   string       `json:"until"`
 	Rows    []SummaryRow `json:"rows"`
-	// CostFenIsNotMoney is deliberately loud. The fen column is 0 until vendor
-	// billing confirms the rates (P2-2); the usage columns are facts. A summary
-	// that reads as a bill would be the expensive kind of wrong.
+	// CostFenIsNotMoney is deliberately loud, because the fen column means two
+	// different things depending on the row: voice rows carry 0 (rates pending
+	// vendor billing, P2-2), while LLM rows carry an estimate computed from a
+	// price table nobody has reconciled against a bill yet. The usage columns
+	// are facts; neither fen is an invoice.
 	CostFenIsNotMoney string `json:"cost_fen_is_not_money"`
 }
 
-const costFenNote = "rates pending vendor billing (P2-2): usage columns are measured facts, cost_fen is not yet money"
+const costFenNote = "usage columns are measured facts; cost_fen is neither an invoice nor complete — " +
+	"voice rows are 0 pending vendor rates (P2-2), LLM rows are estimates from an unreconciled price table, " +
+	"and calls priced by model-name guesswork or left unpriced are counted in orchestrator metrics"
 
 // Summary aggregates the ledger over a window.
 func (s *Service) Summary(ctx context.Context, filter SummaryFilter) (SummaryResponse, error) {

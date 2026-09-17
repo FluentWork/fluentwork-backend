@@ -62,8 +62,12 @@ func TestSummary_GroupsByTaskTypeAndModelAndDay(t *testing.T) {
 	if byTask.Rows[2].Chars != 120 {
 		t.Fatalf("chars not summed: %+v", byTask.Rows[2])
 	}
-	if !strings.Contains(byTask.CostFenIsNotMoney, "not yet money") {
-		t.Fatalf("the fen column must say what it is: %q", byTask.CostFenIsNotMoney)
+	// The caveat has to distinguish the two meanings of the column: voice rows
+	// are 0, LLM rows are estimates from a table nobody has reconciled.
+	for _, want := range []string{"neither an invoice", "voice rows are 0", "estimates"} {
+		if !strings.Contains(byTask.CostFenIsNotMoney, want) {
+			t.Fatalf("the fen caveat must say %q: %q", want, byTask.CostFenIsNotMoney)
+		}
 	}
 
 	byDay, err := svc.Summary(context.Background(), SummaryFilter{GroupBy: GroupByDay})

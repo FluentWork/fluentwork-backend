@@ -173,6 +173,12 @@ test(provider): add B15 regression tests
 | `DRILL_DAILY_NEW_BLOCK_LIMIT` | 每日新块释放上限（UTC 日；`0` = 不限） | `0` |
 | `DRILL_OVERDUE_WINDOW` | 过期折叠窗口：超期更久的块折回"当前到期"，避免闪测债务（`0` = 关闭） | `72h` |
 
+### 成本核算（P2-2 / doc 79）
+
+| 变量 | 描述 | 默认值 |
+|------|------|--------|
+| `ARK_PRICING_FILE` | 模型费率表 JSON 文件；设置后**替换**内置表（格式见 `internal/orchestrator/pricing.go`）。文件解析失败则启动失败——静默沿用旧费率等于用没人选过的数字记账 | `""`（用内置表） |
+
 ### 话题建议（H1/H2）
 
 | 变量 | 描述 | 默认值 |
