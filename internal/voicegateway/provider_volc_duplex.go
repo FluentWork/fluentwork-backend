@@ -2,7 +2,6 @@ package voicegateway
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -163,11 +162,15 @@ type volcDuplexProviderSession struct {
 	// byte-identical to the batch form it replaced: that one converted each
 	// turn's audio independently.
 	audioResampler *pcmResampler
-	// audioPending holds resampled bytes that do not yet fill a client frame.
-	// Resampled output does not align to the frame size, so this is carried
-	// across chunks — a short frame per vendor chunk would hand the client
+	// framer cuts resampled audio into client frames and numbers them. It holds
+	// the partial tail across chunks — resampled output does not align to the
+	// frame size, and a short frame per vendor chunk would hand the client
 	// ragged frames for the whole turn.
-	audioPending []byte
+	//
+	// The same type frames the rescue ladder, which is the point: two framers
+	// used to be two implementations of one wire format, and they had already
+	// drifted (see docs/94_ F4/F5).
+	framer *audioFramer
 }
 
 // SetOutboundEmitter implements StreamingVoiceProviderSession. The gateway
@@ -259,7 +262,7 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
-	s.audioPending = nil
+	s.framer = nil
 	s.collectingTurn = false
 }
 
@@ -359,22 +362,18 @@ func (s *volcDuplexProviderSession) seq() *SeqAllocator {
 //
 // When flush is set, a trailing partial frame is emitted too. That has to
 // happen exactly once, at turn end: without it the last few milliseconds of the
-// assistant's speech would sit in audioPending forever — clipped, and then
+// assistant's speech would sit in the framer forever — clipped, and then
 // prepended to the *next* turn's audio.
 func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte {
 	if s.audioResampler == nil {
 		s.audioResampler = &pcmResampler{}
 	}
-	s.audioPending = append(s.audioPending, s.audioResampler.Write(pcm)...)
-
-	var frames [][]byte
-	for len(s.audioPending) >= audioFrameBytes {
-		frames = append(frames, encodeAudioFrame(s.seq().Next(), s.audioPending[:audioFrameBytes]))
-		s.audioPending = s.audioPending[audioFrameBytes:]
+	if s.framer == nil {
+		s.framer = newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
 	}
-	if flush && len(s.audioPending) > 0 {
-		frames = append(frames, encodeAudioFrame(s.seq().Next(), s.audioPending))
-		s.audioPending = nil
+	frames := s.framer.Write(s.audioResampler.Write(pcm))
+	if flush {
+		frames = append(frames, s.framer.Flush()...)
 	}
 	return frames
 }
@@ -820,7 +819,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	if interrupted {
 		// Barge-in: drop the unsent partial frame. Flushing it would put
 		// leftover TTS on the wire after the user had already started speaking.
-		s.audioPending = nil
+		if s.framer != nil {
+			s.framer.Reset()
+		}
 	}
 	s.mu.Unlock()
 
@@ -909,6 +910,30 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// decoder that really decodes lands.
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
+	//
+	// # Why this audio must NOT go through UtteranceWriter
+	//
+	// It looks like it should: the ladder's rung and this are the same frames on
+	// the same client, and one writer for both is what docs/97_ sketches. It
+	// cannot be done yet, and doing it would mute the assistant on device.
+	//
+	// iOS decides where a binary frame goes by whether it has seen an
+	// ai.tts.start (SpeechSessionMiddleware): with a stream open the frame goes
+	// to the TTS decoder, without one it goes to `audioEngine.play`. Production
+	// binds `MockTTSDecoder`, which records and discards — it does not drive the
+	// engine. So an ai.tts.start on the AI's own audio routes every frame into a
+	// decoder that throws it away: silence.
+	//
+	// That is not a guess. It is what happened on 2026-09-12, and iOS rolled it
+	// back with the note "wiring it in silenced the assistant on device the
+	// moment the gateway started sending ai.tts.start" (AppDependencies.swift).
+	// Their side is one line to restore; ours is this one. **The two must be
+	// re-landed together, with a device check between them** — the failure mode
+	// is silence, and no unit test on either side can see it. Their Opus decoder
+	// (ADR-0073) is the prerequisite.
+	//
+	// Until then: the framer is shared (that was the duplication worth removing),
+	// the stream control is not.
 	s.usage.addDownlink(len(turn.AudioPCM))
 	if !interrupted {
 		if streamedAudio {
@@ -919,16 +944,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
-			for offset := 0; offset < len(pcm); offset += audioFrameBytes {
-				end := offset + audioFrameBytes
-				if end > len(pcm) {
-					end = len(pcm)
-				}
-				// The allocator starts at 1 and belongs to the session, so this is
-				// correct whether or not Start() ran, and correct after a reopen.
-				outbound = append(outbound, ProviderOutbound{
-					Binary: encodeAudioFrame(s.seq().Next(), pcm[offset:end]),
-				})
+			framer := newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
+			for _, frame := range append(framer.Write(pcm), framer.Flush()...) {
+				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		}
 	}
@@ -997,24 +1015,16 @@ const duplexOutputRate = 24000
 // speed and pitch.
 const clientPlaybackRate = 16000
 
-// audioFrameBytes is ~100 ms of 16 kHz mono PCM16. The chunking is load-bearing:
-// the client's `AudioPlaybackGate` drops whole frames at and below the barge-in
-// watermark, so one frame per turn (a 10s reply is 320 KB) would leave nothing
-// to drop.
-const audioFrameBytes = 3200
-
-// encodeAudioFrame is the gateway→client binary layout: UInt32 big-endian
-// sequence followed by the payload, matching the client's WSAudioFrameCodec.
 // audioFrameHeaderBytes is the big-endian uint32 sequence number that precedes
-// every gateway→client binary audio frame.
+// every gateway→client binary audio frame, matching the client's
+// WSAudioFrameCodec.
+//
+// It is the only frame-layout number left here. The frame *size* used to be
+// declared here as `audioFrameBytes = 3200` — a second copy of a value the
+// rescue ladder also had, derived from a sample rate neither constant mentioned.
+// Both now come from AudioFormat.FrameBytes, and the frames themselves are built
+// by audioFramer, which is also what the ladder uses (docs/94_ F4/F5).
 const audioFrameHeaderBytes = 4
-
-func encodeAudioFrame(seq uint32, payload []byte) []byte {
-	frame := make([]byte, audioFrameHeaderBytes+len(payload))
-	binary.BigEndian.PutUint32(frame, seq)
-	copy(frame[audioFrameHeaderBytes:], payload)
-	return frame
-}
 
 // VoiceUsage implements VoiceUsageReporter. Read at session end, when the
 // gateway hands the session's totals to cost accounting.

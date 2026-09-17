@@ -154,18 +154,95 @@ type UtteranceWriter interface {
 // that decision here would put rescue policy inside the audio plumbing.
 type outboundSink func([]ProviderOutbound) error
 
-// streamWriter is the one implementation of UtteranceWriter.
+// audioFramer turns PCM into numbered wire frames, holding back the partial tail
+// until it is flushed.
+//
+// It owns the two decisions that were duplicated across the provider and the
+// rescue ladder — how big a frame is, and which number it carries — and nothing
+// else. In particular it does **not** write anything: the provider emits frames
+// through its own error-tracking path and the rescue writer through the
+// runtime's, so the framer returns frames and lets each caller send them.
+type audioFramer struct {
+	alloc   *SeqAllocator
+	format  AudioFormat
+	frameMS int
+	pending []byte
+}
+
+func newAudioFramer(alloc *SeqAllocator, format AudioFormat, frameMS int) *audioFramer {
+	if frameMS <= 0 {
+		frameMS = ClientFrameMS
+	}
+	return &audioFramer{alloc: alloc, format: format, frameMS: frameMS}
+}
+
+// Write buffers one chunk and returns every whole frame it completed.
+func (f *audioFramer) Write(pcm []byte) [][]byte {
+	f.pending = append(f.pending, pcm...)
+	frameBytes := f.format.FrameBytes(f.frameMS)
+	if frameBytes <= 0 {
+		return nil
+	}
+	var frames [][]byte
+	for len(f.pending) >= frameBytes {
+		frames = append(frames, f.encode(f.pending[:frameBytes]))
+		f.pending = f.pending[frameBytes:]
+	}
+	return frames
+}
+
+// Flush emits the partial tail, if any.
+//
+// It has to happen exactly once per stream, at the end: without it the last few
+// milliseconds of speech sit in pending forever — clipped, and then prepended to
+// whatever is sent next.
+func (f *audioFramer) Flush() [][]byte {
+	if len(f.pending) == 0 {
+		return nil
+	}
+	frame := f.encode(f.pending)
+	f.pending = nil
+	return [][]byte{frame}
+}
+
+// Reset drops any buffered tail. Used when a turn is abandoned: the abandoned
+// audio must not lead the next turn.
+func (f *audioFramer) Reset() { f.pending = nil }
+
+func (f *audioFramer) encode(payload []byte) []byte {
+	encoded, err := (voiceproto.AITTSAudio{Seq: f.alloc.Next(), Payload: payload}).Encode()
+	if err != nil {
+		// Unreachable: payload is never empty here. Returning nil would silently
+		// shorten the stream, so the branch is written out rather than ignored.
+		return nil
+	}
+	return encoded
+}
+
+// streamWriter is the only implementation of UtteranceWriter.
+//
+// It owns a stream: an ai.tts.start, the frames the framer produces, and exactly
+// one ai.tts.end.
+//
+// **The AI's own audio is deliberately not sent through it**, even though it is
+// the same wire format — see "Why this audio must NOT go through
+// UtteranceWriter" in provider_volc_duplex.go. The short version: opening an
+// ai.tts.start routes the client's frames into a decoder that production binds
+// as a no-op, and the assistant goes silent on device. That was the 2026-09-12
+// rollback.
+//
+// So the shared half is the framer below, and the unshared half is exactly the
+// part that would change the wire contract.
 type streamWriter struct {
 	send    outboundSink
-	audio   *SeqAllocator
+	framer  *audioFramer
 	format  AudioFormat
 	turnID  string
 	voiceID string
 	codec   string
-	// frameMS is how much audio one frame carries, and therefore how long each
-	// takes to speak. Injected so tests do not wait in real time for a
-	// three-second rung — the production value is ClientFrameMS.
-	frameMS int
+	// pace is how long one frame of audio takes to speak. Injected so tests do
+	// not wait in real time for a three-second rung.
+	pace time.Duration
 	// live reports whether this utterance still owns the client's audio stream.
 	// It is checked before every frame: the user talking is the normal way a
 	// ladder ends, and the frames it is still owed must not follow them into
@@ -199,21 +276,23 @@ func beginUtterance(
 	if strings.TrimSpace(u.ID) == "" {
 		return nil, fmt.Errorf("utterance: id is required")
 	}
+	format := u.formatOrClient()
+	frameMS := u.frameMSOrDefault()
 	w := &streamWriter{
 		send:    send,
-		audio:   audio,
-		format:  u.formatOrClient(),
+		framer:  newAudioFramer(audio, format, frameMS),
+		format:  format,
 		turnID:  u.ID,
 		voiceID: u.VoiceID,
 		codec:   u.codecOrPCM(),
-		frameMS: u.frameMSOrDefault(),
+		pace:    time.Duration(frameMS) * time.Millisecond,
 		live:    live,
 	}
 	if err := w.send([]ProviderOutbound{{Control: voiceproto.AITTSStart{
 		Type:       voiceproto.TypeAITTSStart,
 		TurnID:     w.turnID,
 		VoiceID:    w.voiceID,
-		SampleRate: w.format.SampleRate,
+		SampleRate: format.SampleRate,
 		Codec:      w.codec,
 	}}}); err != nil {
 		return nil, err
@@ -221,37 +300,29 @@ func beginUtterance(
 	return w, nil
 }
 
-// Audio cuts one chunk into frames and sends them at the pace they are spoken.
+// Audio sends one chunk of client-format PCM at the pace it is spoken.
 func (w *streamWriter) Audio(pcm []byte) error {
-	frameBytes := w.format.FrameBytes(w.frameMS)
-	if frameBytes <= 0 || len(pcm) == 0 {
+	if len(pcm) == 0 {
 		return nil
 	}
-	pace := time.Duration(w.frameMS) * time.Millisecond
-	for offset := 0; offset < len(pcm); offset += frameBytes {
+	frameBytes := w.format.FrameBytes(w.framer.frameMS)
+	if frameBytes <= 0 {
+		return nil
+	}
+	for _, frame := range w.framer.Write(pcm) {
 		if w.live != nil && !w.live() {
-			// Someone else ended this utterance. Its remaining frames are owed
-			// to nobody.
+			// Someone else ended this utterance. The frames it is still owed
+			// are owed to nobody.
 			return nil
 		}
-		end := offset + frameBytes
-		if end > len(pcm) {
-			end = len(pcm)
-		}
-		// Wait first, then send: the frame is due after the previous one has
-		// been spoken for its full duration, and nothing is due at t=0 because
-		// the start frame already went out.
-		if pace > 0 {
-			time.Sleep(pace)
-		}
-		frame, err := (voiceproto.AITTSAudio{Seq: w.audio.Next(), Payload: pcm[offset:end]}).Encode()
-		if err != nil {
-			return fmt.Errorf("utterance %s: encode frame: %w", w.turnID, err)
-		}
+		// Wait first, then send: a frame is due after the previous one has been
+		// spoken for its full duration, and nothing is due at t=0 because the
+		// start frame already went out.
+		time.Sleep(w.pace)
 		if err := w.send([]ProviderOutbound{{Binary: frame}}); err != nil {
 			return err
 		}
-		w.sentBytes += end - offset
+		w.sentBytes += len(frame) - audioFrameHeaderBytes
 	}
 	return nil
 }
@@ -267,9 +338,17 @@ func (w *streamWriter) finish(status string) error {
 		return nil
 	}
 	w.ended = true
+	// A partial tail is still owed to the client: the rung's last few
+	// milliseconds are as much a part of it as the rest.
+	for _, frame := range w.framer.Flush() {
+		if err := w.send([]ProviderOutbound{{Binary: frame}}); err != nil {
+			return err
+		}
+		w.sentBytes += len(frame) - audioFrameHeaderBytes
+	}
 	// Duration is what was actually sent, not what was synthesized: a stream
-	// that was interrupted after two frames lasted two frames, and the client
-	// uses this to close out its playback accounting.
+	// interrupted after two frames lasted two frames, and the client uses this
+	// to close out its playback accounting.
 	var durationMS int
 	if perMS := w.format.BytesPerMS(); perMS > 0 {
 		durationMS = w.sentBytes / perMS
