@@ -9,15 +9,31 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
+
+// BlockLookup resolves a card's 话术块清单 for display (PRD §7.8 H1). Optional:
+// without it the cards still list block ids.
+type BlockLookup interface {
+	ListBlocks(ctx context.Context, filter corpus.ListFilter) ([]corpus.PhraseBlock, error)
+}
 
 // Service lists today's cards and records checkins.
 type Service struct {
 	store  Store
 	gen    *Generator
+	blocks BlockLookup
 	logger *slog.Logger
 	now    func() time.Time
 	newID  func() string
+}
+
+// SetBlockLookup attaches the corpus reader used to resolve card block lists.
+func (s *Service) SetBlockLookup(lookup BlockLookup) {
+	if s == nil {
+		return
+	}
+	s.blocks = lookup
 }
 
 // NewService constructs B23 topic service.
@@ -57,7 +73,40 @@ func (s *Service) ListToday(ctx context.Context, userID string) (ListResponse, e
 	if items == nil {
 		items = []Card{}
 	}
-	return ListResponse{Items: items}, nil
+	return ListResponse{Items: s.viewCards(ctx, userID, items)}, nil
+}
+
+// viewCards attaches each card's block list, resolved from the learner's own
+// corpus. A lookup failure costs the detail, not the cards.
+func (s *Service) viewCards(ctx context.Context, userID string, cards []Card) []CardView {
+	views := make([]CardView, 0, len(cards))
+	if s.blocks == nil {
+		for _, card := range cards {
+			views = append(views, CardView{Card: card})
+		}
+		return views
+	}
+	byID := map[string]CardBlockRef{}
+	blocks, err := s.blocks.ListBlocks(ctx, corpus.ListFilter{UserID: userID, Limit: 200})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("topic card block lookup failed", "user_id", userID, "err", err)
+		}
+	} else {
+		for _, block := range blocks {
+			byID[block.ID] = CardBlockRef{ID: block.ID, ExpressionEN: block.ExpressionEN, IntentZH: block.IntentZH}
+		}
+	}
+	for _, card := range cards {
+		view := CardView{Card: card}
+		for _, id := range card.BlockIDs {
+			if ref, ok := byID[id]; ok {
+				view.Blocks = append(view.Blocks, ref)
+			}
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 // Checkin records a card completion.

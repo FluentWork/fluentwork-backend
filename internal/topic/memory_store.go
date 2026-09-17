@@ -192,6 +192,9 @@ func cloneCard(card Card) Card {
 	if card.SeedTags != nil {
 		out.SeedTags = append([]string(nil), card.SeedTags...)
 	}
+	if card.BlockIDs != nil {
+		out.BlockIDs = append([]string(nil), card.BlockIDs...)
+	}
 	return out
 }
 

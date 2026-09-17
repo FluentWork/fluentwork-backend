@@ -29,6 +29,33 @@ func threeCardJSON() string {
 	]}`
 }
 
+// httpSignals clears H1's threshold and offers blocks for the tags
+// threeCardJSON uses, so the HTTP contract can be exercised end to end.
+type httpSignals struct{}
+
+func (httpSignals) Snapshot(context.Context, string, time.Time) (topic.Signals, error) {
+	scenes := []string{"standup", "review", "1on1"}
+	blocks := make([]topic.BlockRef, 0, topic.DefaultMinBlocks)
+	counts := map[string]int{}
+	for i := 0; i < topic.DefaultMinBlocks; i++ {
+		scene := scenes[i%len(scenes)]
+		counts[scene]++
+		blocks = append(blocks, topic.BlockRef{
+			ID:           "block-" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
+			ExpressionEN: "expression " + string(rune('a'+i%26)),
+			IntentZH:     "意图",
+			SceneTag:     scene,
+			FunctionTag:  "report",
+		})
+	}
+	return topic.Signals{
+		Level:          "intermediate",
+		SceneCounts:    counts,
+		FunctionCounts: map[string]int{"report": topic.DefaultMinBlocks},
+		Blocks:         blocks,
+	}, nil
+}
+
 func setupTopic(t *testing.T) (*httpserver.Server, *topic.Service, string) {
 	t.Helper()
 	accountStore := account.NewMemoryStore()
@@ -40,7 +67,7 @@ func setupTopic(t *testing.T) (*httpserver.Server, *topic.Service, string) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
-	gen := topic.NewGenerator(store, stubLLM{body: threeCardJSON()}, nil)
+	gen := topic.NewGenerator(store, stubLLM{body: threeCardJSON()}, httpSignals{})
 	svc := topic.NewService(store, gen, logger)
 	h := topic.NewHandler(svc, accountHandler)
 	server := httpserver.New(cfg, logger, accountHandler, nil, nil, nil, nil, nil, nil, nil, nil, h, accountStore.Ping)

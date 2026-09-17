@@ -18,7 +18,7 @@ func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
-const cardColumns = `id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, valid_until, checked_in_at, deleted_at, created_at, updated_at`
+const cardColumns = `id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, block_ids, source_note, valid_until, checked_in_at, deleted_at, created_at, updated_at`
 
 // Ping verifies connectivity.
 func (s *MySQLStore) Ping(ctx context.Context) error {
@@ -74,12 +74,19 @@ func (s *MySQLStore) InsertCards(ctx context.Context, cards []Card) error {
 		if card.SeedTags == nil {
 			tags = []byte("[]")
 		}
+		blockIDs, err := json.Marshal(card.BlockIDs)
+		if err != nil {
+			return err
+		}
+		if card.BlockIDs == nil {
+			blockIDs = []byte("[]")
+		}
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO topic_cards (
-				id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags,
+				id, user_id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, block_ids, source_note,
 				valid_until, checked_in_at, deleted_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, card.ID, card.UserID, utcDate(card.ForDate).Format("2006-01-02"), card.Title, card.PromptEN, card.PromptZH, card.CardType, tags,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, card.ID, card.UserID, utcDate(card.ForDate).Format("2006-01-02"), card.Title, card.PromptEN, card.PromptZH, card.CardType, tags, blockIDs, card.SourceNote,
 			card.ValidUntil.UTC(), nullTime(card.CheckedInAt), nullTime(card.DeletedAt), card.CreatedAt.UTC(), card.UpdatedAt.UTC())
 		if err != nil {
 			return err
@@ -238,7 +245,8 @@ func scanCard(row cardScanner) (Card, error) {
 	var checked sql.NullTime
 	var deleted sql.NullTime
 	var forDate time.Time
-	err := row.Scan(&card.ID, &card.UserID, &forDate, &card.Title, &card.PromptEN, &card.PromptZH, &card.CardType, &tags, &card.ValidUntil, &checked, &deleted, &card.CreatedAt, &card.UpdatedAt)
+	var blockIDs []byte
+	err := row.Scan(&card.ID, &card.UserID, &forDate, &card.Title, &card.PromptEN, &card.PromptZH, &card.CardType, &tags, &blockIDs, &card.SourceNote, &card.ValidUntil, &checked, &deleted, &card.CreatedAt, &card.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Card{}, ErrNotFound
 	}
@@ -251,6 +259,12 @@ func scanCard(row cardScanner) (Card, error) {
 	}
 	if card.SeedTags == nil {
 		card.SeedTags = []string{}
+	}
+	if len(blockIDs) > 0 {
+		_ = json.Unmarshal(blockIDs, &card.BlockIDs)
+	}
+	if card.BlockIDs == nil {
+		card.BlockIDs = []string{}
 	}
 	if checked.Valid {
 		t := checked.Time.UTC()

@@ -172,6 +172,12 @@ test(provider): add B15 regression tests
 | `DRILL_ROUND_SIZE` | 单轮题量（客户端显式传 `size` 时以请求为准） | `10` |
 | `DRILL_DAILY_NEW_BLOCK_LIMIT` | 每日新块释放上限（UTC 日；`0` = 不限） | `0` |
 
+### 话题建议（H1/H2）
+
+| 变量 | 描述 | 默认值 |
+|------|------|--------|
+| `TOPIC_MIN_BLOCKS` | 话题卡生成的语料库阈值（低于此值不生成，避免泛话题） | `20` |
+
 ## 问题排查
 
 ### 测试失败

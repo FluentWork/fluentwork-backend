@@ -26,11 +26,29 @@ type Generator struct {
 	sig   SignalSource
 	now   func() time.Time
 	newID func() string
+	// minBlocks is H1's threshold (PRD §7.8): below it there is nothing to
+	// ground a topic on, so the user gets no cards rather than generic ones.
+	minBlocks int
 }
 
 // NewGenerator constructs the daily card writer.
 func NewGenerator(store Store, llm Completer, sig SignalSource) *Generator {
-	return &Generator{store: store, llm: llm, sig: sig, now: time.Now, newID: uuid.NewString}
+	return &Generator{
+		store:     store,
+		llm:       llm,
+		sig:       sig,
+		now:       time.Now,
+		newID:     uuid.NewString,
+		minBlocks: DefaultMinBlocks,
+	}
+}
+
+// SetMinBlocks overrides the H1 threshold (服务端可配; 0 disables the gate).
+func (g *Generator) SetMinBlocks(n int) {
+	if g == nil || n < 0 {
+		return
+	}
+	g.minBlocks = n
 }
 
 // GenerateForUser inserts today's cards unless they already exist.
@@ -68,6 +86,13 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 			sig = got
 		}
 	}
+	// H1's gate: no corpus, no topics. Checked before the model call, so a user
+	// below the threshold costs nothing.
+	if len(sig.Blocks) < g.minBlocks {
+		incSkip(SkipBelowThreshold)
+		incGenerated(false)
+		return nil
+	}
 	var raw string
 	var lastErr error
 	for attempt := 1; attempt <= GenerateAttempts; attempt++ {
@@ -92,9 +117,9 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 	}
 	now := g.now().UTC()
 	validUntil := day.Add(24 * time.Hour)
-	cards := make([]Card, 0, CardsPerDay)
+	parsed := make([]Card, 0, CardsPerDay)
 	for _, item := range result.Cards {
-		if len(cards) == CardsPerDay {
+		if len(parsed) == CardsPerDay {
 			break
 		}
 		title := strings.TrimSpace(item.Title)
@@ -102,23 +127,41 @@ func (g *Generator) GenerateForUser(ctx context.Context, userID string, targetDa
 		if title == "" || en == "" {
 			continue
 		}
-		cards = append(cards, Card{
+		parsed = append(parsed, Card{
 			ID:         g.newID(),
 			UserID:     userID,
 			ForDate:    day,
 			Title:      title,
 			PromptEN:   en,
 			PromptZH:   strings.TrimSpace(item.PromptZH),
-			CardType:   normalizeCardType(item.CardType, len(cards)),
+			CardType:   normalizeCardType(item.CardType, len(parsed)),
 			SeedTags:   item.SeedTags,
 			ValidUntil: validUntil,
 			CreatedAt:  now,
 			UpdatedAt:  now,
 		})
 	}
-	if len(cards) != CardsPerDay {
+	if len(parsed) != CardsPerDay {
 		incParseError()
 		incSkip(SkipParseError)
+		incGenerated(false)
+		return nil
+	}
+	// H2: keep only what can be traced to this learner's own corpus. A card that
+	// fails is dropped rather than repaired — a generic topic is the failure
+	// mode the PRD names, and shipping two grounded cards beats three with one
+	// invented.
+	cards := make([]Card, 0, len(parsed))
+	for _, card := range parsed {
+		grounded, ok := groundCard(card, sig)
+		if !ok {
+			incUngrounded()
+			continue
+		}
+		cards = append(cards, grounded)
+	}
+	if len(cards) == 0 {
+		incSkip(SkipUngrounded)
 		incGenerated(false)
 		return nil
 	}

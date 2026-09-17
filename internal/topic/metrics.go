@@ -12,6 +12,7 @@ var (
 	generatedFail atomic.Int64
 	parseErrors   atomic.Int64
 	checkins      atomic.Int64
+	ungrounded    atomic.Int64
 	skipMu        sync.Mutex
 	skips         = map[string]int64{}
 )
@@ -26,6 +27,11 @@ func incGenerated(ok bool) {
 
 func incParseError() { parseErrors.Add(1) }
 func incCheckin()    { checkins.Add(1) }
+
+// incUngrounded counts cards dropped by H2's grounding check — the direct
+// measure of how often the model proposes a topic the learner's corpus cannot
+// serve (PRD §7.8: 禁止泛话题).
+func incUngrounded() { ungrounded.Add(1) }
 
 func incSkip(reason string) {
 	skipMu.Lock()
@@ -54,6 +60,9 @@ func PrometheusMetrics() string {
 		}
 	}
 	skipMu.Unlock()
+	b.WriteString("# HELP topic_card_ungrounded_total Cards dropped because no block of the learner's could serve them.\n")
+	b.WriteString("# TYPE topic_card_ungrounded_total counter\n")
+	fmt.Fprintf(&b, "topic_card_ungrounded_total %d\n", ungrounded.Load())
 	b.WriteString("# HELP topic_card_checkin_total Successful topic card checkins.\n")
 	b.WriteString("# TYPE topic_card_checkin_total counter\n")
 	fmt.Fprintf(&b, "topic_card_checkin_total %d\n", checkins.Load())

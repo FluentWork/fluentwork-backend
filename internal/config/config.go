@@ -35,6 +35,8 @@ const (
 	// defaultDrillDailyNewBlockLimit of 0 means "no cap": every 灰 block that is
 	// due may enter a round, which is the behaviour before E3 existed.
 	defaultDrillDailyNewBlockLimit = 0
+	// defaultTopicMinBlocks is the PRD §7.8 H1 threshold (话术块 ≥ 20).
+	defaultTopicMinBlocks = 20
 )
 
 // Config holds process settings for app-server.
@@ -66,6 +68,10 @@ type Config struct {
 	// DrillDailyNewBlockLimit caps how many 灰 blocks enter rounds per UTC day.
 	// 0 disables the cap (每日新块释放上限, E3).
 	DrillDailyNewBlockLimit int
+
+	// TopicMinBlocks is H1's 语料库阈值: below it a learner gets no topic cards,
+	// because there is nothing of their own to ground one on (PRD §7.8).
+	TopicMinBlocks int
 }
 
 // Load reads configuration from environment variables.
@@ -95,6 +101,8 @@ func Load() Config {
 		DrillFailInterval:            durationOr("DRILL_FAIL_INTERVAL", defaultDrillFailInterval),
 		DrillRoundSize:               intOr("DRILL_ROUND_SIZE", defaultDrillRoundSize),
 		DrillDailyNewBlockLimit:      intOr("DRILL_DAILY_NEW_BLOCK_LIMIT", defaultDrillDailyNewBlockLimit),
+
+		TopicMinBlocks: intOr("TOPIC_MIN_BLOCKS", defaultTopicMinBlocks),
 	}
 }
 
@@ -187,6 +195,8 @@ func (c Config) validateDrillSchedule() error {
 		return fmt.Errorf("DRILL_ROUND_SIZE must not be negative")
 	case c.DrillDailyNewBlockLimit < 0:
 		return fmt.Errorf("DRILL_DAILY_NEW_BLOCK_LIMIT must not be negative")
+	case c.TopicMinBlocks < 0:
+		return fmt.Errorf("TOPIC_MIN_BLOCKS must not be negative")
 	}
 	return nil
 }

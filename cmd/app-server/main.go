@@ -188,7 +188,9 @@ func run() error {
 	topicGen := topic.NewGenerator(topicStore, &topic.OrchestratorAdapter{
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}, topic.PracticeSignals{Blocks: corpusStore, Sessions: sessionStore})
+	topicGen.SetMinBlocks(cfg.TopicMinBlocks)
 	topicSvc := topic.NewService(topicStore, topicGen, logger)
+	topicSvc.SetBlockLookup(corpusStore)
 	topicHandler := topic.NewHandler(topicSvc, accountHandler)
 	topicSched := topic.NewScheduler(topicGen, sessionStore, logger)
 
