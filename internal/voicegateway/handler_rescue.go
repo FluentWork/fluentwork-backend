@@ -383,5 +383,10 @@ func (rt *sessionRuntime) rescueSnapshot(session ConsumedTicket) (conversation.C
 	if turnID == "" {
 		turnID = session.SessionID
 	}
+	// Attribution travels with the request: the ladder's model call is billed
+	// like every other one, and an unattributed row is a row nobody can act on.
+	conv.SessionID = session.SessionID
+	conv.UserID = session.UserID
+	conv.TurnID = turnID
 	return conv, turnID
 }
