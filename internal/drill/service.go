@@ -160,6 +160,12 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		return JudgeResponse{}, err
 	}
 	now := s.now().UTC()
+	// A judge that did not run says nothing about the learner: leave the
+	// schedule alone, record the attempt as unjudged, and let the client retry
+	// (86_ F1).
+	if !result.Judged {
+		return s.recordUnjudged(ctx, userID, block, result, asr, req, now)
+	}
 	updated := s.cfg.Normalize().Schedule.ApplyJudge(block, result.Pass, now)
 	saved, err := s.blocks.UpdateSchedule(ctx, userID, block.ID, updated.State, updated.SuccessStreak, updated.NextDueAt, now)
 	if err != nil {
@@ -174,6 +180,7 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		BlockID:      block.ID,
 		SessionID:    strings.TrimSpace(req.SessionID),
 		DrillType:    DrillTypeRecall,
+		Judged:       true,
 		SemanticPass: result.Pass,
 		ResponseMS:   req.ResponseMS,
 		ASRText:      asr,
@@ -191,6 +198,7 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 	}
 	return JudgeResponse{
 		Pass:          result.Pass,
+		Judged:        true,
 		JudgeReason:   result.Reason,
 		SuccessStreak: saved.SuccessStreak,
 		State:         saved.State,
@@ -199,6 +207,59 @@ func (s *Service) Judge(ctx context.Context, userID string, req JudgeRequest) (J
 		RecordID:      recordID,
 		ASRText:       asr,
 		Promoted:      saved.State == corpus.StateAutomated && block.State != corpus.StateAutomated,
+	}, nil
+}
+
+// recordUnjudged files an attempt the judge could not score.
+//
+// The attempt is kept — it happened, and it spends a daily new-block release —
+// but it carries no verdict, moves no schedule, and tells the client it can
+// simply be retried. The alternative, which this replaces, was to apply the
+// failure ladder: a learner who answered correctly saw their streak reset
+// because our call timed out.
+func (s *Service) recordUnjudged(
+	ctx context.Context,
+	userID string,
+	block corpus.PhraseBlock,
+	result JudgeResult,
+	asr string,
+	req JudgeRequest,
+	now time.Time,
+) (JudgeResponse, error) {
+	recordID, err := s.records.Insert(ctx, Record{
+		UserID:            userID,
+		BlockID:           block.ID,
+		SessionID:         strings.TrimSpace(req.SessionID),
+		DrillType:         DrillTypeRecall,
+		Judged:            false,
+		ResponseMS:        req.ResponseMS,
+		ASRText:           asr,
+		JudgeReason:       result.Reason,
+		CreatedAt:         now,
+		PrevState:         block.State,
+		PrevSuccessStreak: block.SuccessStreak,
+		PrevNextDueAt:     block.NextDueAt,
+	})
+	if err != nil {
+		return JudgeResponse{}, err
+	}
+	incUnjudged()
+	s.logger.Info("drill attempt not judged",
+		"block_id", block.ID,
+		"user_id", userID,
+		"reason", result.Reason,
+	)
+	return JudgeResponse{
+		Pass:          false,
+		Judged:        false,
+		Retryable:     true,
+		JudgeReason:   result.Reason,
+		State:         block.State,
+		SuccessStreak: block.SuccessStreak,
+		NextDueAt:     block.NextDueAt.UTC().Format(time.RFC3339Nano),
+		Recorded:      true,
+		RecordID:      recordID,
+		ASRText:       asr,
 	}, nil
 }
 
@@ -245,6 +306,9 @@ func (s *Service) Appeal(ctx context.Context, userID string, req AppealRequest) 
 
 	now := s.now().UTC()
 	switch {
+	case !rec.Judged:
+		// No verdict was ever applied, so there is nothing to put back.
+		resp.Note = "attempt was not judged; nothing to restore"
 	case rec.SemanticPass:
 		resp.Note = "attempt passed; nothing to restore"
 	case rec.PrevState == "":

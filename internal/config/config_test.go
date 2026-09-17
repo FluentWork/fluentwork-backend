@@ -237,3 +237,20 @@ func TestLoadDrillOverdueWindow(t *testing.T) {
 		t.Fatal("a negative window must not validate")
 	}
 }
+
+// 86_ F1: the judge budget is configuration, and its default comes from a
+// measurement, not from the design assumption it replaced.
+func TestLoadDrillJudgeTimeout(t *testing.T) {
+	t.Setenv("DRILL_JUDGE_TIMEOUT", "")
+	if got := Load().DrillJudgeTimeout; got != defaultDrillJudgeTimeout {
+		t.Fatalf("default = %s, want %s", got, defaultDrillJudgeTimeout)
+	}
+	t.Setenv("DRILL_JUDGE_TIMEOUT", "9s")
+	if got := Load().DrillJudgeTimeout; got != 9*time.Second {
+		t.Fatalf("override = %s", got)
+	}
+	t.Setenv("DRILL_JUDGE_TIMEOUT", "-1s")
+	if err := Load().validateDrillSchedule(); err == nil {
+		t.Fatal("a negative budget must not validate")
+	}
+}

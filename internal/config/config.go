@@ -37,6 +37,9 @@ const (
 	defaultDrillDailyNewBlockLimit = 0
 	// defaultDrillOverdueWindow is 83_ §2.1's "只保留最近 3 天".
 	defaultDrillOverdueWindow = 72 * time.Hour
+	// defaultDrillJudgeTimeout mirrors drill.JudgeTimeout; the drill package owns
+	// the reasoning, this keeps config free of that import cycle.
+	defaultDrillJudgeTimeout = 6 * time.Second
 	// defaultTopicMinBlocks is the PRD §7.8 H1 threshold (话术块 ≥ 20).
 	defaultTopicMinBlocks = 20
 )
@@ -75,6 +78,10 @@ type Config struct {
 	// 0 disables the cap (每日新块释放上限, E3).
 	DrillDailyNewBlockLimit int
 
+	// DrillJudgeTimeout bounds one flash-drill judgement. The 1.5s design budget
+	// timed out on every measured call (86_ F1); the default is the measured
+	// maximum with headroom.
+	DrillJudgeTimeout time.Duration
 	// DrillOverdueWindow is how far overdue a block may be before a round folds
 	// it back to "due now" (83_ §2.1 风险 2: 过期任务不累积). 0 disables the
 	// sweep.
@@ -114,6 +121,7 @@ func Load() Config {
 		DrillDailyNewBlockLimit:      intOr("DRILL_DAILY_NEW_BLOCK_LIMIT", defaultDrillDailyNewBlockLimit),
 
 		DrillOverdueWindow: durationOr("DRILL_OVERDUE_WINDOW", defaultDrillOverdueWindow),
+		DrillJudgeTimeout:  durationOr("DRILL_JUDGE_TIMEOUT", defaultDrillJudgeTimeout),
 
 		TopicMinBlocks: intOr("TOPIC_MIN_BLOCKS", defaultTopicMinBlocks),
 	}
@@ -212,6 +220,8 @@ func (c Config) validateDrillSchedule() error {
 		return fmt.Errorf("TOPIC_MIN_BLOCKS must not be negative")
 	case c.DrillOverdueWindow < 0:
 		return fmt.Errorf("DRILL_OVERDUE_WINDOW must not be negative")
+	case c.DrillJudgeTimeout < 0:
+		return fmt.Errorf("DRILL_JUDGE_TIMEOUT must not be negative")
 	}
 	return nil
 }

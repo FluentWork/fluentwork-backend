@@ -12,8 +12,14 @@ const (
 	DefaultRoundSize = 10
 	// MaxRoundSize caps size query param.
 	MaxRoundSize = 20
-	// JudgeTimeout is the D-3 budget for one semantic judge call.
-	JudgeTimeout = 1500 * time.Millisecond
+	// JudgeTimeout is the budget for one semantic judge call.
+	//
+	// It was 1.5s by design (D-3 assumed a realtime pause); measured against the
+	// deployed judge endpoint it timed out on 16/16 calls, with real latencies of
+	// 1.56s–4.8s (median 1.96s) — so the old budget guaranteed a timeout and the
+	// timeout was recorded as a failed answer (86_ F1). 6s covers the measured
+	// maximum with headroom; override per deployment with DRILL_JUDGE_TIMEOUT.
+	JudgeTimeout = 6 * time.Second
 	// DrillTypeRecall is E1 层级1召回闪测.
 	DrillTypeRecall = 1
 )
@@ -93,8 +99,14 @@ type JudgeRequest struct {
 
 // JudgeResponse is returned after semantic judge + SM-2 update.
 type JudgeResponse struct {
-	Pass          bool   `json:"pass"`
-	JudgeReason   string `json:"judge_reason"`
+	Pass        bool   `json:"pass"`
+	JudgeReason string `json:"judge_reason"`
+	// Judged is false when the judge could not run (timeout, parse failure,
+	// judge unavailable). The schedule is then untouched and Retryable is set:
+	// a judge that did not run is not evidence that the learner was wrong.
+	Judged bool `json:"judged"`
+	// Retryable tells the client this attempt can simply be sent again.
+	Retryable     bool   `json:"retryable,omitempty"`
 	SuccessStreak int    `json:"success_streak"`
 	State         string `json:"state"`
 	NextDueAt     string `json:"next_due_at"`
@@ -141,9 +153,11 @@ type Record struct {
 	SessionID    string
 	DrillType    int
 	SemanticPass bool
-	ResponseMS   int
-	ASRText      string
-	JudgeReason  string
+	// Judged is false for attempts the judge could not score (migration 0023).
+	Judged      bool
+	ResponseMS  int
+	ASRText     string
+	JudgeReason string
 	// Prev* snapshots the block's schedule as it stood before this attempt, so
 	// an appeal can restore it without guessing (PRD §7.5: 状态不回退、
 	// next_due_at 保持原到期时间). Empty PrevState means the snapshot is
@@ -161,4 +175,10 @@ type Record struct {
 type JudgeResult struct {
 	Pass   bool   `json:"pass"`
 	Reason string `json:"judge_reason"`
+	// Judged is false when no verdict was obtained (the sentinel reasons above).
+	// Callers must not treat an unjudged result as a failure (86_ F1).
+	Judged bool `json:"-"`
+	// OmittedDetails flags answers that kept the point but dropped details —
+	// passed, yet a signal that the block may be too long to recall whole.
+	OmittedDetails bool `json:"omitted_details,omitempty"`
 }

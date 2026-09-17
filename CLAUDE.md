@@ -171,6 +171,7 @@ test(provider): add B15 regression tests
 | `DRILL_FAIL_INTERVAL` | 失败重排间隔 | `1h` |
 | `DRILL_ROUND_SIZE` | 单轮题量（客户端显式传 `size` 时以请求为准） | `10` |
 | `DRILL_DAILY_NEW_BLOCK_LIMIT` | 每日新块释放上限（UTC 日；`0` = 不限） | `0` |
+| `DRILL_JUDGE_TIMEOUT` | 闪测判定超时预算（实测中位 1.96s、最大 4.8s，故默认 6s） | `6s` |
 | `DRILL_OVERDUE_WINDOW` | 过期折叠窗口：超期更久的块折回"当前到期"，避免闪测债务（`0` = 关闭） | `72h` |
 
 ### 成本核算（P2-2 / doc 79）

@@ -24,16 +24,16 @@ func NewMySQLRecordStore(db *sql.DB) *MySQLRecordStore {
 	return &MySQLRecordStore{db: db}
 }
 
-const recordColumns = `id, user_id, block_id, session_id, drill_type, semantic_pass, response_ms, asr_text, judge_reason, prev_state, prev_success_streak, prev_next_due_at, appealed_at, created_at`
+const recordColumns = `id, user_id, block_id, session_id, drill_type, semantic_pass, judged, response_ms, asr_text, judge_reason, prev_state, prev_success_streak, prev_next_due_at, appealed_at, created_at`
 
 // Insert implements RecordStore.
 func (s *MySQLRecordStore) Insert(ctx context.Context, rec Record) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO drill_records (
-			user_id, block_id, session_id, drill_type, semantic_pass, response_ms, asr_text, judge_reason,
+			user_id, block_id, session_id, drill_type, semantic_pass, judged, response_ms, asr_text, judge_reason,
 			prev_state, prev_success_streak, prev_next_due_at, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, rec.UserID, rec.BlockID, nullSessionID(rec.SessionID), rec.DrillType, rec.SemanticPass, rec.ResponseMS,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, rec.UserID, rec.BlockID, nullSessionID(rec.SessionID), rec.DrillType, rec.SemanticPass, rec.Judged, rec.ResponseMS,
 		rec.ASRText, rec.JudgeReason, rec.PrevState, rec.PrevSuccessStreak,
 		nullTime(rec.PrevNextDueAt), rec.CreatedAt.UTC())
 	if err != nil {
@@ -130,7 +130,7 @@ func scanRecord(row recordScanner) (Record, error) {
 		appealed  sql.NullTime
 	)
 	if err := row.Scan(
-		&rec.ID, &rec.UserID, &rec.BlockID, &sessionID, &rec.DrillType, &rec.SemanticPass,
+		&rec.ID, &rec.UserID, &rec.BlockID, &sessionID, &rec.DrillType, &rec.SemanticPass, &rec.Judged,
 		&rec.ResponseMS, &rec.ASRText, &reason, &rec.PrevState, &rec.PrevSuccessStreak,
 		&dueAt, &appealed, &rec.CreatedAt,
 	); err != nil {

@@ -29,7 +29,7 @@ func TestMySQLRecordStore_InsertWritesSnapshot(t *testing.T) {
 	created := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(`INSERT INTO drill_records`).
-		WithArgs("user-1", "block-1", "session-1", 1, false, 1200, "said it wrong",
+		WithArgs("user-1", "block-1", "session-1", 1, false, true, 1200, "said it wrong",
 			"not equivalent", "training", 2, due, created).
 		WillReturnResult(sqlmock.NewResult(42, 1))
 
@@ -38,6 +38,7 @@ func TestMySQLRecordStore_InsertWritesSnapshot(t *testing.T) {
 		BlockID:           "block-1",
 		SessionID:         "session-1",
 		DrillType:         DrillTypeRecall,
+		Judged:            true,
 		ResponseMS:        1200,
 		ASRText:           "said it wrong",
 		JudgeReason:       "not equivalent",
@@ -74,10 +75,10 @@ func TestMySQLRecordStore_GetRecord(t *testing.T) {
 		mock.ExpectQuery(`SELECT .* FROM drill_records`).
 			WithArgs(int64(7), "user-1").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "user_id", "block_id", "session_id", "drill_type", "semantic_pass",
+				"id", "user_id", "block_id", "session_id", "drill_type", "semantic_pass", "judged",
 				"response_ms", "asr_text", "judge_reason", "prev_state", "prev_success_streak",
 				"prev_next_due_at", "appealed_at", "created_at",
-			}).AddRow(7, "user-1", "block-1", nil, 1, false, 900, "text", nil, "", 0, nil, nil, created))
+			}).AddRow(7, "user-1", "block-1", nil, 1, false, true, 900, "text", nil, "", 0, nil, nil, created))
 
 		rec, err := store.GetRecord(context.Background(), "user-1", 7)
 		if err != nil {
@@ -112,10 +113,10 @@ func TestMySQLRecordStore_MarkAppealed(t *testing.T) {
 		mock.ExpectQuery(`SELECT .* FROM drill_records`).
 			WithArgs(int64(7), "user-1").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "user_id", "block_id", "session_id", "drill_type", "semantic_pass",
+				"id", "user_id", "block_id", "session_id", "drill_type", "semantic_pass", "judged",
 				"response_ms", "asr_text", "judge_reason", "prev_state", "prev_success_streak",
 				"prev_next_due_at", "appealed_at", "created_at",
-			}).AddRow(7, "user-1", "block-1", nil, 1, false, 900, "text", nil, "training", 2, nil, at, at))
+			}).AddRow(7, "user-1", "block-1", nil, 1, false, true, 900, "text", nil, "training", 2, nil, at, at))
 
 		first, err := store.MarkAppealed(context.Background(), "user-1", 7, at)
 		if err != nil {

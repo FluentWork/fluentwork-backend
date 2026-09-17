@@ -149,9 +149,12 @@ func run() error {
 			logger.Error("closing drill record store", "err", closeErr)
 		}
 	}()
-	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{LLM: &drill.OrchestratorAdapter{
-		Client: orchestrator.NewClient(cfg, costWriter),
-	}}, logger)
+	drillSvc := drill.NewService(corpusStore, drillRecords, &drill.LLMJudge{
+		LLM: &drill.OrchestratorAdapter{
+			Client: orchestrator.NewClient(cfg, costWriter),
+		},
+		Timeout: cfg.DrillJudgeTimeout,
+	}, logger)
 	// E3: one ladder, two writers. corpus.OpenStore already configured the
 	// store's hit writeback from the same config, so the service gets the same
 	// struct rather than a second reading of the environment — a hit must never
@@ -171,6 +174,7 @@ func run() error {
 		"round_size", cfg.DrillRoundSize,
 		"daily_new_block_limit", cfg.DrillDailyNewBlockLimit,
 		"overdue_window", cfg.DrillOverdueWindow,
+		"judge_timeout", cfg.DrillJudgeTimeout,
 	)
 	drillHandler := drill.NewHandler(drillSvc, accountHandler)
 
