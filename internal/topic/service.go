@@ -12,6 +12,25 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
+// RealUseLedger credits and reads confirmed real-world uses (86_ M10).
+//
+// The topic module owns the question ("did you use these with a real person?")
+// and the corpus module owns the answer's bookkeeping; this is the seam between
+// them, narrow on purpose.
+type RealUseLedger interface {
+	RecordRealUse(ctx context.Context, userID string, blockIDs []string, source, refID string) (int, error)
+	CountRealUsesBySource(ctx context.Context, userID string, since time.Time) (map[string]int, error)
+}
+
+// SetRealUseLedger attaches the corpus-side ledger. Optional: without it a
+// checkin still records the streak, it just cannot credit uses.
+func (s *Service) SetRealUseLedger(ledger RealUseLedger) {
+	if s == nil {
+		return
+	}
+	s.realUses = ledger
+}
+
 // BlockLookup resolves a card's 话术块清单 for display (PRD §7.8 H1). Optional:
 // without it the cards still list block ids.
 type BlockLookup interface {
@@ -20,12 +39,13 @@ type BlockLookup interface {
 
 // Service lists today's cards and records checkins.
 type Service struct {
-	store  Store
-	gen    *Generator
-	blocks BlockLookup
-	logger *slog.Logger
-	now    func() time.Time
-	newID  func() string
+	store    Store
+	gen      *Generator
+	blocks   BlockLookup
+	realUses RealUseLedger
+	logger   *slog.Logger
+	now      func() time.Time
+	newID    func() string
 }
 
 // SetBlockLookup attaches the corpus reader used to resolve card block lists.
@@ -110,7 +130,8 @@ func (s *Service) viewCards(ctx context.Context, userID string, cards []Card) []
 }
 
 // Checkin records a card completion.
-func (s *Service) Checkin(ctx context.Context, userID, cardID, reflection string) (CheckinResult, error) {
+func (s *Service) Checkin(ctx context.Context, userID, cardID string, req CheckinRequest) (CheckinResult, error) {
+	reflection := req.Reflection
 	userID = strings.TrimSpace(userID)
 	cardID = strings.TrimSpace(cardID)
 	if userID == "" {
@@ -155,10 +176,40 @@ func (s *Service) Checkin(ctx context.Context, userID, cardID, reflection string
 	if err := s.store.InsertCheckin(ctx, row); err != nil {
 		return CheckinResult{}, err
 	}
+	result := CheckinResult{CheckinID: row.ID}
+
+	// Credit the phrases the learner says they used. Only ids this card actually
+	// offered can be credited: the card is the contract, so an id from elsewhere
+	// is reported back instead of quietly accepted.
+	if s.realUses != nil && len(req.UsedBlockIDs) > 0 {
+		offered := make(map[string]struct{}, len(card.BlockIDs))
+		for _, id := range card.BlockIDs {
+			offered[id] = struct{}{}
+		}
+		allowed := make([]string, 0, len(req.UsedBlockIDs))
+		for _, id := range req.UsedBlockIDs {
+			if _, ok := offered[id]; ok {
+				allowed = append(allowed, id)
+				continue
+			}
+			result.IgnoredBlockIDs = append(result.IgnoredBlockIDs, id)
+		}
+		if len(allowed) > 0 {
+			credited, err := s.realUses.RecordRealUse(ctx, userID, allowed, "checkin", row.ID)
+			if err != nil {
+				// The checkin is already recorded; losing the credit is a
+				// bookkeeping problem, not a reason to fail the learner.
+				s.logger.Warn("checkin real-use credit failed",
+					"user_id", userID, "card_id", cardID, "err", err)
+			}
+			result.RecordedUse = credited
+		}
+	}
 	st, err := UpdateOnCheckin(ctx, s.store, userID, now)
 	if err != nil {
 		return CheckinResult{}, err
 	}
 	incCheckin()
-	return CheckinResult{CheckinID: row.ID, StreakDays: st.CurrentStreak}, nil
+	result.StreakDays = st.CurrentStreak
+	return result, nil
 }

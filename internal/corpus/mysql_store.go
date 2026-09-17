@@ -405,6 +405,15 @@ func (s *MySQLStore) RecordHits(ctx context.Context, userID, sessionID, turnID s
 			return 0, err
 		}
 		updated := s.schedule.ApplyJudge(PhraseBlock{State: state, SuccessStreak: streak, NextDueAt: dueAt}, true, usedAt)
+		// Provenance in the same transaction: a use that is not in the ledger
+		// cannot be split into L1/L2 later (86_ M9).
+		if _, err := tx.ExecContext(ctx, `
+                        INSERT INTO phrase_block_real_uses (id, user_id, block_id, source, ref_id, used_at, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE id = id
+                `, hit.BlockID+"-"+turnID, userID, hit.BlockID, RealUseSourceHit, turnID, usedAt, usedAt); err != nil {
+			return 0, err
+		}
 		if _, err := tx.ExecContext(ctx, `
                         UPDATE phrase_blocks
                         SET total_uses = total_uses + 1,
@@ -437,6 +446,89 @@ func (s *MySQLStore) SweepOverdue(ctx context.Context, userID string, dueBefore,
 	}
 	n, err := result.RowsAffected()
 	return int(n), err
+}
+
+// RecordRealUses implements Store in one transaction: ledger, counters and
+// schedule move together or not at all.
+func (s *MySQLStore) RecordRealUses(ctx context.Context, userID string, blockIDs []string, source, refID string, at time.Time) (int, error) {
+	if len(blockIDs) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	usedAt := at.UTC()
+	credited := 0
+	for _, blockID := range blockIDs {
+		var state string
+		var streak int
+		var dueAt time.Time
+		err := tx.QueryRowContext(ctx, `
+			SELECT state, success_streak, next_due_at FROM phrase_blocks
+			WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+			FOR UPDATE
+		`, blockID, userID).Scan(&state, &streak, &dueAt)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return 0, err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO phrase_block_real_uses (id, user_id, block_id, source, ref_id, used_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE id = id
+		`, refID+"-"+blockID, userID, blockID, source, refID, usedAt, usedAt)
+		if err != nil {
+			return 0, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		if n != 1 {
+			continue // already credited for this ref
+		}
+		updated := s.schedule.Normalize().ApplyJudge(PhraseBlock{State: state, SuccessStreak: streak, NextDueAt: dueAt}, true, usedAt)
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE phrase_blocks
+			SET real_use_count = real_use_count + 1, total_uses = total_uses + 1,
+			    last_used_at = ?, state = ?, success_streak = ?, next_due_at = ?, updated_at = ?
+			WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+		`, usedAt, updated.State, updated.SuccessStreak, updated.NextDueAt, usedAt, blockID, userID); err != nil {
+			return 0, err
+		}
+		credited++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return credited, nil
+}
+
+// CountRealUsesBySource implements Store.
+func (s *MySQLStore) CountRealUsesBySource(ctx context.Context, userID string, since time.Time) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source, COUNT(*) FROM phrase_block_real_uses
+		WHERE user_id = ? AND used_at >= ?
+		GROUP BY source
+	`, userID, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int{}
+	for rows.Next() {
+		var source string
+		var count int
+		if err := rows.Scan(&source, &count); err != nil {
+			return nil, err
+		}
+		out[source] = count
+	}
+	return out, rows.Err()
 }
 
 // SaveFeedback implements Store.

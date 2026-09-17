@@ -99,11 +99,24 @@ type Streak struct {
 type CheckinResult struct {
 	CheckinID  string `json:"checkin_id"`
 	StreakDays int    `json:"streak_days"`
+	// RecordedUse is how many of the card's blocks were credited as used in a
+	// real conversation (86_ M10). Zero means the learner did not tick any, or
+	// did not have the ledger wired — never that the checkin failed.
+	RecordedUse int `json:"recorded_use"`
+	// IgnoredBlockIDs are ids the client sent that this card never offered.
+	// Reported rather than silently dropped: a client sending unknown ids has a
+	// bug worth seeing.
+	IgnoredBlockIDs []string `json:"ignored_block_ids,omitempty"`
 }
 
-// CheckinRequest is the optional reflection body.
+// CheckinRequest is the checkin body: an optional reflection, and which of the
+// card's phrases the learner actually used with a real person.
+//
+// The used-block list is the product's only first-hand evidence of practice
+// turning into speech (§14.3 维度五); everything else is a proxy.
 type CheckinRequest struct {
-	Reflection string `json:"reflection"`
+	Reflection   string   `json:"reflection"`
+	UsedBlockIDs []string `json:"used_block_ids"`
 }
 
 // ListResponse is GET /topic-cards. Items carry the resolved 话术块清单 so the

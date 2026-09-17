@@ -46,6 +46,12 @@ type PracticeStats struct {
 	ConversionRate float64 `json:"conversion_rate"`
 	// CheckinRate is Checkins/CardsServed, 0 when no cards were offered.
 	CheckinRate float64 `json:"checkin_rate"`
+	// RealUsesHit / RealUsesCheckin split the practice→reality evidence by how
+	// it was observed (86_ M9): the first is what the server detected, the second
+	// is what the learner reported. They are reported apart because a conversion
+	// rate that mixes observation with self-report cannot say which loop works.
+	RealUsesHit     int `json:"real_uses_hit"`
+	RealUsesCheckin int `json:"real_uses_checkin"`
 }
 
 // PracticeStats builds the window summary for one learner.
@@ -106,6 +112,18 @@ func (s *Service) PracticeStats(ctx context.Context, userID string, days int) (P
 		stats.ConversionRate = rate(stats.GreenUsed, stats.GreenBlocks)
 	}
 	stats.CheckinRate = rate(stats.Checkins, stats.CardsServed)
+
+	if s.realUses != nil {
+		bySource, err := s.realUses.CountRealUsesBySource(ctx, userID, since)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("real use ledger unavailable", "user_id", userID, "err", err)
+			}
+		} else {
+			stats.RealUsesHit = bySource["hit"]
+			stats.RealUsesCheckin = bySource["checkin"]
+		}
+	}
 	return stats, nil
 }
 

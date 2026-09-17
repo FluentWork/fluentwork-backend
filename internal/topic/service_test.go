@@ -174,20 +174,20 @@ func TestCheckin_FirstDuplicateCrossUserAndReflection(t *testing.T) {
 		t.Fatalf("list %v %+v", err, listed)
 	}
 	cardID := listed.Items[0].ID
-	ok, err := svc.Checkin(context.Background(), "u1", cardID, "felt good")
+	ok, err := svc.Checkin(context.Background(), "u1", cardID, CheckinRequest{Reflection: "felt good"})
 	if err != nil || ok.StreakDays != 1 || ok.CheckinID == "" {
 		t.Fatalf("first = %+v err=%v", ok, err)
 	}
-	_, err = svc.Checkin(context.Background(), "u1", cardID, "")
+	_, err = svc.Checkin(context.Background(), "u1", cardID, CheckinRequest{Reflection: ""})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.HTTPStatus != 409 {
 		t.Fatalf("dup = %v", err)
 	}
-	_, err = svc.Checkin(context.Background(), "other", cardID, "")
+	_, err = svc.Checkin(context.Background(), "other", cardID, CheckinRequest{Reflection: ""})
 	if !errors.As(err, &ae) || ae.HTTPStatus != 403 {
 		t.Fatalf("cross = %v", err)
 	}
-	_, err = svc.Checkin(context.Background(), "u1", listed.Items[1].ID, strings.Repeat("x", MaxReflectionLen+1))
+	_, err = svc.Checkin(context.Background(), "u1", listed.Items[1].ID, CheckinRequest{Reflection: strings.Repeat("x", MaxReflectionLen+1)})
 	if !errors.As(err, &ae) || ae.HTTPStatus != 400 {
 		t.Fatalf("long = %v", err)
 	}
@@ -206,7 +206,7 @@ func TestCheckin_SoftDeleteAndRestore(t *testing.T) {
 	if err != nil || len(empty.Items) != 0 {
 		t.Fatalf("hidden after wipe = %+v err=%v", empty, err)
 	}
-	_, err = svc.Checkin(context.Background(), "u1", listed.Items[0].ID, "")
+	_, err = svc.Checkin(context.Background(), "u1", listed.Items[0].ID, CheckinRequest{Reflection: ""})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.HTTPStatus != 404 {
 		t.Fatalf("deleted checkin = %v", err)

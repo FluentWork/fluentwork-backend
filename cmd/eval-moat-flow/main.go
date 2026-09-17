@@ -46,11 +46,13 @@ func main() {
 }
 
 type options struct {
-	dataset     string
-	outDir      string
-	limit       int
-	concurrency int
-	reuseRun    string
+	dataset       string
+	outDir        string
+	limit         int
+	concurrency   int
+	reuseRun      string
+	baseline      string
+	writeBaseline string
 }
 
 func run() error {
@@ -61,6 +63,10 @@ func run() error {
 	flag.IntVar(&opts.concurrency, "concurrency", 6, "parallel samples")
 	flag.StringVar(&opts.reuseRun, "reuse-run", "",
 		"reuse a previous run's samples/ directory and only re-run the topic stage")
+	flag.StringVar(&opts.baseline, "baseline", "",
+		"compare this run against a baseline (eval/moat/baseline.json)")
+	flag.StringVar(&opts.writeBaseline, "write-baseline", "",
+		"record this run as the baseline at the given path, then exit 0")
 	flag.Parse()
 
 	if strings.TrimSpace(os.Getenv("APP_ENV")) == "" {
@@ -142,9 +148,38 @@ func run() error {
 	elapsed := time.Since(started)
 
 	report := aggregate(runID, results, topics, elapsed, costSvc)
+
+	if opts.writeBaseline != "" {
+		if !report.Valid {
+			return fmt.Errorf("refusing to record an invalid run as the baseline: %s", report.InvalidReason)
+		}
+		if err := writeBaseline(opts.writeBaseline, report); err != nil {
+			return err
+		}
+		fmt.Printf("baseline written to %s\n", opts.writeBaseline)
+	}
 	if err := writeArtifacts(outDir, results, topics, report); err != nil {
 		return err
 	}
+	if opts.baseline != "" {
+		base, err := loadBaseline(opts.baseline)
+		if err != nil {
+			return err
+		}
+		regressions, table := compareToBaseline(base, report)
+		if err := os.WriteFile(filepath.Join(outDir, "baseline-diff.md"), []byte(table), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("\n=== 与基线对比（%s）===\n%s", opts.baseline, table)
+		if len(regressions) > 0 {
+			names := make([]string, 0, len(regressions))
+			for _, r := range regressions {
+				names = append(names, fmt.Sprintf("%s %.3f→%.3f", r.Name, r.Baseline, r.Current))
+			}
+			return fmt.Errorf("regressed against the baseline: %s", strings.Join(names, "; "))
+		}
+	}
+
 	printSummary(report, outDir)
 	if !report.Valid {
 		return fmt.Errorf("run is INVALID, not a quality result: %s (%s)", report.InvalidReason, strings.Join(report.FirstErrors, " | "))

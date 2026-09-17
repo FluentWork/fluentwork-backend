@@ -217,6 +217,9 @@ func run() error {
 	topicGen.SetMinBlocks(cfg.TopicMinBlocks)
 	topicSvc := topic.NewService(topicStore, topicGen, logger)
 	topicSvc.SetBlockLookup(corpusStore)
+	// A checkin is the learner confirming a real conversation (86_ M10); the
+	// corpus side owns the ledger that credit lands in.
+	topicSvc.SetRealUseLedger(corpusSvc)
 	topicHandler := topic.NewHandler(topicSvc, accountHandler)
 	topicSched := topic.NewScheduler(topicGen, sessionStore, logger)
 

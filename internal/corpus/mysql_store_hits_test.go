@@ -27,6 +27,9 @@ func TestMySQLStore_RecordHits_InsertThenDuplicate(t *testing.T) {
 		WithArgs("block-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
 			AddRow(StateNew, 0, usedAt))
+	mock.ExpectExec(`INSERT INTO phrase_block_real_uses`).
+		WithArgs("block-1-turn-1", "user-1", "block-1", RealUseSourceHit, "turn-1", usedAt, usedAt).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE phrase_blocks`).
 		WithArgs(usedAt, StateTraining, 1, usedAt.Add(24*time.Hour), usedAt, "block-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -80,6 +83,9 @@ func TestMySQLStore_RecordHits_AutomatedBlockReschedules30d(t *testing.T) {
 		WithArgs("block-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
 			AddRow(StateAutomated, 3, usedAt))
+	mock.ExpectExec(`INSERT INTO phrase_block_real_uses`).
+		WithArgs("block-1-turn-1", "user-1", "block-1", RealUseSourceHit, "turn-1", usedAt, usedAt).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE phrase_blocks`).
 		WithArgs(usedAt, StateAutomated, 3, usedAt.Add(30*24*time.Hour), usedAt, "block-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -150,5 +156,72 @@ func TestMySQLStore_ListSessionHits_JoinsAndOmitsDeleted(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+// RecordRealUses moves the ledger, the counters and the schedule in one
+// transaction — a credit that lands without its provenance row cannot be split
+// into L1/L2 later.
+func TestMySQLStore_RecordRealUses(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT state, success_streak, next_due_at FROM phrase_blocks`).
+		WithArgs("block-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
+			AddRow(StateTraining, 1, now))
+	mock.ExpectExec(`INSERT INTO phrase_block_real_uses`).
+		WithArgs("card-1-block-1", "user-1", "block-1", RealUseSourceCheckin, "card-1", now, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE phrase_blocks`).
+		WithArgs(now, StateTraining, 2, now.Add(24*time.Hour), now, "block-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	credited, err := store.RecordRealUses(context.Background(), "user-1", []string{"block-1"}, RealUseSourceCheckin, "card-1", now)
+	if err != nil {
+		t.Fatalf("RecordRealUses: %v", err)
+	}
+	if credited != 1 {
+		t.Fatalf("credited = %d", credited)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// A repeat for the same card credits nothing: the unique key refuses the row and
+// the transaction leaves the block alone.
+func TestMySQLStore_RecordRealUses_DuplicateIsNoOp(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewMySQLStore(db)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT state, success_streak, next_due_at FROM phrase_blocks`).
+		WithArgs("block-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"state", "success_streak", "next_due_at"}).
+			AddRow(StateTraining, 2, now))
+	mock.ExpectExec(`INSERT INTO phrase_block_real_uses`).
+		WithArgs("card-1-block-1", "user-1", "block-1", RealUseSourceCheckin, "card-1", now, now).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	credited, err := store.RecordRealUses(context.Background(), "user-1", []string{"block-1"}, RealUseSourceCheckin, "card-1", now)
+	if err != nil {
+		t.Fatalf("RecordRealUses: %v", err)
+	}
+	if credited != 0 {
+		t.Fatalf("credited = %d, want 0 on a repeat", credited)
 	}
 }

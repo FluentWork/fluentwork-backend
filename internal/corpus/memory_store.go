@@ -17,6 +17,7 @@ type MemoryStore struct {
 	blocks   map[string]PhraseBlock
 	uses     map[string]phraseBlockUse
 	feedback []Feedback
+	realUses []RealUse
 }
 
 // SetSchedule replaces the ladder used by the hit writeback (E3). A zero
@@ -386,6 +387,12 @@ func (s *MemoryStore) RecordHits(_ context.Context, userID, sessionID, turnID st
 		block.TotalUses++
 		block.LastUsedAt = &usedAt
 		s.blocks[hit.BlockID] = s.schedule.Normalize().ApplyJudge(block, true, usedAt)
+		// Provenance, so the L1/L2 split (86_ M9) survives: the counter alone
+		// cannot say whether a use was observed or reported.
+		s.realUses = append(s.realUses, RealUse{
+			ID: "hit-" + turnID + "-" + hit.BlockID, UserID: userID, BlockID: hit.BlockID,
+			Source: RealUseSourceHit, RefID: turnID, UsedAt: usedAt,
+		})
 	}
 	return recorded, nil
 }
@@ -468,6 +475,58 @@ func (s *MemoryStore) UpdateSchedule(_ context.Context, userID, blockID, state s
 	block.UpdatedAt = updatedAt.UTC()
 	s.blocks[blockID] = block
 	return cloneBlock(block), nil
+}
+
+// RecordRealUses implements Store.
+func (s *MemoryStore) RecordRealUses(_ context.Context, userID string, blockIDs []string, source, refID string, at time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	credited := 0
+	for _, blockID := range blockIDs {
+		block, ok := s.blocks[blockID]
+		if !ok || block.UserID != userID || block.DeletedAt != nil {
+			continue
+		}
+		if !s.recordRealUseLocked(RealUse{
+			ID: refID + "-" + blockID, UserID: userID, BlockID: blockID,
+			Source: source, RefID: refID, UsedAt: at.UTC(),
+		}) {
+			continue
+		}
+		usedAt := at.UTC()
+		block.RealUseCount++
+		block.TotalUses++
+		block.LastUsedAt = &usedAt
+		s.blocks[blockID] = s.schedule.Normalize().ApplyJudge(block, true, usedAt)
+		credited++
+	}
+	return credited, nil
+}
+
+// recordRealUseLocked appends a provenance row unless it already exists.
+func (s *MemoryStore) recordRealUseLocked(use RealUse) bool {
+	for _, existing := range s.realUses {
+		if existing.UserID == use.UserID && existing.BlockID == use.BlockID &&
+			existing.Source == use.Source && existing.RefID == use.RefID {
+			return false
+		}
+	}
+	s.realUses = append(s.realUses, use)
+	return true
+}
+
+// CountRealUsesBySource implements Store.
+func (s *MemoryStore) CountRealUsesBySource(_ context.Context, userID string, since time.Time) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, use := range s.realUses {
+		if use.UserID != userID || use.UsedAt.Before(since) {
+			continue
+		}
+		out[use.Source]++
+	}
+	return out, nil
 }
 
 // SaveFeedback implements Store. The (user, block, reason) triple is unique, so

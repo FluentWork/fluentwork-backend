@@ -294,6 +294,60 @@ func NormalizeExpression(expression string) string {
 	return strings.Join(fields, " ")
 }
 
+// realUseMaxBlocks bounds one credit request.
+const realUseMaxBlocks = 50
+
+// RecordRealUse credits a learner's confirmed use of their own blocks.
+//
+// It exists because a checkin is evidence the server cannot observe on its own
+// (86_ M10): a B7 hit is what we detected, a checkin is what the learner says
+// happened with a real person. Both credit real_use_count and count as one
+// successful recall (PRD §5.2.3), but they are recorded under different sources
+// so the two can be told apart later.
+func (s *Service) RecordRealUse(ctx context.Context, userID string, blockIDs []string, source, refID string) (int, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return 0, apierr.Unauthenticated("missing authenticated user")
+	}
+	switch source {
+	case RealUseSourceHit, RealUseSourceCheckin:
+	default:
+		return 0, apierr.InvalidArgument("source must be hit or checkin")
+	}
+	refID = strings.TrimSpace(refID)
+	if refID == "" {
+		return 0, apierr.InvalidArgument("ref_id is required")
+	}
+	cleaned := make([]string, 0, len(blockIDs))
+	for _, id := range blockIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			cleaned = append(cleaned, id)
+		}
+	}
+	if len(cleaned) == 0 {
+		return 0, nil
+	}
+	if len(cleaned) > realUseMaxBlocks {
+		return 0, apierr.InvalidArgument("too many blocks in one credit request")
+	}
+	if s == nil || s.store == nil {
+		return 0, apierr.Internal("corpus store is not configured")
+	}
+	return s.store.RecordRealUses(ctx, userID, cleaned, source, refID, s.now().UTC())
+}
+
+// CountRealUsesBySource returns the L1/L2 split of credited uses since a time.
+func (s *Service) CountRealUsesBySource(ctx context.Context, userID string, since time.Time) (map[string]int, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, apierr.Unauthenticated("missing authenticated user")
+	}
+	if s == nil || s.store == nil {
+		return nil, apierr.Internal("corpus store is not configured")
+	}
+	return s.store.CountRealUsesBySource(ctx, userID, since)
+}
+
 // BatchAccept admits refine cards into the corpus.
 //
 // A phrase the learner already owns is not admitted again: the existing block is

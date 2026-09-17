@@ -67,6 +67,17 @@ type PhraseBlock struct {
 	UpdatedAt       time.Time
 }
 
+// Real-world use sources. The distinction is 86_ M9's: L1 is what the server
+// observed, L2 is what the learner reported, and the two must not be summed into
+// one number without saying so.
+const (
+	// RealUseSourceHit is a B7 in-app detection.
+	RealUseSourceHit = "hit"
+	// RealUseSourceCheckin is a topic-card checkin: the learner confirming they
+	// used the phrase with a real person.
+	RealUseSourceCheckin = "checkin"
+)
+
 // Feedback reasons (83_ §2.2). A closed set: the point of the reflux is a
 // countable signal for prompt work, which free text would not give.
 const (
@@ -86,6 +97,16 @@ func ValidFeedbackReason(reason string) bool {
 	default:
 		return false
 	}
+}
+
+// RealUse is one credited real-world use of a phrase block.
+type RealUse struct {
+	ID      string
+	UserID  string
+	BlockID string
+	Source  string
+	RefID   string
+	UsedAt  time.Time
 }
 
 // Feedback is one stored quality signal.

@@ -75,6 +75,15 @@ type Store interface {
 	UpdateSchedule(ctx context.Context, userID, blockID, state string, successStreak int, nextDueAt, updatedAt time.Time) (PhraseBlock, error)
 	SoftDeleteAllForUser(ctx context.Context, userID string, deletedAt time.Time) (int, error)
 	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)
+	// RecordRealUses credits confirmed real-world uses of the learner's blocks:
+	// a provenance row per (block, source, ref), the counters, and the same
+	// 视同成功 reschedule a B7 hit gets (PRD §5.2.3). Idempotent per ref, so a
+	// repeated checkin cannot inflate anything. Returns how many blocks were
+	// newly credited.
+	RecordRealUses(ctx context.Context, userID string, blockIDs []string, source, refID string, at time.Time) (int, error)
+	// CountRealUsesBySource returns how many uses each source contributed since
+	// a time — the L1/L2 split (86_ M9).
+	CountRealUsesBySource(ctx context.Context, userID string, since time.Time) (map[string]int, error)
 	// SaveFeedback records one quality signal, idempotent on
 	// (user_id, block_id, reason). It reports whether this call created the row.
 	SaveFeedback(ctx context.Context, feedback Feedback) (bool, error)

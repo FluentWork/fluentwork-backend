@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "note": "written by cmd/eval-moat-flow --write-baseline; regenerate after an intentional change",
+  "recorded_at": "20260917-181634",
+  "metrics": {
+    "anchors_in_transcript_rate": {
+      "value": 1,
+      "target": "= 1.0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "b15_schema_valid_rate": {
+      "value": 1,
+      "target": "= 1.0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "blocks_in_range_rate": {
+      "value": 1,
+      "target": "\u003e= 0.95",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "corpus_cross_session_duplicate_rate": {
+      "value": 0.15,
+      "target": "\u003c= 0.10",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "drill_judge_accuracy": {
+      "value": 0.9739583333333334,
+      "target": "\u003e= 0.95",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "drill_judge_prod_timeout_rate": {
+      "value": 0.005208333333333333,
+      "target": "\u003c= 0.10",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "hit_false_positive_rate": {
+      "value": 0,
+      "target": "\u003c= 0.05",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "hit_paraphrase_recall": {
+      "value": 0.59,
+      "target": "informational",
+      "tolerance": 0,
+      "gated": false
+    },
+    "hit_self_hit_rate": {
+      "value": 1,
+      "target": "\u003e= 0.95",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "no_duplicate_blocks_rate": {
+      "value": 1,
+      "target": "\u003e= 0.95",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "refine_fidelity_mean": {
+      "value": 4.616161616161616,
+      "target": "\u003e= 4.0",
+      "tolerance": 0.2,
+      "gated": true
+    },
+    "refine_idiomatic_mean": {
+      "value": 4.828282828282828,
+      "target": "\u003e= 4.0",
+      "tolerance": 0.2,
+      "gated": true
+    },
+    "refine_low_fidelity_rate": {
+      "value": 0.030303030303030304,
+      "target": "\u003c= 0.05",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "refine_portable_mean": {
+      "value": 4.878787878787879,
+      "target": "\u003e= 4.0",
+      "tolerance": 0.2,
+      "gated": true
+    },
+    "rescue_anchor_used_rate": {
+      "value": 1,
+      "target": "\u003e= 0.80",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "review_authenticity_mean": {
+      "value": 4.181818181818182,
+      "target": "\u003e= 3.8",
+      "tolerance": 0.2,
+      "gated": true
+    },
+    "tags_valid_rate": {
+      "value": 1,
+      "target": "= 1.0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "topic_cards_produced": {
+      "value": 9,
+      "target": "\u003e 0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "topic_cards_with_blocks_rate": {
+      "value": 1,
+      "target": "= 1.0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "topic_cards_with_source_rate": {
+      "value": 1,
+      "target": "= 1.0",
+      "tolerance": 0.02,
+      "gated": true
+    },
+    "topic_generic_rate": {
+      "value": 0.3333333333333333,
+      "target": "\u003c= 0.05",
+      "tolerance": 0,
+      "gated": false
+    },
+    "topic_grounded_mean": {
+      "value": 4.555555555555555,
+      "target": "\u003e= 4.0",
+      "tolerance": 0,
+      "gated": false
+    },
+    "topics_covered_rate": {
+      "value": 0.96,
+      "target": "\u003e= 0.95",
+      "tolerance": 0.02,
+      "gated": true
+    }
+  }
+}

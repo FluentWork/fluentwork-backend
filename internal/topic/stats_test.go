@@ -2,6 +2,7 @@ package topic
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -141,4 +142,137 @@ type statsBlocks []corpus.PhraseBlock
 
 func (s statsBlocks) ListBlocks(context.Context, corpus.ListFilter) ([]corpus.PhraseBlock, error) {
 	return []corpus.PhraseBlock(s), nil
+}
+
+// stubLedger records what the checkin asked to credit.
+type stubLedger struct {
+	calls    []string
+	credited int
+	sources  map[string]int
+	err      error
+}
+
+func (s *stubLedger) RecordRealUse(_ context.Context, _ string, blockIDs []string, source, refID string) (int, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	s.calls = append(s.calls, source+":"+refID)
+	s.credited = len(blockIDs)
+	return len(blockIDs), nil
+}
+
+func (s *stubLedger) CountRealUsesBySource(context.Context, string, time.Time) (map[string]int, error) {
+	if s.sources == nil {
+		return map[string]int{}, nil
+	}
+	return s.sources, nil
+}
+
+// 86_ M10: the learner ticking "I used these" is the product's only first-hand
+// evidence of practice turning into speech.
+func TestCheckin_CreditsTheBlocksTheLearnerUsed(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := store.ListTodayCards(context.Background(), "u1", day)
+	if err != nil || len(cards) == 0 {
+		t.Fatalf("cards = %+v err=%v", cards, err)
+	}
+	card := cards[0]
+	if len(card.BlockIDs) < 2 {
+		t.Fatalf("fixture card must offer at least two blocks: %+v", card.BlockIDs)
+	}
+	ledger := &stubLedger{}
+	svc.SetRealUseLedger(ledger)
+
+	used := append([]string{}, card.BlockIDs[:2]...)
+	used = append(used, "block-from-nowhere")
+	result, err := svc.Checkin(context.Background(), "u1", card.ID, CheckinRequest{UsedBlockIDs: used})
+	if err != nil {
+		t.Fatalf("Checkin: %v", err)
+	}
+	if result.RecordedUse != 2 {
+		t.Fatalf("recorded use = %d, want the two the card offered", result.RecordedUse)
+	}
+	if len(result.IgnoredBlockIDs) != 1 || result.IgnoredBlockIDs[0] != "block-from-nowhere" {
+		t.Fatalf("unoffered ids must be reported back: %+v", result.IgnoredBlockIDs)
+	}
+	if len(ledger.calls) != 1 || ledger.calls[0] != "checkin:"+result.CheckinID {
+		t.Fatalf("ledger calls = %+v, want one checkin credit keyed by the checkin", ledger.calls)
+	}
+	if result.StreakDays != 1 {
+		t.Fatalf("streak = %d", result.StreakDays)
+	}
+}
+
+// A checkin without the ledger, or without a used-block list, still records the
+// checkin: the credit is an add-on, never a precondition.
+func TestCheckin_WorksWithoutUsedBlocksOrLedger(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := store.ListTodayCards(context.Background(), "u1", day)
+
+	noLedger, err := svc.Checkin(context.Background(), "u1", cards[0].ID, CheckinRequest{})
+	if err != nil || noLedger.RecordedUse != 0 || noLedger.StreakDays != 1 {
+		t.Fatalf("checkin without ledger = %+v err=%v", noLedger, err)
+	}
+
+	svc.SetRealUseLedger(&stubLedger{})
+	withBlocks, err := svc.Checkin(context.Background(), "u1", cards[1].ID, CheckinRequest{
+		UsedBlockIDs: []string{cards[1].BlockIDs[0]},
+	})
+	if err != nil || withBlocks.RecordedUse != 1 {
+		t.Fatalf("checkin with blocks = %+v err=%v", withBlocks, err)
+	}
+}
+
+// A credit failure must not lose the checkin: the streak is already recorded.
+func TestCheckin_CreditFailureStillSucceeds(t *testing.T) {
+	llm := &stubLLM{body: threeCardJSON()}
+	svc, gen, store := testService(t, llm, groundedSignals())
+	day := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return day }
+	if err := gen.GenerateForUser(context.Background(), "u1", day); err != nil {
+		t.Fatal(err)
+	}
+	cards, _ := store.ListTodayCards(context.Background(), "u1", day)
+	svc.SetRealUseLedger(&stubLedger{err: errors.New("ledger down")})
+
+	result, err := svc.Checkin(context.Background(), "u1", cards[0].ID, CheckinRequest{
+		UsedBlockIDs: []string{cards[0].BlockIDs[0]},
+	})
+	if err != nil {
+		t.Fatalf("Checkin: %v", err)
+	}
+	if result.StreakDays != 1 || result.CheckinID == "" {
+		t.Fatalf("checkin must survive a credit failure: %+v", result)
+	}
+	if result.RecordedUse != 0 {
+		t.Fatalf("recorded use = %d, want 0 when the ledger failed", result.RecordedUse)
+	}
+}
+
+// The stats endpoint reports the two kinds of evidence apart (86_ M9).
+func TestPracticeStats_SplitsRealUsesBySource(t *testing.T) {
+	svc, store, now := statsFixture(t)
+	svc.SetBlockLookup(statsBlocks{})
+	svc.SetRealUseLedger(&stubLedger{sources: map[string]int{"hit": 3, "checkin": 2}})
+	seedStatsCard(t, store, "c1", "user-1", now.Add(-time.Hour))
+
+	got, err := svc.PracticeStats(context.Background(), "user-1", 30)
+	if err != nil {
+		t.Fatalf("PracticeStats: %v", err)
+	}
+	if got.RealUsesHit != 3 || got.RealUsesCheckin != 2 {
+		t.Fatalf("split = %d/%d, want 3/2", got.RealUsesHit, got.RealUsesCheckin)
+	}
 }

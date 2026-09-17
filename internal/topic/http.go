@@ -51,12 +51,14 @@ func (h *Handler) PostCheckin(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// The service type carries the JSON tags, like every other handler in the
+	// repo: a second identical body type is just a place for the two to drift.
 	var req CheckinRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
 		return
 	}
-	result, err := h.svc.Checkin(c.Request.Context(), userID, c.Param("id"), req.Reflection)
+	result, err := h.svc.Checkin(c.Request.Context(), userID, c.Param("id"), req)
 	if err != nil {
 		httpjson.Error(c, err)
 		return

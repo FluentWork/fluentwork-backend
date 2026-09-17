@@ -215,6 +215,7 @@ lsof -i :8081
 
 ## 贡献指南
 
+0. **改动 prompt / 模型 / 调度参数前先跑质量门禁**：`./scripts/eval-gate.sh`（流程见 `docs/87`）。退化即非零退出；基线只在有意变更后重录。
 1. **直接在 `main` 上开发**（默认不创建 feature branch / PR）
 2. **编写测试** 覆盖新功能
 3. **运行** `./scripts/dev-check.sh`（gofumpt / goimports / lint / `go test` / `go build`）
