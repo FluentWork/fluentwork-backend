@@ -877,23 +877,37 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 		s.nextSeq++
 	}
 
-	// The assistant's voice, then the stream terminator, then ai.turn.end.
+	// The assistant's voice: ai.tts.start, binary frames, ai.tts.end, ai.turn.end.
 	//
 	// iOS finalizes the open AI item on ai.turn.end and leaves aiSpeaking.
-	// Any binary audio after that is a new bubble — that is the 2026-09-12
-	// split: a leftover partial frame (and ai.tts.end) arrived after
-	// ai.turn.end and reopened the turn. Close the audio stream first.
+	// Any binary audio after that is a new bubble. Close the audio stream first.
 	//
-	// Sent as plain binary frames with **no** ai.tts.start on purpose.
-	// TTSFrameDispatcher only claims binary frames once it has seen an
-	// ai.tts.start, and the decoder bound into it (MockTTSDecoder) records
-	// without driving AVAudioEngine — its own doc says so. With no ai.tts.start
-	// the middleware falls back to `audioEngine.play(frame:)`, which is the path
-	// that actually makes sound today. Move this onto the ai.tts.* stream once a
-	// decoder that really decodes lands.
+	// ai.tts.start is now always sent to establish turn attribution. The
+	// TTSPlaybackCoordinator routes frames by turn_id, so without a start the
+	// frames would be treated as unknown and dropped by default policy.
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
 	s.usage.addDownlink(len(turn.AudioPCM))
+	
+	// Send ai.tts.start before any audio frames
+	if reply != "" || len(turn.AudioPCM) > 0 {
+		outbound = append(outbound, ProviderOutbound{
+			Control: voiceproto.AITTSStart{
+				Type:       voiceproto.TypeAITTSStart,
+				TurnID:     turnID,
+				VoiceID:    s.cfg.Voice,
+				SampleRate: 16000,
+				Codec:      "pcm",
+			},
+		})
+		if s.logger != nil {
+			s.logger.Info("volc-duplex emitted ai.tts.start",
+				"turn_id", turnID,
+				"voice_id", s.cfg.Voice,
+			)
+		}
+	}
+	
 	if !interrupted {
 		if streamedAudio {
 			// Already on the wire, frame by frame. What remains is the trailing
@@ -931,10 +945,8 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// Emitted even when the turn produced no audio: "finished with nothing to
 	// say" and "still going" are different, and only one of them is a problem.
 	//
-	// Safe to send precisely because `ai.tts.start` is not: `TTSDecoder` keeps
-	// its stream `.idle` until it sees a start, and the `.idle` branch of
-	// `ai.tts.end` is a no-op — so this adds a terminator without moving the
-	// audio onto the decoder path.
+	// Now that ai.tts.start is always sent, ai.tts.end properly terminates
+	// the keyed audio stream on the coordinator path.
 	outbound = append(outbound, ProviderOutbound{
 		Control: voiceproto.AITTSEnd{
 			Type:             voiceproto.TypeAITTSEnd,
