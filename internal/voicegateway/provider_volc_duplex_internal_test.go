@@ -792,3 +792,28 @@ func TestTurnToOutbound_StampsServerTsMsOnTextDelta(t *testing.T) {
 		t.Fatalf("server_ts_ms = %d want %d", delta.ServerTsMs, frozen.UnixMilli())
 	}
 }
+
+// A turn that carried no audio must not wait out the full turn deadline.
+//
+// Measured on device 2026-09-20: a session whose capture had not started yet
+// still sent user.speech.start / user.speech.end with zero binary frames. The
+// vendor was committed an empty buffer, so the 60s deadline could not possibly
+// produce a transcript — it only held the room on「正在转写」for a minute before
+// the timeout unblocked it.
+//
+// This pins the decision, not the plumbing: whether `turnUplinkBytes` is
+// incremented correctly is a separate question, and answering it needs a live
+// duplex stub rather than a unit test.
+func TestTurnWaitShortensWhenNoAudioWasForwarded(t *testing.T) {
+	t.Parallel()
+
+	if got := turnWait(0); got != emptyTurnWait {
+		t.Fatalf("turnWait(0) = %s, want %s — a turn the gateway never heard must not wait out the full deadline", got, emptyTurnWait)
+	}
+	if got := turnWait(3232); got != defaultVolcTurnWait {
+		t.Fatalf("turnWait(3232) = %s, want %s — a turn that did carry audio keeps the full deadline", got, defaultVolcTurnWait)
+	}
+	if emptyTurnWait >= defaultVolcTurnWait {
+		t.Fatalf("emptyTurnWait (%s) must be shorter than defaultVolcTurnWait (%s)", emptyTurnWait, defaultVolcTurnWait)
+	}
+}

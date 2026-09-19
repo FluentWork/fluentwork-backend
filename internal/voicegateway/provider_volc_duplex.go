@@ -26,6 +26,20 @@ const defaultVolcTurnWait = 60 * time.Second
 // few seconds is enough for the vendor to say "nothing" out loud.
 const emptyTurnWait = 3 * time.Second
 
+// turnWait picks the deadline for the turn in flight from how much audio
+// actually reached the vendor.
+//
+// Split out from its caller for exactly one reason: the decision is the part
+// worth locking down. A well-meaning "the 3s looks arbitrary, let me just use
+// the default" edit restores a minute of silence on a failure the gateway
+// already knows about, and nothing else in the suite would notice.
+func turnWait(uplinkBytes int) time.Duration {
+	if uplinkBytes <= 0 {
+		return emptyTurnWait
+	}
+	return defaultVolcTurnWait
+}
+
 // VolcDuplexProvider bridges voice-gateway sessions onto the live Volcano duplex API.
 // Current scope:
 // - opens a real duplex session on session.start
@@ -594,16 +608,14 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// the real product here — it names the cause, which the bare timeout never
 		// did, and that cause is a client-side defect worth surfacing rather than
 		// hiding behind a minute of silence.
-		wait := defaultVolcTurnWait
 		if uplinkBytes == 0 {
-			wait = emptyTurnWait
 			s.logger.Warn("turn ended with no uplink audio; the vendor has nothing to transcribe",
 				"turn_id", s.activeTurnID,
-				"wait", wait.String(),
+				"wait", emptyTurnWait.String(),
 				"hint", "client opened a speech window before its capture produced audio",
 			)
 		}
-		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, wait)
+		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, turnWait(uplinkBytes))
 
 		// The turn's read failed: the upstream socket is gone. Replace it here,
 		// where the death is detected, instead of leaving the corpse for the

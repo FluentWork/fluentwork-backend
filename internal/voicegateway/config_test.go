@@ -3,6 +3,7 @@ package voicegateway_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,8 +184,11 @@ func TestLoadConfigDoesNotDefaultTokenOutsideDevelopment(t *testing.T) {
 // .env.volc.local present at the repo root flips the gateway into
 // volc-duplex mode (Provider=volc-duplex, ClientAudioFormat=pcm-s16le,
 // VolcSpeechAPIKey populated) without any explicit shell exports.
-// The test relies on the committed .env.volc.local — when it's missing the
-// assertion degrades to a Skip instead of a failure.
+// It reads the developer's own .env.volc.local, which is **gitignored** (never
+// committed — it holds keys), so when that file is absent the assertions
+// degrade to a Skip instead of a failure. Its companion
+// TestVolcEnvExampleCarriesTheGatewayWiring checks the template that file is
+// rebuilt from, which is the part that can be checked without any local state.
 //
 // Crucial: this test must NOT t.Setenv the volc-related vars, because
 // LoadConfig honours any pre-set value over the dotenv file. We only set
@@ -333,5 +337,40 @@ func TestLoadConfig_RescueEnabledDefaultsByEnvironment(t *testing.T) {
 				t.Fatalf("RescueEnabled = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestVolcEnvExampleCarriesTheGatewayWiring guards the template everyone copies
+// to `.env.volc.local`.
+//
+// It exists because that template silently lacked these two lines, and the loss
+// is invisible: neither omission fails startup, neither shows up in the room,
+// and both only manifest as a session that never answers. On 2026-09-20 that
+// cost a long device-verification detour — the local file was gone, the
+// rebuild-from-template looked complete, and the gateway came up as `mock`
+// speaking `opus-framed` at a client sending raw PCM16. Every frame was dropped
+// as a format mismatch, the vendor was handed an empty commit, and the room sat
+// on「正在转写」until the turn timed out.
+//
+// TestLoadConfigPicksVolcDuplexFromVolcLocal asserts the *file*; this asserts
+// the *template the file is rebuilt from*, which is the half that was wrong.
+func TestVolcEnvExampleCarriesTheGatewayWiring(t *testing.T) {
+	root := findBackendRootOrSkip(t)
+	path := filepath.Join(root, "configs", "volc.env.example")
+	raw, err := readFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	body := string(raw)
+	for _, want := range []string{
+		"VOICE_GATEWAY_PROVIDER=volc-duplex",
+		"VOICE_GATEWAY_CLIENT_AUDIO_FORMAT=pcm-s16le",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("%s is missing %q.\n"+
+				"Copying this template must yield a working .env.volc.local: without these the\n"+
+				"gateway starts as `mock` and drops every client audio frame as a format mismatch,\n"+
+				"and neither failure fails startup.", path, want)
+		}
 	}
 }
