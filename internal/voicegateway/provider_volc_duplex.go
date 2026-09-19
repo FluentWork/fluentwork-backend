@@ -2,7 +2,6 @@ package voicegateway
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -29,7 +28,7 @@ const defaultVolcTurnWait = 60 * time.Second
 // fast with a clear error until the upstream AudioEngine switches gateway input
 // to raw PCM or a backend transcode step is added.
 type VolcDuplexProvider struct {
-	cfg         voicepoc.DuplexConfig
+	cfg         voiceduplex.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
 }
@@ -40,7 +39,7 @@ func NewVolcDuplexProvider(cfg Config, logger *slog.Logger) VolcDuplexProvider {
 		logger = slog.Default()
 	}
 	return VolcDuplexProvider{
-		cfg: voicepoc.DuplexConfig{
+		cfg: voiceduplex.DuplexConfig{
 			APIKey:   strings.TrimSpace(cfg.VolcSpeechAPIKey),
 			Endpoint: strings.TrimSpace(cfg.VolcDuplexEndpoint),
 			Model:    strings.TrimSpace(cfg.VolcDuplexModel),
@@ -53,13 +52,14 @@ func NewVolcDuplexProvider(cfg Config, logger *slog.Logger) VolcDuplexProvider {
 }
 
 // Open creates one live duplex session wrapper.
-func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket) (VoiceProviderSession, error) {
+func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error) {
 	if strings.TrimSpace(p.cfg.APIKey) == "" {
 		return nil, fmt.Errorf("volc-duplex provider missing speech API key")
 	}
 	return &volcDuplexProviderSession{
 		cfg:         p.cfg,
 		audioFormat: p.audioFormat,
+		audioSeq:    audioSeq,
 		logger: p.logger.With(
 			"ticket_id", ticket.TicketID,
 			"session_id", ticket.SessionID,
@@ -85,16 +85,18 @@ const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
 	mu          sync.Mutex
-	cfg         voicepoc.DuplexConfig
+	cfg         voiceduplex.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
-	session     *voicepoc.DuplexSession
+	session     *voiceduplex.DuplexSession
 	turnStarted time.Time
 	nextSeq     int
-	// nextAudioSeq numbers the gateway→client binary audio frames. Monotonic
-	// across the session because the client drops frames at or below its
-	// barge-in watermark.
-	nextAudioSeq uint32
+	// audioSeq numbers the gateway→client binary audio frames. It is the
+	// session's allocator, not this provider's: a replaced provider session gets
+	// the same one, so the numbering cannot restart behind the client's barge-in
+	// watermark. See SeqAllocator — and nextSeq below, which is a different
+	// counter for a different purpose.
+	audioSeq     *SeqAllocator
 	utterances   []EndUtterance
 	activeTurnID string
 	// audio moved this session, for cost accounting. See VoiceUsage.
@@ -160,11 +162,15 @@ type volcDuplexProviderSession struct {
 	// byte-identical to the batch form it replaced: that one converted each
 	// turn's audio independently.
 	audioResampler *pcmResampler
-	// audioPending holds resampled bytes that do not yet fill a client frame.
-	// Resampled output does not align to the frame size, so this is carried
-	// across chunks — a short frame per vendor chunk would hand the client
+	// framer cuts resampled audio into client frames and numbers them. It holds
+	// the partial tail across chunks — resampled output does not align to the
+	// frame size, and a short frame per vendor chunk would hand the client
 	// ragged frames for the whole turn.
-	audioPending []byte
+	//
+	// The same type frames the rescue ladder, which is the point: two framers
+	// used to be two implementations of one wire format, and they had already
+	// drifted (see docs/94_ F4/F5).
+	framer *audioFramer
 }
 
 // SetOutboundEmitter implements StreamingVoiceProviderSession. The gateway
@@ -216,7 +222,7 @@ func (s *volcDuplexProviderSession) UserTranscript(text string) {
 	}
 }
 
-// AssistantTextDelta implements voicepoc.TurnSink: one fragment of the
+// AssistantTextDelta implements voiceduplex.TurnSink: one fragment of the
 // assistant's reply, pushed the moment the vendor produces it.
 func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 	if delta == "" || s.emit == nil {
@@ -256,11 +262,11 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
-	s.audioPending = nil
+	s.framer = nil
 	s.collectingTurn = false
 }
 
-// AssistantAudio implements voicepoc.TurnSink: one chunk of the assistant's
+// AssistantAudio implements voiceduplex.TurnSink: one chunk of the assistant's
 // speech, pushed the moment the vendor produces it.
 //
 // This is the half of P1-2 that a user actually hears. Text deltas made the
@@ -337,28 +343,37 @@ func (s *volcDuplexProviderSession) markFirstAudio() {
 	)
 }
 
+// seq returns this session's frame allocator, creating one if Open was not what
+// built the session.
+//
+// The fallback exists so a nil allocator cannot silently emit frame number 0.
+// Production always goes through Open, which hands in the session's allocator;
+// but this type is also built directly by tests, and "forgot to wire it" should
+// degrade to a working single-session counter rather than to a wire format the
+// client's codec treats as unset.
+func (s *volcDuplexProviderSession) seq() *SeqAllocator {
+	if s.audioSeq == nil {
+		s.audioSeq = &SeqAllocator{}
+	}
+	return s.audioSeq
+}
+
 // frameAudio resamples one vendor chunk and cuts it into client frames.
 //
 // When flush is set, a trailing partial frame is emitted too. That has to
 // happen exactly once, at turn end: without it the last few milliseconds of the
-// assistant's speech would sit in audioPending forever — clipped, and then
+// assistant's speech would sit in the framer forever — clipped, and then
 // prepended to the *next* turn's audio.
 func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte {
 	if s.audioResampler == nil {
 		s.audioResampler = &pcmResampler{}
 	}
-	s.audioPending = append(s.audioPending, s.audioResampler.Write(pcm)...)
-
-	var frames [][]byte
-	for len(s.audioPending) >= audioFrameBytes {
-		s.nextAudioSeq++
-		frames = append(frames, encodeAudioFrame(s.nextAudioSeq, s.audioPending[:audioFrameBytes]))
-		s.audioPending = s.audioPending[audioFrameBytes:]
+	if s.framer == nil {
+		s.framer = newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
 	}
-	if flush && len(s.audioPending) > 0 {
-		s.nextAudioSeq++
-		frames = append(frames, encodeAudioFrame(s.nextAudioSeq, s.audioPending))
-		s.audioPending = nil
+	frames := s.framer.Write(s.audioResampler.Write(pcm))
+	if flush {
+		frames = append(frames, s.framer.Flush()...)
 	}
 	return frames
 }
@@ -371,7 +386,7 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	if instructions := instructionsForSessionStart(start, continuation); instructions != "" {
 		s.cfg.Instructions = instructions
 	}
-	session, err := voicepoc.OpenDuplex(ctx, s.cfg)
+	session, err := voiceduplex.OpenDuplex(ctx, s.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +508,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// transparent reopen budget on a connection already known to be dead.
 		// A provider error *event* is different: the session is still usable
 		// and resetting would discard the server-side conversation context.
-		if errors.Is(err, voicepoc.ErrDuplexClosed) {
+		if errors.Is(err, voiceduplex.ErrDuplexClosed) {
 			s.resetAfterTurnReadFailure(ctx)
 		}
 
@@ -502,7 +517,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// on every exit path, so timeout/partial/error take this branch and skip
 		// the 20s retry below. That retry is only for DeadlineExceeded with an
 		// unset Outcome (transport timeout before collectTurn could classify).
-		if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+		if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 			s.logger.Warn("turn result non-ok outcome, sending ai.turn.end to unblock iOS",
 				"session_id", s.session.SessionID(),
 				"outcome", turn.Outcome,
@@ -527,7 +542,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 			defer cancel()
 			turn, retryErr := s.session.WaitTurnResult(retryCtx, s.turnStarted, 20*time.Second)
 			// B15-fix: if retry has a set Outcome, prefer it over the error
-			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+			if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 				s.logger.Warn("retry non-ok outcome, sending ai.turn.end to unblock iOS",
 					"session_id", s.session.SessionID(),
 					"outcome", turn.Outcome,
@@ -549,7 +564,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 				return s.turnToOutbound(turn), nil
 			}
 			// B15-fix: retry returned no content with an error. Check if Outcome is set.
-			if turn.Outcome != "" && turn.Outcome != voicepoc.TurnOutcomeOK {
+			if turn.Outcome != "" && turn.Outcome != voiceduplex.TurnOutcomeOK {
 				s.logger.Warn("retry had non-ok outcome despite error, sending ai.turn.end",
 					"session_id", s.session.SessionID(),
 					"outcome", turn.Outcome,
@@ -753,7 +768,7 @@ func (s *volcDuplexProviderSession) defaultResetDuplex(ctx context.Context) erro
 	}
 	resetCtx, cancel := context.WithTimeout(ctx, duplexResetTimeout)
 	defer cancel()
-	newSess, err := voicepoc.OpenDuplex(resetCtx, s.cfg)
+	newSess, err := voiceduplex.OpenDuplex(resetCtx, s.cfg)
 	if err != nil {
 		return err
 	}
@@ -781,7 +796,7 @@ func (s *volcDuplexProviderSession) Close(ctx context.Context) error {
 	return s.session.Close(ctx)
 }
 
-func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []ProviderOutbound {
+func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) []ProviderOutbound {
 	var outbound []ProviderOutbound
 	transcript := strings.TrimSpace(turn.Transcript)
 	// B15: include outcome in all log lines so dashboards can filter by status
@@ -804,7 +819,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	if interrupted {
 		// Barge-in: drop the unsent partial frame. Flushing it would put
 		// leftover TTS on the wire after the user had already started speaking.
-		s.audioPending = nil
+		if s.framer != nil {
+			s.framer.Reset()
+		}
 	}
 	s.mu.Unlock()
 
@@ -887,8 +904,32 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 	// frames would be treated as unknown and dropped by default policy.
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
+	//
+	// # Why this audio must NOT go through UtteranceWriter
+	//
+	// It looks like it should: the ladder's rung and this are the same frames on
+	// the same client, and one writer for both is what docs/97_ sketches. It
+	// cannot be done yet, and doing it would mute the assistant on device.
+	//
+	// iOS decides where a binary frame goes by whether it has seen an
+	// ai.tts.start (SpeechSessionMiddleware): with a stream open the frame goes
+	// to the TTS decoder, without one it goes to `audioEngine.play`. Production
+	// binds `MockTTSDecoder`, which records and discards — it does not drive the
+	// engine. So an ai.tts.start on the AI's own audio routes every frame into a
+	// decoder that throws it away: silence.
+	//
+	// That is not a guess. It is what happened on 2026-09-12, and iOS rolled it
+	// back with the note "wiring it in silenced the assistant on device the
+	// moment the gateway started sending ai.tts.start" (AppDependencies.swift).
+	// Their side is one line to restore; ours is this one. **The two must be
+	// re-landed together, with a device check between them** — the failure mode
+	// is silence, and no unit test on either side can see it. Their Opus decoder
+	// (ADR-0073) is the prerequisite.
+	//
+	// Until then: the framer is shared (that was the duplication worth removing),
+	// the stream control is not.
 	s.usage.addDownlink(len(turn.AudioPCM))
-	
+
 	// Send ai.tts.start before any audio frames
 	if reply != "" || len(turn.AudioPCM) > 0 {
 		outbound = append(outbound, ProviderOutbound{
@@ -907,7 +948,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 			)
 		}
 	}
-	
+
 	if !interrupted {
 		if streamedAudio {
 			// Already on the wire, frame by frame. What remains is the trailing
@@ -917,18 +958,9 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voicepoc.TurnResult) []P
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
-			for offset := 0; offset < len(pcm); offset += audioFrameBytes {
-				end := offset + audioFrameBytes
-				if end > len(pcm) {
-					end = len(pcm)
-				}
-				// Pre-increment: the counter belongs to the emission path, so it is
-				// correct whether or not Start() ran. A first frame numbered 0 would
-				// also sit at the client's barge-in watermark.
-				s.nextAudioSeq++
-				outbound = append(outbound, ProviderOutbound{
-					Binary: encodeAudioFrame(s.nextAudioSeq, pcm[offset:end]),
-				})
+			framer := newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
+			for _, frame := range append(framer.Write(pcm), framer.Flush()...) {
+				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		}
 	}
@@ -995,29 +1027,16 @@ const duplexOutputRate = 24000
 // speed and pitch.
 const clientPlaybackRate = 16000
 
-// audioFrameBytes is ~100 ms of 16 kHz mono PCM16. The chunking is load-bearing:
-// the client's `AudioPlaybackGate` drops whole frames at and below the barge-in
-// watermark, so one frame per turn (a 10s reply is 320 KB) would leave nothing
-// to drop.
-const audioFrameBytes = 3200
-
-// encodeAudioFrame is the gateway→client binary layout: UInt32 big-endian
-// sequence followed by the payload, matching the client's WSAudioFrameCodec.
 // audioFrameHeaderBytes is the big-endian uint32 sequence number that precedes
-// every gateway→client binary audio frame.
+// every gateway→client binary audio frame, matching the client's
+// WSAudioFrameCodec.
+//
+// It is the only frame-layout number left here. The frame *size* used to be
+// declared here as `audioFrameBytes = 3200` — a second copy of a value the
+// rescue ladder also had, derived from a sample rate neither constant mentioned.
+// Both now come from AudioFormat.FrameBytes, and the frames themselves are built
+// by audioFramer, which is also what the ladder uses (docs/94_ F4/F5).
 const audioFrameHeaderBytes = 4
-
-func encodeAudioFrame(seq uint32, payload []byte) []byte {
-	frame := make([]byte, audioFrameHeaderBytes+len(payload))
-	binary.BigEndian.PutUint32(frame, seq)
-	copy(frame[audioFrameHeaderBytes:], payload)
-	return frame
-}
-
-// The gateway carries this session's frame numbering into any session opened to
-// replace it, and nothing else. If these methods go away the reopen silently
-// restarts the sequence and mutes the client — see the interface doc.
-var _ SequencedVoiceProviderSession = (*volcDuplexProviderSession)(nil)
 
 // VoiceUsage implements VoiceUsageReporter. Read at session end, when the
 // gateway hands the session's totals to cost accounting.
@@ -1028,33 +1047,6 @@ func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage {
 }
 
 var _ VoiceUsageReporter = (*volcDuplexProviderSession)(nil)
-
-// NextAudioSequence implements SequencedVoiceProviderSession.
-func (s *volcDuplexProviderSession) NextAudioSequence() uint32 { return s.nextAudioSeq }
-
-// AdoptAudioSequence implements SequencedVoiceProviderSession. A session opened
-// to replace this one has to keep numbering from here — see the interface doc
-// for why restarting is not survivable.
-func (s *volcDuplexProviderSession) AdoptAudioSequence(seq uint32) { s.nextAudioSeq = seq }
-
-// resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
-// client plays: a straight 3:2 linear interpolation.
-//
-// Deliberately plain, and there is no anti-alias filter ahead of the
-// decimation — the vendor's speech carries content up to 12 kHz and this folds
-// the 8–12 kHz band back down. Speech stays intelligible, and this is a first
-// cut to get sound working end to end. If quality becomes a complaint, replace
-// this with a polyphase filter rather than tuning the interpolation.
-// resampleToPlaybackRate converts a whole buffer in one go.
-//
-// It is a thin wrapper over pcmResampler on purpose: the batch and streaming
-// paths are the same code, so they cannot drift. The old standalone
-// implementation lives on in the tests as the reference the streaming form is
-// checked against (see batchResampleReference).
-func resampleToPlaybackRate(pcm []byte) []byte {
-	var r pcmResampler
-	return r.Write(pcm)
-}
 
 func instructionsForSessionStart(start voiceproto.SessionStart, continuation []ContinuationTurn) string {
 	var parts []string
@@ -1104,6 +1096,28 @@ func continuationBlock(turns []ContinuationTurn) string {
 	return strings.Join(lines, "\n")
 }
 
+// resampleToPlaybackRate converts the vendor's 24 kHz output to the 16 kHz the
+// client plays: a straight 3:2 linear interpolation.
+//
+// Deliberately plain, and there is no anti-alias filter ahead of the decimation
+// — the vendor's speech carries content up to 12 kHz and this folds the 8–12 kHz
+// band back down. Speech stays intelligible, and this is a first cut to get sound
+// working end to end. If quality becomes a complaint, replace this with a
+// polyphase filter rather than tuning the interpolation.
+//
+// The batch form is a thin wrapper over pcmResampler on purpose: the batch and
+// streaming paths are then the same code and cannot drift. The old standalone
+// implementation lives on in the tests as the reference the streaming form is
+// checked against (see batchResampleReference).
+//
+// (This used to be two comments stacked on one function — the interpolation note
+// and the wrapper note, the first left dangling above the second when the
+// streaming form was introduced. Same information, one place.)
+func resampleToPlaybackRate(pcm []byte) []byte {
+	var r pcmResampler
+	return r.Write(pcm)
+}
+
 func (s *volcDuplexProviderSession) unixMilli() int64 {
 	now := s.nowFn
 	if now == nil {
@@ -1121,9 +1135,9 @@ var (
 // `ai.tts.end` already uses. Falling back to "ok" for an unset outcome keeps
 // the field non-empty: an empty status would read as "unknown", which is the
 // one thing this marker exists to rule out.
-func ttsCompletionStatus(outcome voicepoc.TurnOutcome) string {
+func ttsCompletionStatus(outcome voiceduplex.TurnOutcome) string {
 	if outcome == "" {
-		return string(voicepoc.TurnOutcomeOK)
+		return string(voiceduplex.TurnOutcomeOK)
 	}
 	return string(outcome)
 }

@@ -1,4 +1,26 @@
-package voicepoc
+// Package voiceduplex is the gateway's transport to Volcano Engine's realtime
+// duplex (Seeduplex) API: connect, configure a session, stream uplink audio,
+// and collect what comes back.
+//
+// # Why this package exists under this name
+//
+// It was split out of `internal/voicepoc`, where it had been living while the
+// voice path was a proof of concept and never moved when the path became
+// production. A package called "poc" that contains the live voice transport
+// cannot answer the question a reader actually arrives with — "is this on the
+// production path?" — and the answer being yes is exactly what the name hid
+// (docs/94_ F7).
+//
+// What stayed behind is what the name describes: WER measurement, the injection
+// window probe, mock providers, and the smoke entry points in smoke_duplex.go.
+// Those call into this package; nothing here calls back.
+//
+// # What it does not know about
+//
+// Turns as the product means them, rescue ladders, badges, and frames. It speaks
+// vendor events in and vendor audio out; deciding what a turn *is* happens one
+// layer up (voicegateway's turn.go).
+package voiceduplex
 
 import (
 	"context"
@@ -18,9 +40,17 @@ import (
 )
 
 const (
-	defaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
-	defaultDuplexModel    = "1.2.6.1"
-	defaultDuplexVoice    = "zh_female_vv_jupiter_bigtts"
+	// DefaultDuplexEndpoint is the vendor's duplex WSS. Exported because the
+	// smoke probes in the PoC package report which endpoint they reached.
+	DefaultDuplexEndpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
+
+	defaultDuplexModel = "1.2.6.1"
+	// defaultDuplexVoice is a 1.0-lineage speaker. That generation is what this
+	// half of the vendor's API serves; the text-TTS half takes 2.0 speakers and
+	// rejects this one (docs/92 §2). The two are different products with
+	// different catalogs, which is why this value looks wrong next to
+	// content/tts's default and is not.
+	defaultDuplexVoice = "zh_female_vv_jupiter_bigtts"
 )
 
 // 20ms of 16 kHz mono s16le.
@@ -124,7 +154,7 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 		return nil, fmt.Errorf("duplex API key is required")
 	}
 	if cfg.Endpoint == "" {
-		cfg.Endpoint = defaultDuplexEndpoint
+		cfg.Endpoint = DefaultDuplexEndpoint
 	}
 	if cfg.Model == "" {
 		cfg.Model = defaultDuplexModel
@@ -139,7 +169,7 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 	seg := logx.Begin(cfg.Logger, "voice.duplex.open",
 		"module", "voicepoc.duplex",
 		"provider", "volc-duplex",
-		"endpoint", firstNonEmpty(cfg.Endpoint, defaultDuplexEndpoint),
+		"endpoint", FirstNonEmpty(cfg.Endpoint, DefaultDuplexEndpoint),
 		"stage", "transport",
 	)
 	var openErr error
@@ -505,6 +535,16 @@ func (s *DuplexSession) sendUserPCMInject(ctx context.Context, pcm []byte, injec
 
 	turn, err := s.collectTurn(ctx, started, preload, waitAfterInject)
 	return turn, injectLatency, err
+}
+
+// WaitTurn is collectTurn plus the events the caller already drained.
+//
+// Exported for the latency probes in the PoC package, which read part of the
+// event stream themselves (to time the injection window) and then need the
+// collection to resume with what they saw. It is a thin wrapper rather than a
+// second implementation, so the two cannot drift.
+func (s *DuplexSession) WaitTurn(ctx context.Context, started time.Time, preload []DuplexEvent, wait time.Duration) (TurnResult, error) {
+	return s.collectTurn(ctx, started, preload, wait)
 }
 
 func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, preload []DuplexEvent, wait time.Duration) (TurnResult, error) {
@@ -883,232 +923,35 @@ func (s *DuplexSession) recv(ctx context.Context) (DuplexEvent, error) {
 	return evt, nil
 }
 
-// SmokeDuplex runs B14 D2: connect → session.create → session.update → close.
-// Proves API-Key auth and mid-session inject channel (V2).
-func SmokeDuplex(ctx context.Context, cfg DuplexConfig) (map[string]any, error) {
-	started := time.Now()
-	session, err := OpenDuplex(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = session.Close(ctx) }()
+// FirstNonEmpty returns the first value with any non-space content.
+//
+// Exported because both halves of the package this was split out of need it, and
+// because a reader of the transport should be able to see that a config falls
+// back rather than learning it from a panic.
 
-	inject := "【B14注入探针】请在后续回复中自然确认用户提到的目标表达；标记词 INJECT_OK。"
-	if _, err := session.UpdateInstructions(ctx, inject); err != nil {
-		return nil, err
-	}
-
-	return map[string]any{
-		"ok":                true,
-		"provider":          "volc-duplex",
-		"endpoint":          firstNonEmpty(cfg.Endpoint, defaultDuplexEndpoint),
-		"session_id":        session.SessionID(),
-		"log_id":            session.LogID(),
-		"inject_channel":    "session.update",
-		"inject_channel_ok": true,
-		"elapsed_ms":        time.Since(started).Milliseconds(),
-		"credential_mode":   "live",
-		"notes": []string{
-			"D2 PASS: duplex WSS + session.create + session.update",
-			"Full T9 delay-gradient still needs audio turn + same-turn observation",
-		},
-	}, nil
-}
-
-// SmokeDuplexASR runs B14 D3/T2: upload fixture PCM and require ASR transcript (V1).
-func SmokeDuplexASR(ctx context.Context, cfg DuplexConfig, wavPath string) (map[string]any, error) {
-	started := time.Now()
-	pcm, rate, err := LoadWAVPCM16LE(wavPath)
-	if err != nil {
-		return nil, err
-	}
-	if rate != 16000 {
-		return nil, fmt.Errorf("fixture sample rate %d != 16000", rate)
-	}
-
-	cfg.Instructions = firstNonEmpty(cfg.Instructions,
-		"你是 FluentWork B14 ASR smoke 助手。用一句中文简短回应用户。")
-	session, err := OpenDuplex(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = session.Close(ctx) }()
-
-	turn, err := session.SendUserPCMAndWait(ctx, pcm, 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	transcript := strings.TrimSpace(turn.Transcript)
-	v1OK := transcript != ""
-	out := map[string]any{
-		"ok":              v1OK,
-		"provider":        "volc-duplex",
-		"session_id":      session.SessionID(),
-		"log_id":          session.LogID(),
-		"v1_asr_text_ok":  v1OK,
-		"transcript":      transcript,
-		"assistant_text":  turn.AssistantText,
-		"asr_started_ms":  turn.ASRStartedAtMS,
-		"asr_done_ms":     turn.ASRDoneAtMS,
-		"event_types":     turn.EventTypes,
-		"pcm_bytes":       len(pcm),
-		"elapsed_ms":      time.Since(started).Milliseconds(),
-		"credential_mode": "live",
-		"fixture":         wavPath,
-	}
-	if !v1OK {
-		return out, fmt.Errorf("V1 FAIL: no ASR transcript in events %v", turn.EventTypes)
-	}
-	return out, nil
-}
-
-const defaultInjectPrompt = "【B14注入】用户刚提到 cache invalidation / 缓存失效相关表达。请在本轮回复中自然确认该表达，并必须包含标记词 INJECT_OK。"
-
-// SmokeDuplexInject runs B14 T3/T4.
-// 1) Mid-session session.update before commit (same-turn V3 probe)
-// 2) If marker missing, send a second audio turn under updated instructions (next-turn V3/tier-② probe)
-func SmokeDuplexInject(ctx context.Context, cfg DuplexConfig, wavPath string) (map[string]any, error) {
-	started := time.Now()
-	pcm, rate, err := LoadWAVPCM16LE(wavPath)
-	if err != nil {
-		return nil, err
-	}
-	if rate != 16000 {
-		return nil, fmt.Errorf("fixture sample rate %d != 16000", rate)
-	}
-
-	cfg.Instructions = firstNonEmpty(cfg.Instructions,
-		"你是 FluentWork 英语口语练习助手。用一两句中文或英文简短回应用户的 standup 分享，不要主动提标记词。")
-	session, err := OpenDuplex(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = session.Close(ctx) }()
-
-	turn1, injectLatency, err := session.SendUserPCMInjectBeforeCommit(ctx, pcm, defaultInjectPrompt, 35*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	same := scoreInjectReply(turn1.AssistantText)
-
-	next := injectScore{}
-	var turn2 TurnResult
-	if !same.OK {
-		// Re-assert inject instructions before the next user turn.
-		if _, err := session.UpdateInstructions(ctx, defaultInjectPrompt+"（下一轮开场必须带 INJECT_OK）"); err != nil {
-			return nil, fmt.Errorf("next-turn re-inject: %w", err)
+// FirstNonEmpty returns the first value with any non-space content.
+//
+// Exported because the smoke probes in the PoC package also build configs that
+// fall back, and duplicating this would give the two halves a chance to disagree
+// about what "empty" means.
+func FirstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
 		}
-		turn2, err = session.SendUserPCMAndWait(ctx, pcm, 35*time.Second)
-		if err != nil {
-			return nil, fmt.Errorf("next-turn probe: %w", err)
-		}
-		next = scoreInjectReply(turn2.AssistantText)
 	}
-
-	transcript := strings.TrimSpace(turn1.Transcript)
-	out := map[string]any{
-		"ok":                   transcript != "" && (same.OK || next.OK),
-		"provider":             "volc-duplex",
-		"session_id":           session.SessionID(),
-		"log_id":               session.LogID(),
-		"inject_channel":       "session.update",
-		"inject_channel_ok":    true,
-		"inject_latency_ms":    injectLatency.Milliseconds(),
-		"v1_asr_text_ok":       transcript != "",
-		"v3_same_turn_ok":      same.OK,
-		"v3_next_turn_ok":      next.OK,
-		"v3_inject_effect_ok":  same.OK || next.OK,
-		"same_turn":            same,
-		"next_turn":            next,
-		"transcript":           transcript,
-		"assistant_text":       strings.TrimSpace(turn1.AssistantText),
-		"assistant_text_turn2": strings.TrimSpace(turn2.AssistantText),
-		"asr_started_ms":       turn1.ASRStartedAtMS,
-		"asr_done_ms":          turn1.ASRDoneAtMS,
-		"event_types":          turn1.EventTypes,
-		"event_types_turn2":    turn2.EventTypes,
-		"pcm_bytes":            len(pcm),
-		"elapsed_ms":           time.Since(started).Milliseconds(),
-		"credential_mode":      "live",
-		"fixture":              wavPath,
-		"b7_tier_hint":         tierHint(same.OK, next.OK),
-		"notes": []string{
-			"T3: session.update ack = inject channel exists (V2)",
-			"T4 same-turn: update before commit; control showed create-time instructions CAN force INJECT_OK",
-			"If only next-turn hits: prefer B7 tier ② (next-turn open confirm), pending T9 window",
-			"Single-trial ≠ V5 10-run ratio",
-		},
-	}
-	if transcript == "" {
-		return out, fmt.Errorf("T3/T4 FAIL: no ASR transcript; events=%v", turn1.EventTypes)
-	}
-	if !same.OK && !next.OK {
-		return out, fmt.Errorf("T3/T4 FAIL: neither same-turn nor next-turn showed inject effect; turn1=%q turn2=%q",
-			turn1.AssistantText, turn2.AssistantText)
-	}
-	return out, nil
+	return ""
 }
 
-type injectScore struct {
-	OK         bool `json:"ok"`
-	HitMarker  bool `json:"hit_marker"`
-	HitTopic   bool `json:"hit_topic"`
-	HitConfirm bool `json:"hit_confirm"`
-}
-
-func scoreInjectReply(assistant string) injectScore {
-	assistant = strings.TrimSpace(assistant)
-	s := injectScore{
-		HitMarker: containsFold(assistant, "INJECT_OK"),
-		HitTopic: containsFold(assistant, "cache") || containsFold(assistant, "invalidat") ||
-			containsFold(assistant, "缓存") || containsFold(assistant, "失效"),
-		HitConfirm: containsFold(assistant, "确认") || containsFold(assistant, "提到") ||
-			containsFold(assistant, "用到") || containsFold(assistant, "不错") ||
-			containsFold(assistant, "很好") || containsFold(assistant, "看到你") ||
-			containsFold(assistant, "got it") || containsFold(assistant, "covered") ||
-			containsFold(assistant, "key point"),
-	}
-	// For B14 evidence we require the explicit inject marker. The fixture itself
-	// already talks about cache invalidation, so topic+confirm alone is not
-	// strong enough to prove the mid-session update actually took effect.
-	s.OK = assistant != "" && s.HitMarker
-	return s
-}
-
-func tierHint(sameTurn, nextTurn bool) string {
-	switch {
-	case sameTurn:
-		return "candidate ① same-turn (needs T9 window ≥800ms to freeze)"
-	case nextTurn:
-		return "candidate ② next-turn open confirm (same-turn session.update ineffective in this trial)"
-	default:
-		return "candidate ③ badge only / need alternate inject API"
-	}
-}
-
-func containsFold(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
-}
-
+// chunkCount is how many vendor-sized chunks a payload becomes.
 func chunkCount(total, size int) int {
-	if total <= 0 || size <= 0 {
+	if size <= 0 {
 		return 0
 	}
 	return (total + size - 1) / size
 }
 
+// pcmAudioSeconds is the duration of s16le mono 16 kHz audio, rounded down.
 func pcmAudioSeconds(bytes int) int {
-	if bytes <= 0 {
-		return 0
-	}
-	return bytes / (16000 * 2)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
+	return bytes / (pcm16kChunkBytes * 50)
 }

@@ -3,7 +3,7 @@ package voicegateway
 import (
 	"testing"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -35,8 +35,8 @@ func TestTurnToOutboundTerminatesTheAudioStreamAfterTheAudio(t *testing.T) {
 	sess.turnStarted = timeNow()
 
 	// 48000 bytes at 24 kHz mono s16le = 1 second of audio.
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
-		Outcome:  voicepoc.TurnOutcomeOK,
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
+		Outcome:  voiceduplex.TurnOutcomeOK,
 		AudioPCM: make([]byte, 48000),
 	})
 
@@ -72,8 +72,8 @@ func TestTurnToOutboundTerminatesTheAudioStreamAfterTheAudio(t *testing.T) {
 	if marker.TurnID != "turn-1" {
 		t.Fatalf("turn_id = %q, want turn-1 — the marker has to name the stream it ends", marker.TurnID)
 	}
-	if marker.CompletionStatus != string(voicepoc.TurnOutcomeOK) {
-		t.Fatalf("completion_status = %q, want %q", marker.CompletionStatus, voicepoc.TurnOutcomeOK)
+	if marker.CompletionStatus != string(voiceduplex.TurnOutcomeOK) {
+		t.Fatalf("completion_status = %q, want %q", marker.CompletionStatus, voiceduplex.TurnOutcomeOK)
 	}
 	if marker.DurationMs == nil || *marker.DurationMs != 1000 {
 		t.Fatalf("duration_ms = %v, want 1000 for 48000 bytes at 24 kHz mono s16le", marker.DurationMs)
@@ -88,7 +88,7 @@ func TestTurnToOutboundStillTerminatesWhenThereIsNoAudio(t *testing.T) {
 	sess, _ := streamableSession(t)
 	sess.turnStarted = timeNow()
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{Outcome: voicepoc.TurnOutcomeOK})
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{Outcome: voiceduplex.TurnOutcomeOK})
 
 	for _, item := range outbound {
 		if _, ok := item.Control.(voiceproto.AITTSEnd); ok {

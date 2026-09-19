@@ -26,7 +26,17 @@ type ProviderOutbound struct {
 // B13 starts by routing the current mock behavior through this seam so live
 // providers can plug in without leaking vendor types into handler.go.
 type VoiceProvider interface {
-	Open(ctx context.Context, ticket ConsumedTicket) (VoiceProviderSession, error)
+	// Open builds one provider session.
+	//
+	// audioSeq is the session's frame-number allocator, and it is passed in
+	// rather than kept by the provider on purpose: the numbering must survive a
+	// provider session being replaced (a transparent reopen), and a value the
+	// provider owns is a value somebody has to remember to carry across. The same
+	// allocator is handed to every Open call for one client session, so the
+	// numbering simply continues. See SeqAllocator.
+	//
+	// A provider that emits no client-bound audio frames may ignore it.
+	Open(ctx context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error)
 }
 
 // ContinuationTurn is one transcript turn of a previous session, handed to a
@@ -58,28 +68,6 @@ type VoiceProviderSession interface {
 	Close(ctx context.Context) error
 }
 
-// SequencedVoiceProviderSession is a VoiceProviderSession that numbers the
-// binary audio frames it emits.
-//
-// The numbering is a contract with the client, not with the vendor. iOS drops
-// every frame at or below the watermark its last barge-in set, and that
-// watermark lives for the whole WebSocket session — it is cleared by
-// start/stopCapture, never between turns. `nextAudioSeq` is monotonic on
-// exactly that account.
-//
-// A transparent reopen builds a *fresh* provider session, so the counter would
-// restart at 1 behind a watermark already in the hundreds. Every later frame is
-// then discarded: the transcript keeps working (it does not go through the
-// client's gate) and all audio is gone for the rest of the run. The handler
-// carries the value across — see carryAudioSequence.
-type SequencedVoiceProviderSession interface {
-	VoiceProviderSession
-	// NextAudioSequence is the number the next emitted frame will carry.
-	NextAudioSequence() uint32
-	// AdoptAudioSequence continues numbering from a replaced session's value.
-	AdoptAudioSequence(uint32)
-}
-
 // StreamingVoiceProviderSession is a VoiceProviderSession that can push
 // outbounds while a control call is still in flight.
 //
@@ -108,7 +96,10 @@ type MockVoiceProvider struct {
 }
 
 // Open starts a mock provider session for one gateway conversation.
-func (p MockVoiceProvider) Open(_ context.Context, _ ConsumedTicket) (VoiceProviderSession, error) {
+//
+// The mock's nextSeq numbers its *own* mock playback frames, not client-bound
+// audio — it emits none — so it keeps its own counter and ignores the allocator.
+func (p MockVoiceProvider) Open(_ context.Context, _ ConsumedTicket, _ *SeqAllocator) (VoiceProviderSession, error) {
 	return &mockVoiceProviderSession{nextSeq: 1, serverASRText: p.ServerASRText}, nil
 }
 

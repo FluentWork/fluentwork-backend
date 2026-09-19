@@ -69,7 +69,9 @@ func TestFixtureAudioFramesCarryTheWireSequenceHeader(t *testing.T) {
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.Fixture = voicegateway.DevEchoFixtureGenerator(40) // 2 × 20ms chunks
 
-	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s-fix"})
+	sess, err := provider.Open(
+		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-fix"}, &voicegateway.SeqAllocator{},
+	)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -97,8 +99,10 @@ func TestFixtureAudioFramesCarryTheWireSequenceHeader(t *testing.T) {
 	if len(seqs) != 2 {
 		t.Fatalf("got %d audio frames, want 2", len(seqs))
 	}
-	if seqs[0] != 0 || seqs[1] != 1 {
-		t.Fatalf("sequences must be monotonic from 0, got %v", seqs)
+	// Numbers start at 1: the wire field is the frame's identity and 0 is
+	// reserved for "unset" on the client's side.
+	if seqs[0] != 1 || seqs[1] != 2 {
+		t.Fatalf("sequences must be monotonic from 1, got %v", seqs)
 	}
 	for i, payload := range payloads {
 		if len(payload)%2 != 0 {

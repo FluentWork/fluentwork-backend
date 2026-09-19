@@ -144,7 +144,7 @@ type rescueProvider struct {
 	bootstrap rescueBootstrap
 }
 
-func (p *rescueProvider) Open(context.Context, ConsumedTicket) (VoiceProviderSession, error) {
+func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator) (VoiceProviderSession, error) {
 	return &rescueProviderSession{bootstrap: p.bootstrap}, nil
 }
 
@@ -221,7 +221,7 @@ func (a *rescueAudioSynthesizer) Synthesize(ctx context.Context, text, turnID st
 	}
 	pcm := a.pcm
 	if pcm == nil {
-		pcm = make([]byte, RescueAudioFrameBytes*3)
+		pcm = make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*3)
 	}
 	voice := a.voice
 	if voice == "" {
@@ -493,8 +493,8 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 			t.Fatalf("level %d audio frames = %d, want 3", step.level, len(frames))
 		}
 		for i, audio := range frames {
-			if len(audio.Payload) != RescueAudioFrameBytes {
-				t.Errorf("level %d frame %d payload = %d bytes, want %d", step.level, i, len(audio.Payload), RescueAudioFrameBytes)
+			if len(audio.Payload) != ClientAudioFormat.FrameBytes(ClientFrameMS) {
+				t.Errorf("level %d frame %d payload = %d bytes, want %d", step.level, i, len(audio.Payload), ClientAudioFormat.FrameBytes(ClientFrameMS))
 			}
 			if i > 0 && audio.Seq <= frames[i-1].Seq {
 				t.Errorf("level %d frame %d seq = %d, want > %d", step.level, i, audio.Seq, frames[i-1].Seq)
@@ -838,7 +838,7 @@ func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
 	t.Parallel()
 
 	const total = 30
-	synth := &rescueAudioSynthesizer{pcm: make([]byte, RescueAudioFrameBytes*total)}
+	synth := &rescueAudioSynthesizer{pcm: make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*total)}
 	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, synth)
 	conn, _ := rig.connect(t)
 

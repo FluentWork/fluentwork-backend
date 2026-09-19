@@ -394,9 +394,21 @@ type sessionRuntime struct {
 	rescueSpeechMu   sync.Mutex
 	rescueSpeechTurn string
 	rescueSpeechGen  uint64
-	// B8: nextRescueSeq numbers the ladder's own binary audio frames. It shares a
-	// numbering space with the provider — see nextRescueAudioSeq.
-	nextRescueSeq atomic.Uint32
+	// sessionID is this runtime's session, for the paths that report about it
+	// without having the ticket in hand — the provider's outbound hooks, which
+	// run on whichever goroutine is relaying vendor output.
+	sessionID string
+	// warn reports through the handler's deduplicating warn path. It is carried
+	// as a function because those same hooks do not have the *Handler either.
+	warn func(key, msg string, args ...any)
+	// turn is this session's current conversational turn: its identity and the
+	// legal ordering of its events. See turn.go for what it replaced.
+	turn *Turn
+	// audioSeq numbers every binary audio frame this session sends to the client,
+	// whoever sends it: the provider streaming the AI's speech, or the rescue
+	// ladder. One allocator per client session, because the client's barge-in
+	// watermark is per WebSocket session and does not distinguish producers.
+	audioSeq *SeqAllocator
 }
 
 // clock returns the runtime's clock, defaulting to time.Now so a directly-built
@@ -491,12 +503,16 @@ func (rt *sessionRuntime) sendWithoutRescueState(ctx context.Context, conn *webs
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
 	rt := &sessionRuntime{
+		sessionID:          session.SessionID,
+		turn:               NewTurn(session.SessionID),
+		audioSeq:           &SeqAllocator{},
 		writeTimeout:       h.writeTimeout,
 		silenceDetector:    h.rescueDetectorForSession(),
 		rescueOrchestrator: h.rescueOrchestrator,
 		rescueTick:         h.rescueTick,
 		now:                h.now,
 	}
+	rt.warn = func(key, msg string, args ...any) { h.logWarn(rt, key, msg, args...) }
 	defer func() {
 		rt.close(ctx)
 		h.persistOnExit(ctx, rt, session, loopErr)
@@ -518,7 +534,7 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 			}
 			continue
 		case websocket.MessageText:
-			if err := h.handleControl(ctx, conn, session, data, rt); err != nil {
+			if err := h.HandleControl(ctx, conn, session, data, rt); err != nil {
 				if errors.Is(err, errSessionEnded) {
 					return nil
 				}
@@ -528,27 +544,6 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 			continue
 		}
 	}
-}
-
-// carryAudioSequence hands the gateway→client frame numbering from a provider
-// session being replaced to the one replacing it.
-//
-// The numbers must not restart across the reopen: the client's barge-in
-// watermark outlives the provider session that set it, and it discards every
-// frame at or below itself. See SequencedVoiceProviderSession.
-//
-// Providers that do not number their frames (mock, dev-echo) simply do not
-// implement the interface and are left alone.
-func carryAudioSequence(previous, next VoiceProviderSession) {
-	from, ok := previous.(SequencedVoiceProviderSession)
-	if !ok {
-		return
-	}
-	to, ok := next.(SequencedVoiceProviderSession)
-	if !ok {
-		return
-	}
-	to.AdoptAudioSequence(from.NextAudioSequence())
 }
 
 func (h *Handler) handleAudio(
@@ -580,7 +575,10 @@ func (h *Handler) handleAudio(
 		// same ticket and retry the chunk before giving up on the session.
 		if !rt.reopenAttempted {
 			rt.reopenAttempted = true
-			reopened, openErr := h.provider.Open(ctx, session)
+			// Same allocator as the session being replaced, so the numbering
+			// continues instead of restarting behind the client's barge-in
+			// watermark. There is nothing to carry: see SeqAllocator.
+			reopened, openErr := h.provider.Open(ctx, session, rt.audioSeq)
 			if openErr == nil {
 				// The same frame the session opened with, not a blank one: a
 				// reopened session that has forgotten what the practice is
@@ -591,7 +589,6 @@ func (h *Handler) handleAudio(
 					reopenStart = *rt.lastStart
 				}
 				if _, startErr := reopened.Start(ctx, reopenStart, rt.continuation); startErr == nil {
-					carryAudioSequence(rt.provider, reopened)
 					rt.provider = reopened
 					attachOutboundEmitter(ctx, conn, rt, reopened)
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",
@@ -630,286 +627,6 @@ func (h *Handler) handleAudio(
 		return fmt.Errorf("provider audio forward failed: %w", err)
 	}
 	return rt.sendOutbound(ctx, conn, outbound)
-}
-
-func (h *Handler) handleControl(
-	ctx context.Context,
-	conn *websocket.Conn,
-	session ConsumedTicket,
-	data []byte,
-	rt *sessionRuntime,
-) error {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil {
-		return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-			Type:    voiceproto.TypeError,
-			Code:    "invalid_frame",
-			Message: err.Error(),
-		})
-	}
-
-	switch frameType {
-	case voiceproto.TypePing:
-		var ping voiceproto.Ping
-		if err := json.Unmarshal(data, &ping); err != nil {
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "invalid_frame",
-				Message: err.Error(),
-			})
-		}
-		ts := ping.TS
-		if ts == 0 {
-			ts = h.now().UnixMilli()
-		}
-		return rt.sendJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
-
-	case voiceproto.TypeSessionStart:
-		var start voiceproto.SessionStart
-		if err := json.Unmarshal(data, &start); err != nil {
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "invalid_frame",
-				Message: err.Error(),
-			})
-		}
-		if !rt.started {
-			if h.lifecycle != nil {
-				if err := h.lifecycle.Activate(ctx, session.SessionID); err != nil {
-					h.logger.Warn("session activate failed", "session_id", session.SessionID, "err", err)
-					return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-						Type:    voiceproto.TypeError,
-						Code:    "activate_failed",
-						Message: err.Error(),
-					})
-				}
-			}
-			provider, err := h.provider.Open(ctx, session)
-			if err != nil {
-				h.logger.Warn("provider open failed", "session_id", session.SessionID, "err", err)
-				return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-					Type:    voiceproto.TypeError,
-					Code:    "provider_open_failed",
-					Message: err.Error(),
-				})
-			}
-			rt.provider = provider
-			attachOutboundEmitter(ctx, conn, rt, provider)
-			rt.started = true
-			rt.startedAt = h.now().UTC()
-		}
-		h.logger.Info("session.start accepted",
-			"session_id", session.SessionID,
-			"user_id", session.UserID,
-			"stage", "orchestration",
-		)
-		rt.lastStart = &start
-		// B8: what the rescue generator is told the practice is about. SceneType
-		// is the only scene information this frame carries, and MaterialID stands
-		// in when a client omits it — a ladder generated against no context at
-		// all is generic encouragement, which is the failure mode the level-3
-		// example exists to avoid.
-		rt.noteScenario(start.SceneType, start.MaterialID)
-		// Resolved once, before the first Start, so the reopened path replays
-		// the same context (see rt.continuation). A refusal is not fatal: the
-		// session opens without the tail, which is what it would have done
-		// before this existed. Failing the whole session because a
-		// nice-to-have lookup missed would trade a small loss for a total one.
-		if previous := strings.TrimSpace(start.ContinueFromSessionID); previous != "" && h.lifecycle != nil {
-			turns, ctxErr := h.lifecycle.ContinuationContext(ctx, session.SessionID, previous, 0)
-			switch {
-			case ctxErr != nil:
-				h.logger.Warn("continuation context unavailable; opening without it",
-					"session_id", session.SessionID,
-					"continue_from_session_id", previous,
-					"err", ctxErr,
-				)
-			default:
-				rt.continuation = turns
-				h.logger.Info("continuation context resolved",
-					"session_id", session.SessionID,
-					"continue_from_session_id", previous,
-					"turns", len(turns),
-					"stage", "orchestration",
-				)
-			}
-		}
-		outbound, err := rt.provider.Start(ctx, start, rt.continuation)
-		if err != nil {
-			h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "provider_start_failed",
-				Message: err.Error(),
-			})
-		}
-		return rt.sendOutbound(ctx, conn, outbound)
-
-	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd:
-		if !rt.started {
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "session_not_started",
-				Message: "send session.start first",
-			})
-		}
-		h.logger.Info("voice user speech frame",
-			"session_id", session.SessionID,
-			"type", frameType,
-			"stage", "asr",
-		)
-		// The transparent reopen budget belongs to a turn, not to the session.
-		// A session-lifetime budget was exhausted by the first upstream hiccup,
-		// and since volc-duplex loses its duplex roughly once per turn, the
-		// next failure killed the session outright.
-		if frameType == voiceproto.TypeUserSpeechStart && rt.reopenAttempted {
-			rt.reopenAttempted = false
-			h.logger.Info("reopen budget refilled for the new turn",
-				"session_id", session.SessionID,
-				"stage", "orchestration",
-			)
-		}
-		// B8: the user opening their mouth restarts the ladder. It deliberately
-		// does not move the silence window — an utterance that turns out to be
-		// incomplete must not buy another three seconds. See SilenceDetector.
-		if frameType == voiceproto.TypeUserSpeechStart {
-			rt.noteUserSpeechStart()
-		}
-		if frameType == voiceproto.TypeUserSpeechEnd {
-			h.noteUserSpeechEnd(ctx, conn, rt, data)
-			return h.startCollectTurn(ctx, conn, rt, session, data)
-		}
-		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
-		if err != nil {
-			h.logger.Warn("provider control forward failed",
-				"session_id", session.SessionID,
-				"type", frameType,
-				"err", err,
-			)
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "provider_control_failed",
-				Message: err.Error(),
-			})
-		}
-		return rt.sendOutbound(ctx, conn, outbound)
-
-	case voiceproto.TypeClientTurnAbort:
-		// I20: recording abort. iOS already stopped PCM and will not send
-		// user.speech.end. Accepting this frame (instead of unsupported_frame)
-		// keeps the session alive for the next user.speech.start.
-		var abort voiceproto.ClientTurnAbort
-		if err := json.Unmarshal(data, &abort); err != nil {
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "invalid_frame",
-				Message: err.Error(),
-			})
-		}
-		if !voiceproto.ValidClientTurnAbortOutcome(abort.Outcome) {
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "invalid_frame",
-				Message: "client.turn.abort.outcome must be timeout, user_abandoned, or error",
-			})
-		}
-		h.logger.Info("client.turn.abort accepted",
-			"session_id", session.SessionID,
-			"turn_id", strings.TrimSpace(abort.TurnID),
-			"outcome", abort.Outcome,
-			"stage", "asr",
-		)
-		if !rt.started || rt.provider == nil {
-			return nil
-		}
-		// B8: an abandoned recording is an unfinished utterance, so the ladder
-		// stays armed (docs/78 §5.3 case 2) — but the user has stopped talking,
-		// so rescue must stop being suspended.
-		rt.noteTurnAbort()
-		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
-		if err != nil {
-			// Do not emit error frames here: iOS maps them to .failed and
-			// would kill the session this frame exists to keep alive.
-			h.logger.Warn("provider turn abort forward failed; session stays open",
-				"session_id", session.SessionID,
-				"turn_id", strings.TrimSpace(abort.TurnID),
-				"err", err,
-			)
-			return nil
-		}
-		return rt.sendOutbound(ctx, conn, outbound)
-
-	case voiceproto.TypeInterrupt:
-		h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
-		if !rt.started || rt.provider == nil {
-			return nil
-		}
-		outbound, err := rt.provider.HandleClientControl(ctx, frameType, data)
-		if err != nil {
-			h.logger.Warn("provider interrupt forward failed", "session_id", session.SessionID, "err", err)
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "provider_interrupt_failed",
-				Message: err.Error(),
-			})
-		}
-		return rt.sendOutbound(ctx, conn, outbound)
-
-	case voiceproto.TypeSessionEnd:
-		var end voiceproto.SessionEnd
-		if err := json.Unmarshal(data, &end); err != nil {
-			h.logger.Warn("session.end frame decode failed", "err", err, "raw", string(data))
-		}
-		reason := strings.TrimSpace(end.Reason)
-		if reason == "" {
-			reason = "user"
-		}
-		rt.collectWG.Wait()
-		durationSec, err := h.persistSession(ctx, rt, session, reason)
-		if err != nil {
-			h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
-			return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "end_failed",
-				Message: err.Error(),
-			})
-		}
-		rt.ended = true
-		h.logger.Info("session.end persisted",
-			"session_id", session.SessionID,
-			"duration_sec", durationSec,
-			"utterance_count", len(rt.snapshotUtterances()),
-			"unknown_frame_count", rt.unknownFrameCount,
-			"stage", "orchestration",
-		)
-		_ = rt.sendJSON(ctx, conn, map[string]any{
-			"type":   voiceproto.TypeSessionEnd,
-			"reason": "ack",
-		})
-		_ = conn.Close(websocket.StatusNormalClosure, "session ended")
-		return errSessionEnded
-
-	case voiceproto.TypeAuth:
-		return rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-			Type:    voiceproto.TypeError,
-			Code:    "already_authenticated",
-			Message: "auth already completed",
-		})
-
-	default:
-		// Ignore unknown types. Emitting unsupported_frame used to map to
-		// iOS .failed and killed live sessions (client.turn.abort before
-		// 5c2e39f). A later protocol version adding a new client frame
-		// must not repeat that on an older gateway.
-		rt.unknownFrameCount++
-		h.logWarn(rt, "unknown_frame",
-			"ignoring unknown control frame",
-			"session_id", session.SessionID,
-			"type", frameType,
-			"unknown_frame_count", rt.unknownFrameCount,
-		)
-		return nil
-	}
 }
 
 // startCollectTurn runs WaitTurnResult off the WSS read loop.
@@ -957,36 +674,41 @@ func (h *Handler) startCollectTurn(
 			)
 			return
 		}
-		if h.clientASRRequired {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				if strings.TrimSpace(end.Text) == "" {
-					_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-						Type:    voiceproto.TypeError,
-						Code:    "client_asr_required",
-						Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
-					})
-				}
-			}
+		// One parse for everything that needs the frame: the ASR gate, the badge,
+		// and the rescue anchor. It used to be unmarshalled three times here and
+		// the "which text is the user's" rule written twice, so a change to one
+		// copy could leave the badge and the anchor disagreeing about the same
+		// utterance — a mismatch that shows up as a bad anchor weeks later.
+		var end voiceproto.UserSpeechEnd
+		_ = json.Unmarshal(data, &end)
+
+		if h.clientASRRequired && strings.TrimSpace(end.Text) == "" {
+			_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
+				Type:    voiceproto.TypeError,
+				Code:    "client_asr_required",
+				Message: "user.speech.end.text is required when VOICE_CLIENT_ASR_REQUIRED is enabled",
+			})
+		}
+		// The user's text, resolved once: what they said, or the provider's
+		// server-side transcript when the client sent none.
+		userText := strings.TrimSpace(end.Text)
+		if userText == "" {
+			userText = extractServerASRText(outbound)
+		}
+		// The turn's name, resolved once, by the turn itself. The badge, the
+		// ladder and the end-of-session report all say the same word for the same
+		// turn because they all read it from here.
+		turnID := rt.turn.ID()
+		if turnID == "" {
+			turnID = session.SessionID
 		}
 		if h.badgeEmitter != nil {
-			var end voiceproto.UserSpeechEnd
-			if jsonErr := json.Unmarshal(data, &end); jsonErr == nil {
-				turnID := strings.TrimSpace(end.TurnID)
-				if turnID == "" {
-					turnID = session.SessionID
-				}
-				asrText := strings.TrimSpace(end.Text)
-				if asrText == "" {
-					asrText = extractServerASRText(outbound)
-				}
-				h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, asrText)
-			}
+			h.badgeEmitter.Emit(ctx, realBadgeConn{conn}, session.UserID, session.SessionID, turnID, userText)
 		}
 		// B8 → D1: the silent path's anchor is whatever the user managed to say
 		// after the ladder, so the rescue log needs the same resolved text the
 		// badge emitter uses. See rescueLog.noteUserText.
-		rt.noteUserUtteranceText(resolvedUserText(data, outbound))
+		rt.noteUserUtteranceText(userText)
 	}()
 	return nil
 }
@@ -1055,15 +777,6 @@ func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound [
 // client's own text and falling back to the provider's server-side ASR — the
 // same resolution the badge emitter performs. Empty means the turn produced no
 // text we can use as an anchor.
-func resolvedUserText(data []byte, outbound []ProviderOutbound) string {
-	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(data, &end); err == nil {
-		if text := strings.TrimSpace(end.Text); text != "" {
-			return text
-		}
-	}
-	return extractServerASRText(outbound)
-}
 
 func extractServerASRText(outbound []ProviderOutbound) string {
 	for _, item := range outbound {

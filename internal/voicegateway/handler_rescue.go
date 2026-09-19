@@ -173,12 +173,14 @@ func (h *Handler) emitRescue(
 // sendRescueAudio speaks one rung and reports whether it finished uninterrupted.
 //
 // The rung goes out **at the pace it is spoken**, not as fast as the socket
-// accepts it. Writing all ~25 frames the moment they are synthesised means the
-// audio is over before the learner could react to it: the frames sit in the
-// kernel buffer, the interrupt arrives afterwards, and the client plays the
-// whole rung anyway. The pacing is one frame per 100 ms of audio — exactly the
-// rate the provider streams the AI's own speech, and the rate the client's
-// playback gate was built around.
+// accepts it — and that pacing now lives in the utterance writer, along with the
+// framing and the end-of-stream rule, because the provider needs the same three
+// things for the AI's own speech. Two copies of them had already drifted:
+// dev-echo numbered frames from 0 and volc from 1.
+//
+// The write path is sendWithoutRescueState: the ladder's audio must not be fed
+// back into the silence detector as if it were the AI taking a turn, or every
+// rung would reset the window that decides the next one.
 func (h *Handler) sendRescueAudio(
 	ctx context.Context,
 	conn *websocket.Conn,
@@ -187,37 +189,36 @@ func (h *Handler) sendRescueAudio(
 	turnID string,
 	token uint64,
 ) bool {
-	frames := RescueAudioOutbound(audio, turnID, rt.nextRescueAudioSeq)
-	if len(frames) == 0 {
-		return false
-	}
-	// The last frame is the ai.tts.end for the uninterrupted case: it is sent
-	// only if the rung survives to the end. Interruption sends its own end.
-	end := frames[len(frames)-1]
-	// The start frame is written immediately — it carries no audio, and the
-	// client will not accept binary frames until it has seen one.
-	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{frames[0]}); err != nil {
+	writer, err := beginUtterance(Utterance{
+		ID:      turnID,
+		Kind:    UtteranceLadder,
+		Format:  AudioFormat{SampleRate: audio.SampleRate, Channels: 1, BitsPerSample: 16},
+		VoiceID: audio.VoiceID,
+		Codec:   audio.Codec,
+	}, func(outbound []ProviderOutbound) error {
+		return rt.sendWithoutRescueState(ctx, conn, outbound)
+	}, rt.audioSeq, func() bool {
+		return rt.rescueSpeechCurrent(token)
+	})
+	if err != nil {
 		h.logRescueAudioFailure(turnID, err)
 		return false
 	}
-
-	pace := time.NewTicker(RescueAudioFrameBytes * time.Millisecond / 32) // 100 ms of 16 kHz s16le
-	defer pace.Stop()
-	for _, frame := range frames[1 : len(frames)-1] {
-		if !rt.rescueSpeechCurrent(token) {
-			return false
-		}
-		select {
-		case <-pace.C:
-		case <-ctx.Done():
-			return false
-		}
-		if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{frame}); err != nil {
-			h.logRescueAudioFailure(turnID, err)
-			return false
-		}
+	if err := writer.Audio(audio.PCM); err != nil {
+		h.logRescueAudioFailure(turnID, err)
+		return false
 	}
-	return rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{end}) == nil
+	// Stop here if the read loop already ended this stream because the learner
+	// spoke: they are answering the ladder, which is what it was for.
+	if !rt.rescueSpeechCurrent(token) {
+		return false
+	}
+	if err := writer.End(); err != nil {
+		h.logRescueAudioFailure(turnID, err)
+		return false
+	}
+	rt.finishRescueSpeech(token)
+	return true
 }
 
 // logRescueAudioFailure records a failed audio write. Not deduplicated: the text
@@ -273,8 +274,10 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 // rungs, so without this guard an unanswered turn is re-nagged from 33s onward
 // by a feature whose whole purpose is to stop nagging.
 func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string) {
-	switch outcome {
-	case voiceproto.TurnOutcomeTimeout, voiceproto.TurnOutcomeError:
+	// Every outcome closes the turn, including the ones rescue ignores: a
+	// timeout ended the turn as surely as an answer did.
+	rt.applyTurnEvent(EvAIEnd)
+	if !turnOutcomeSpoke(outcome) {
 		return
 	}
 	if tr := strings.TrimSpace(turnID); tr != "" {
@@ -318,9 +321,36 @@ func (rt *sessionRuntime) noteScenario(sceneType, materialID string) {
 	rt.rescueMu.Unlock()
 }
 
+// applyTurnEvent advances the turn and reports a refused event.
+//
+// The reporting is the point of the rejection counter: an event the client sent
+// in an order the machine does not allow is a client bug, and the alternative to
+// counting it is a packet capture. It is deduplicated through the handler's warn
+// path because a client that does this once per turn does it on every turn.
+func (rt *sessionRuntime) applyTurnEvent(ev TurnEvent) {
+	if !rt.turn.Apply(ev) {
+		rt.reportTurnRejection(ev)
+	}
+}
+
+func (rt *sessionRuntime) reportTurnRejection(ev TurnEvent) {
+	if rt.warn == nil {
+		return
+	}
+	rt.warn("turn_transition_rejected",
+		"turn state machine refused an event; the client's ordering is unexpected",
+		"session_id", rt.sessionID,
+		"event", ev.String(),
+		"state", rt.turn.State().String(),
+	)
+}
+
 // noteUserSpeechStart restarts the ladder for a fresh attempt and pushes the
 // user's previous AI message into the history.
 func (rt *sessionRuntime) noteUserSpeechStart() {
+	// The state machine is told first, and unconditionally: a turn's ordering is
+	// session truth, not a rescue concern. Rescue is one consumer of it.
+	rt.applyTurnEvent(EvUserSpeechStart)
 	if !rt.rescueEnabled() {
 		return
 	}
@@ -338,11 +368,20 @@ func (rt *sessionRuntime) noteUserSpeechStart() {
 // user who did answer, and a spurious skeleton prompt is a worse failure than a
 // missing one.
 func (h *Handler) noteUserSpeechEnd(ctx context.Context, conn *websocket.Conn, rt *sessionRuntime, data []byte) {
+	// The turn advances before anything rescue-shaped happens, and even when
+	// rescue is switched off: which turn we are in and what it is called is
+	// session truth that every consumer reads, not a property of one feature.
+	var end voiceproto.UserSpeechEnd
+	parseErr := json.Unmarshal(data, &end)
+	if parseErr == nil {
+		if !rt.turn.ApplySpeechEnd(end.TurnID) {
+			rt.reportTurnRejection(EvUserSpeechEnd)
+		}
+	}
 	if !rt.rescueEnabled() {
 		return
 	}
-	var end voiceproto.UserSpeechEnd
-	if err := json.Unmarshal(data, &end); err != nil {
+	if parseErr != nil {
 		rt.silenceDetector.OnUserSpeechEnd(rt.clock(), true)
 		return
 	}
@@ -400,6 +439,7 @@ func (rt *sessionRuntime) snapshotRescueEvents() []EndRescueEvent {
 // noteTurnAbort handles an abandoned recording: the user stopped talking without
 // finishing, so the ladder stays armed but rescue is no longer suspended.
 func (rt *sessionRuntime) noteTurnAbort() {
+	rt.applyTurnEvent(EvTurnAbort)
 	if !rt.rescueEnabled() {
 		return
 	}
@@ -484,6 +524,21 @@ func (rt *sessionRuntime) beginRescueSpeech(turnID string) uint64 {
 	return rt.rescueSpeechGen
 }
 
+// finishRescueSpeech releases the stream after the ladder ended it normally.
+//
+// It does not send the end frame — the writer already did, which is the point of
+// having one owner for that: this call only clears the state that tells the read
+// loop a rung is in progress. The token check keeps a late finisher from clearing
+// a newer rung's state.
+func (rt *sessionRuntime) finishRescueSpeech(token uint64) {
+	rt.rescueSpeechMu.Lock()
+	defer rt.rescueSpeechMu.Unlock()
+	if rt.rescueSpeechGen != token {
+		return
+	}
+	rt.rescueSpeechTurn = ""
+}
+
 // rescueSpeechCurrent reports whether token still owns the audio stream.
 func (rt *sessionRuntime) rescueSpeechCurrent(token uint64) bool {
 	rt.rescueSpeechMu.Lock()
@@ -516,7 +571,16 @@ func (rt *sessionRuntime) stopRescueSpeech(
 	rt.rescueSpeechTurn = ""
 	rt.rescueSpeechMu.Unlock()
 
-	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{RescueAudioInterrupted(turnID)}); err != nil && warn != nil {
+	// The end frame is sent from *this* goroutine, not by the writer: the user is
+	// talking right now, and waiting for the ladder's goroutine to notice would
+	// leave the client playing over them. The writer sees the cleared state
+	// before its own End and stays silent, so the stream gets exactly one end.
+	end := voiceproto.AITTSEnd{
+		Type:             voiceproto.TypeAITTSEnd,
+		TurnID:           turnID,
+		CompletionStatus: "interrupted",
+	}
+	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{{Control: end}}); err != nil && warn != nil {
 		// The learner has already started talking; a failed stop costs them a
 		// second of talking over the ladder, not the session.
 		warn("rescue_interrupt_failed",
@@ -525,32 +589,4 @@ func (rt *sessionRuntime) stopRescueSpeech(
 			"err", err,
 		)
 	}
-}
-
-// nextRescueAudioSeq allocates the next binary audio sequence number for a rung.
-//
-// The numbering is shared with the provider on purpose. The client's gate drops
-// whole frames at and below the watermark its last barge-in set, and that
-// watermark lives for the entire WebSocket session — so a rung numbered from
-// zero would be dropped in silence after any interrupt. The allocator therefore
-// jumps to whatever the provider has reached (the provider's counter is only
-// readable with the write lock held, since it advances in the provider's own
-// goroutine) and counts up from there.
-//
-// A gap when the ladder catches up is harmless; the client only requires
-// monotonicity. Collisions are not: the provider's counter lives in the provider
-// goroutine, so an atomic max keeps the two from handing out the same number.
-func (rt *sessionRuntime) nextRescueAudioSeq() uint32 {
-	rt.writeMu.Lock()
-	if seq, ok := rt.provider.(SequencedVoiceProviderSession); ok && seq != nil {
-		for {
-			have := rt.nextRescueSeq.Load()
-			want := seq.NextAudioSequence() + 1
-			if have >= want || rt.nextRescueSeq.CompareAndSwap(have, want) {
-				break
-			}
-		}
-	}
-	rt.writeMu.Unlock()
-	return rt.nextRescueSeq.Add(1)
 }

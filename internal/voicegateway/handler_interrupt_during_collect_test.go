@@ -68,7 +68,7 @@ type blockingCollectProvider struct {
 	session *blockingCollectSession
 }
 
-func (p *blockingCollectProvider) Open(context.Context, voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *blockingCollectProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	return p.session, nil
 }
 

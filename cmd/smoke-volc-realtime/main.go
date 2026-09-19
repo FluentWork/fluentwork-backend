@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
@@ -69,7 +70,7 @@ func run() error {
 		return fmt.Errorf("VOLC_SPEECH_API_KEY / VOLC_POC_API_KEY is empty; fill .env.volc.local")
 	}
 
-	cfg := voicepoc.DuplexConfig{
+	cfg := voiceduplex.DuplexConfig{
 		APIKey:   apiKey,
 		Endpoint: strings.TrimSpace(os.Getenv("VOLC_POC_ENDPOINT")),
 		Model:    firstNonEmpty(os.Getenv("VOLC_DUPLEX_MODEL"), "1.2.6.0"),

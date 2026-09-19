@@ -12,6 +12,44 @@ linters:
     - revive
     - staticcheck
     - unused
+    # 接缝纪律 R6（docs/99_ / AGENTS.md §7）：依赖方向要能跑。
+    # 这里是机器执行的部分；判据写在规则里，违反即红。
+    - depguard
+
+  settings:
+    depguard:
+      rules:
+        # voicegateway 是语音链路的**核心**层：它编排会话与 turn，
+        # 不该知道某一次发言是怎么产生的、也不该知道回顾管线长什么样。
+        main:
+          files:
+            - "**/internal/voicegateway/**"
+          deny:
+            # 梯子的文本与音频都走 HTTP 到 app-server（docs/92）。
+            # 进程内 import 会让语音进程把 TTS/Router/Manager 全拖进来，
+            # 也是"第二条调用路径"的开端。
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/content/tts"
+              desc: "语音链路不进程内调 TTS；走 HTTPSessionClient/HTTPRescueSynthesizer 到 app-server"
+            # conversation 只应用它的**协议类型**（RescueLevel 等）。
+            # 它背后的 reviewgen/eval/account 属于回顾与账号域，与语音无关——
+            # 2026-09-18 这条依赖让 voicegateway 传递依赖了 reviewgen + eval。
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/reviewgen"
+              desc: "回顾管线属于 app-server；语音链路不该依赖它"
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/eval"
+              desc: "评估集属于 app-server；语音链路不该依赖它"
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/account"
+              desc: "账号域属于 app-server；语音链路不该依赖它"
+
+        # voicepoc 是 PoC 与测量工具的包：WER、注入窗口探针、smoke 入口。
+        # 生产代码不得依赖它——这个边界此前只存在于读者的判断里，而
+        # voicepoc 里当时装着**生产的语音传输层**（已拆到 voiceduplex，
+        # docs/94_ F7）。规则写下来，它就不能再长回去。
+        no-poc-in-production:
+          files:
+            - "**/internal/**"
+          deny:
+            - pkg: "github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+              desc: "生产代码不依赖 PoC/测量包；传输层在 voiceduplex"
 
 formatters:
   enable:

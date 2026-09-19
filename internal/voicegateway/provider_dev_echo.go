@@ -69,7 +69,7 @@ func NewDevEchoVoiceProvider(echoText string, logger *slog.Logger) DevEchoVoiceP
 }
 
 // Open returns a fresh session that echoes the configured text.
-func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (VoiceProviderSession, error) {
+func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error) {
 	if strings.TrimSpace(p.EchoText) == "" {
 		p.Logger.Warn("dev-echo provider started with empty EchoText; badges will never fire",
 			"session_id", ticket.SessionID,
@@ -99,7 +99,7 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (Vo
 		fixture:  fixture,
 		ttsMock:  p.TTSMock,
 		logger:   p.Logger,
-		nextSeq:  0,
+		audioSeq: audioSeq,
 	}, nil
 }
 
@@ -133,20 +133,23 @@ const (
 // is dropped as late — audio that dies after the first interruption, with no
 // client bug anywhere in the chain.
 func (s *devEchoSession) encodeAudioFrame(pcm []byte) ([]byte, error) {
-	frame, err := (voiceproto.AITTSAudio{Seq: s.nextSeq, Payload: pcm}).Encode()
+	frame, err := (voiceproto.AITTSAudio{Seq: s.audioSeq.Next(), Payload: pcm}).Encode()
 	if err != nil {
 		return nil, err
 	}
-	s.nextSeq++
 	return frame, nil
 }
 
 type devEchoSession struct {
-	echoText   string
-	fixture    io.ReadCloser
-	ttsMock    bool
-	logger     *slog.Logger
+	echoText string
+	fixture  io.ReadCloser
+	ttsMock  bool
+	logger   *slog.Logger
+	// nextSeq numbers this provider's *turn ids* (canonicalTurnID), not audio
+	// frames. The two used to be the same field, which is why the names still
+	// look alike; audio numbering now belongs to the session's SeqAllocator.
 	nextSeq    uint32
+	audioSeq   *SeqAllocator
 	lastTurnID string
 }
 

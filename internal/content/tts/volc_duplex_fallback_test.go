@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 )
 
 func TestDuplexFallback_Ping_Fail3(t *testing.T) {
@@ -62,7 +62,7 @@ func TestDuplexFallback_Stream_FromEvents(t *testing.T) {
 	}
 
 	provider := &VolcDuplexFallbackProvider{
-		Config: voicepoc.DuplexConfig{Voice: defaultVolcTTSSpeaker},
+		Config: voiceduplex.DuplexConfig{Voice: defaultVolcTTSSpeaker},
 		now:    func() time.Time { return fixed },
 		open: func(context.Context) (duplexTTSConn, error) {
 			script.opens++

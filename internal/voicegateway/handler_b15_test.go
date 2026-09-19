@@ -81,7 +81,7 @@ func (s *brokenProviderSession) Close(_ context.Context) error                  
 // brokenProvider wraps a single brokenProviderSession for voicegateway.VoiceProvider.
 type brokenProvider struct{ session *brokenProviderSession }
 
-func (p *brokenProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *brokenProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	return p.session, nil
 }
 
@@ -226,7 +226,7 @@ func (s *timeoutTurnSession) Close(_ context.Context) error                   { 
 
 type timeoutTurnProvider struct{ session *timeoutTurnSession }
 
-func (p *timeoutTurnProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket) (voicegateway.VoiceProviderSession, error) {
+func (p *timeoutTurnProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
 	return p.session, nil
 }
 

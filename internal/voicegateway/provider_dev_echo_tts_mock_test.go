@@ -21,7 +21,7 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{
 		SessionID: "s-tts",
 		UserID:    "u-tts",
-	})
+	}, &voicegateway.SeqAllocator{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -74,8 +74,8 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 			t.Fatalf("audio[%d] too short: %d", i, len(item.Binary))
 		}
 		seq := binary.BigEndian.Uint32(item.Binary[:4])
-		if seq != uint32(i) {
-			t.Fatalf("audio[%d] seq = %d", i, seq)
+		if want := uint32(i + 1); seq != want {
+			t.Fatalf("audio[%d] seq = %d, want %d", i, seq, want)
 		}
 		gotPayload := item.Binary[4:]
 		if len(gotPayload)%2 != 0 {
@@ -109,7 +109,7 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.TTSMock = true
-	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"})
+	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"}, &voicegateway.SeqAllocator{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -128,11 +128,15 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 	const frames = 250
 	lastFirst := first[frames].Binary
 	firstSecond := second[1].Binary
-	if got := binary.BigEndian.Uint32(lastFirst[:4]); got != frames-1 {
-		t.Fatalf("first turn last seq = %d, want %d", got, frames-1)
+	// The allocator is the session's and numbers from 1, so the second turn
+	// continues where the first stopped (250 frames → 1..250, then 251..)
+	// rather than restarting and re-sending numbers the client's barge-in
+	// watermark has already passed.
+	if got := binary.BigEndian.Uint32(lastFirst[:4]); got != frames {
+		t.Fatalf("first turn last seq = %d, want %d", got, frames)
 	}
-	if got := binary.BigEndian.Uint32(firstSecond[:4]); got != frames {
-		t.Fatalf("second turn first seq = %d, want %d", got, frames)
+	if got := binary.BigEndian.Uint32(firstSecond[:4]); got != frames+1 {
+		t.Fatalf("second turn first seq = %d, want %d", got, frames+1)
 	}
 }
 
@@ -141,7 +145,9 @@ func TestDevEchoTTSMock_FramesArePCM16WithEvenLength(t *testing.T) {
 
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.TTSMock = true
-	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s-pcm"})
+	sess, err := provider.Open(
+		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-pcm"}, &voicegateway.SeqAllocator{},
+	)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

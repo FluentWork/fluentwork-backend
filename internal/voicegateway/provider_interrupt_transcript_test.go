@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
@@ -42,9 +42,9 @@ func TestInterruptedTurnRecordsOnlyWhatWasDelivered(t *testing.T) {
 	}
 
 	// The vendor keeps producing; the turn ends with the whole reply available.
-	sess.turnToOutbound(voicepoc.TurnResult{
+	sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good. But let me add something you never heard.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	utterances := assistantUtterances(sess)
@@ -72,9 +72,9 @@ func TestUninterruptedTurnRecordsTheWholeReplyAndNoFlag(t *testing.T) {
 	sess.turnStarted = timeNow()
 
 	sess.AssistantTextDelta("Sounds good.")
-	sess.turnToOutbound(voicepoc.TurnResult{
+	sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	utterances := assistantUtterances(sess)
@@ -101,9 +101,9 @@ func TestInterruptBeforeAnyDeliveryRecordsNoAssistantTurn(t *testing.T) {
 	if _, err := sess.HandleClientControl(context.Background(), voiceproto.TypeInterrupt, nil); err != nil {
 		t.Fatalf("HandleClientControl(interrupt): %v", err)
 	}
-	sess.turnToOutbound(voicepoc.TurnResult{
+	sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Never heard at all.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	if got := assistantUtterances(sess); len(got) != 0 {
@@ -137,9 +137,9 @@ func TestBargeInStartThenInterruptStillRecordsWhatWasDelivered(t *testing.T) {
 		t.Fatalf("interrupt: %v", err)
 	}
 
-	outbound := sess.turnToOutbound(voicepoc.TurnResult{
+	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Sounds good. But let me add something you never heard.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 
 	utterances := assistantUtterances(sess)
@@ -212,9 +212,9 @@ func TestInterruptStopsForwardingFurtherTextDeltas(t *testing.T) {
 		}
 	}
 
-	sess.turnToOutbound(voicepoc.TurnResult{
+	sess.turnToOutbound(voiceduplex.TurnResult{
 		AssistantText: "Heard this. Never heard.",
-		Outcome:       voicepoc.TurnOutcomeOK,
+		Outcome:       voiceduplex.TurnOutcomeOK,
 	})
 	utterances := assistantUtterances(sess)
 	if len(utterances) != 1 {

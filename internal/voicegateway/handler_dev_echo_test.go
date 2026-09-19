@@ -353,8 +353,10 @@ func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
 	if len(data) != wireSeqBytes+640 {
 		t.Fatalf("expected %d bytes (4-byte seq + 640-byte chunk), got %d", wireSeqBytes+640, len(data))
 	}
-	if seq := binary.BigEndian.Uint32(data[:4]); seq != 0 {
-		t.Fatalf("first chunk seq = %d, want 0", seq)
+	// Numbers start at 1: the wire field is the frame's identity and the
+	// client reserves 0 for "unset".
+	if seq := binary.BigEndian.Uint32(data[:4]); seq != 1 {
+		t.Fatalf("first chunk seq = %d, want 1", seq)
 	}
 
 	// Exhaust the fixture: send enough binary frames to drain the remaining chunks.
@@ -530,8 +532,8 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 		if len(data) != wireSeqBytes+chunkSize && gotChunks < wantChunks-1 {
 			t.Fatalf("expected %d bytes (4-byte seq + %d-byte chunk), got %d", wireSeqBytes+chunkSize, chunkSize, len(data))
 		}
-		if seq := binary.BigEndian.Uint32(data[:4]); seq != uint32(gotChunks) {
-			t.Fatalf("chunk %d seq = %d, want %d", gotChunks, seq, gotChunks)
+		if seq := binary.BigEndian.Uint32(data[:4]); seq != uint32(gotChunks+1) {
+			t.Fatalf("chunk %d seq = %d, want %d", gotChunks, seq, gotChunks+1)
 		}
 		gotChunks++
 
@@ -622,8 +624,12 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 		if typ != websocket.MessageBinary {
 			t.Fatalf("audio[%d]: expected binary, got %v", i, typ)
 		}
-		if binary.BigEndian.Uint32(data[:4]) != uint32(i) {
-			t.Fatalf("audio[%d] seq = %d", i, binary.BigEndian.Uint32(data[:4]))
+		// 1-based since the session allocator took over the numbering: dev-echo
+		// used to count from 0 while volc-duplex counted from 1, and two
+		// producers numbering one stream differently is the sort of difference
+		// that only shows up in a bug report. See SeqAllocator.
+		if want := uint32(i + 1); binary.BigEndian.Uint32(data[:4]) != want {
+			t.Fatalf("audio[%d] seq = %d, want %d", i, binary.BigEndian.Uint32(data[:4]), want)
 		}
 		// The payload has to be PCM16 the client can actually play: it used to
 		// be ASCII, which is odd-length and dies in the decoder.

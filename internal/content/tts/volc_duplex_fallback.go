@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/FluentWork/fluentwork-backend/internal/voicepoc"
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 )
 
 const duplexPingFailLimit = 3
@@ -36,7 +36,7 @@ type duplexTTSConn interface {
 // zh_female_vv_jupiter_bigtts). One duplex session is reused across Stream
 // calls so T-TTS-5 can switch to and from this fallback without re-dialing.
 type VolcDuplexFallbackProvider struct {
-	Config voicepoc.DuplexConfig
+	Config voiceduplex.DuplexConfig
 	Logger *slog.Logger
 
 	now  func() time.Time
@@ -150,7 +150,7 @@ func (p *VolcDuplexFallbackProvider) defaultOpen(ctx context.Context) (duplexTTS
 	if strings.TrimSpace(cfg.Voice) == "" {
 		cfg.Voice = defaultVolcTTSSpeaker
 	}
-	sess, err := voicepoc.OpenDuplex(ctx, cfg)
+	sess, err := voiceduplex.OpenDuplex(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (p *VolcDuplexFallbackProvider) nowMilli() int64 {
 }
 
 type liveDuplexTTSConn struct {
-	sess *voicepoc.DuplexSession
+	sess *voiceduplex.DuplexSession
 }
 
 func (c liveDuplexTTSConn) RequestTTS(ctx context.Context, text string) error {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/voiceduplex"
 )
 
 // TranscribeFixture sends one WAV through a real duplex turn and returns what
@@ -16,7 +18,7 @@ import (
 // exactly the worst cases and report a flattering average.
 //
 // The WAV must be 16 kHz mono PCM16; the duplex protocol accepts nothing else.
-func TranscribeFixture(ctx context.Context, cfg DuplexConfig, wavPath string) (string, error) {
+func TranscribeFixture(ctx context.Context, cfg voiceduplex.DuplexConfig, wavPath string) (string, error) {
 	pcm, rate, err := LoadWAVPCM16LE(wavPath)
 	if err != nil {
 		return "", err
@@ -27,10 +29,10 @@ func TranscribeFixture(ctx context.Context, cfg DuplexConfig, wavPath string) (s
 
 	// The assistant still answers — the protocol has no ASR-only mode — but its
 	// reply is irrelevant here, so keep it short and out of the way.
-	cfg.Instructions = firstNonEmpty(cfg.Instructions,
+	cfg.Instructions = voiceduplex.FirstNonEmpty(cfg.Instructions,
 		"Reply with a single short word. Do not ask questions.")
 
-	session, err := OpenDuplex(ctx, cfg)
+	session, err := voiceduplex.OpenDuplex(ctx, cfg)
 	if err != nil {
 		return "", err
 	}
