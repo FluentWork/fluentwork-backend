@@ -19,6 +19,13 @@ import (
 // If the server sends no events within this window, the session is considered unhealthy.
 const defaultVolcTurnWait = 60 * time.Second
 
+// emptyTurnWait is how long a turn is allowed to take when the gateway already
+// knows it forwarded no audio. The vendor cannot answer — it was committed an
+// empty buffer — so the only thing a longer wait achieves is a longer silence on
+// the client. Short rather than zero: the commit still has to round-trip, and a
+// few seconds is enough for the vendor to say "nothing" out loud.
+const emptyTurnWait = 3 * time.Second
+
 // VolcDuplexProvider bridges voice-gateway sessions onto the live Volcano duplex API.
 // Current scope:
 // - opens a real duplex session on session.start
@@ -157,6 +164,12 @@ type volcDuplexProviderSession struct {
 	// frame during the turn, so turnToOutbound must not send the whole turn's
 	// audio again.
 	streamedAudio bool
+	// turnUplinkBytes counts the audio actually forwarded to the vendor for the
+	// turn in flight. It exists to tell apart "the user spoke and the vendor is
+	// thinking" from "the user's turn arrived with no audio at all" — the second
+	// cannot be answered, and waiting out the full turn deadline only delays a
+	// failure the gateway can already see. See the guard in HandleClientControl.
+	turnUplinkBytes int
 	// ttsStarted is set when this turn's ai.tts.start has already gone out on the
 	// streaming path, so turnToOutbound must not send a second one.
 	//
@@ -270,6 +283,7 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.streamedAudio = false
 	s.streamedASR = false
 	s.ttsStarted = false
+	s.turnUplinkBytes = 0
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
@@ -558,6 +572,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		// is already set, use the partial content even if an error is also returned.
 		s.mu.Lock()
 		s.collectingTurn = true
+		uplinkBytes := s.turnUplinkBytes
 		s.mu.Unlock()
 		defer func() {
 			s.mu.Lock()
@@ -566,7 +581,29 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 			}
 			s.mu.Unlock()
 		}()
-		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, defaultVolcTurnWait)
+
+		// A turn that carried no audio cannot be transcribed: the vendor was
+		// handed an empty buffer, so the full deadline buys nothing and costs the
+		// user the whole window of「正在转写」. Measured on device 2026-09-20 — a
+		// session whose capture had not started yet still sent
+		// user.speech.start / user.speech.end with zero binary frames, and the
+		// room sat there for 60 seconds before the timeout unblocked it.
+		//
+		// The outcome is deliberately unchanged (still a timeout): this only stops
+		// the gateway from waiting for something that cannot arrive. The warning is
+		// the real product here — it names the cause, which the bare timeout never
+		// did, and that cause is a client-side defect worth surfacing rather than
+		// hiding behind a minute of silence.
+		wait := defaultVolcTurnWait
+		if uplinkBytes == 0 {
+			wait = emptyTurnWait
+			s.logger.Warn("turn ended with no uplink audio; the vendor has nothing to transcribe",
+				"turn_id", s.activeTurnID,
+				"wait", wait.String(),
+				"hint", "client opened a speech window before its capture produced audio",
+			)
+		}
+		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, wait)
 
 		// The turn's read failed: the upstream socket is gone. Replace it here,
 		// where the death is detected, instead of leaving the corpse for the
@@ -715,6 +752,9 @@ func (s *volcDuplexProviderSession) HandleClientAudio(ctx context.Context, paylo
 	// Counted here, after the format and empty-payload guards, so a dropped
 	// frame is not billed as audio that reached the vendor.
 	s.usage.addUplink(len(payload))
+	s.mu.Lock()
+	s.turnUplinkBytes += len(payload)
+	s.mu.Unlock()
 	s.logger.Debug("forwarding PCM chunk to volc",
 		"payload_bytes", len(payload),
 		"session_id", s.session.SessionID(),
