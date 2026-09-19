@@ -1,6 +1,7 @@
 package voicegateway_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -35,9 +36,10 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 		t.Fatalf("HandleClientControl: %v", err)
 	}
 
-	// ASR + start + 10 binary + end + turn.end
-	if len(outbound) != 14 {
-		t.Fatalf("got %d outbound items, want 14", len(outbound))
+	// ASR + start + 250 binary + end + turn.end
+	const audioFrames = 250
+	if len(outbound) != audioFrames+4 {
+		t.Fatalf("got %d outbound items, want %d", len(outbound), audioFrames+4)
 	}
 
 	assertControlType(t, outbound[0], voiceproto.TypeClientASRTranscription)
@@ -55,14 +57,18 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 	if start["voice_id"] != "mock_voice_01" {
 		t.Fatalf("voice_id = %v", start["voice_id"])
 	}
-	if start["codec"] != "opus" {
+	// The declared codec has to describe the bytes that follow. It used to say
+	// "opus" over ASCII placeholder text, which no client could ever play: the
+	// mock proved frames arrived, never that audio came out.
+	if start["codec"] != "pcm" {
 		t.Fatalf("codec = %v", start["codec"])
 	}
-	if asInt(t, start["sample_rate"]) != 24000 {
+	if asInt(t, start["sample_rate"]) != 16000 {
 		t.Fatalf("sample_rate = %v", start["sample_rate"])
 	}
 
-	for i := 0; i < 10; i++ {
+	tone := voicegateway.DevEchoFixtureGenerator(audioFrames * 20)
+	for i := 0; i < audioFrames; i++ {
 		item := outbound[2+i]
 		if len(item.Binary) < 5 {
 			t.Fatalf("audio[%d] too short: %d", i, len(item.Binary))
@@ -71,25 +77,28 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 		if seq != uint32(i) {
 			t.Fatalf("audio[%d] seq = %d", i, seq)
 		}
-		wantPayload := []byte("mock-opus-frame-" + itoa(i))
 		gotPayload := item.Binary[4:]
-		if string(gotPayload) != string(wantPayload) {
-			t.Fatalf("audio[%d] payload = %q, want %q", i, gotPayload, wantPayload)
+		if len(gotPayload)%2 != 0 {
+			t.Fatalf("audio[%d] payload has an odd byte count: %d — not PCM16", i, len(gotPayload))
+		}
+		wantPayload := tone[i*640 : (i+1)*640]
+		if !bytes.Equal(gotPayload, wantPayload) {
+			t.Fatalf("audio[%d] payload is not the 1kHz tone slice", i)
 		}
 	}
 
-	end := asMap(t, outbound[12].Control)
+	end := asMap(t, outbound[2+audioFrames].Control)
 	if end["type"] != "ai.tts.end" {
 		t.Fatalf("expected ai.tts.end, got %#v", end)
 	}
 	if end["completion_status"] != "ok" {
 		t.Fatalf("completion_status = %v", end["completion_status"])
 	}
-	if asInt(t, end["duration_ms"]) != 200 {
+	if asInt(t, end["duration_ms"]) != 5000 {
 		t.Fatalf("duration_ms = %v", end["duration_ms"])
 	}
 
-	turnEnd := asMap(t, outbound[13].Control)
+	turnEnd := asMap(t, outbound[3+audioFrames].Control)
 	if turnEnd["type"] != voiceproto.TypeAITurnEnd {
 		t.Fatalf("expected ai.turn.end, got %#v", turnEnd)
 	}
@@ -115,13 +124,44 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 		t.Fatalf("second turn: %v", err)
 	}
 
-	lastFirst := first[10].Binary // start at [0], audio 1-10 → index 10 is last audio
+	// 空 echoText：outbound = [start, 250 audio, end, turn.end] → 最后一帧音频在 [250]。
+	const frames = 250
+	lastFirst := first[frames].Binary
 	firstSecond := second[1].Binary
-	if binary.BigEndian.Uint32(lastFirst[:4]) != 9 {
-		t.Fatalf("first turn last seq = %d", binary.BigEndian.Uint32(lastFirst[:4]))
+	if got := binary.BigEndian.Uint32(lastFirst[:4]); got != frames-1 {
+		t.Fatalf("first turn last seq = %d, want %d", got, frames-1)
 	}
-	if binary.BigEndian.Uint32(firstSecond[:4]) != 10 {
-		t.Fatalf("second turn first seq = %d, want 10", binary.BigEndian.Uint32(firstSecond[:4]))
+	if got := binary.BigEndian.Uint32(firstSecond[:4]); got != frames {
+		t.Fatalf("second turn first seq = %d, want %d", got, frames)
+	}
+}
+
+func TestDevEchoTTSMock_FramesArePCM16WithEvenLength(t *testing.T) {
+	t.Parallel()
+
+	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
+	provider.TTSMock = true
+	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s-pcm"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	outbound, err := sess.HandleClientControl(
+		context.Background(), voiceproto.TypeUserSpeechEnd, []byte(`{"turn_id":"t-pcm"}`),
+	)
+	if err != nil {
+		t.Fatalf("HandleClientControl: %v", err)
+	}
+
+	for i, item := range outbound {
+		if item.Binary == nil {
+			continue
+		}
+		payload := item.Binary[4:]
+		if len(payload) == 0 || len(payload)%2 != 0 {
+			t.Fatalf("frame %d payload is not PCM16-aligned: %d bytes", i, len(payload))
+		}
 	}
 }
 
@@ -162,8 +202,4 @@ func asInt(t *testing.T, v any) int {
 		t.Fatalf("not a number: %T %#v", v, v)
 		return 0
 	}
-}
-
-func itoa(n int) string {
-	return []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}[n]
 }

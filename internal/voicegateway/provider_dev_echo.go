@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -47,9 +46,11 @@ type DevEchoVoiceProvider struct {
 	EchoText    string
 	FixturePath string // T2: optional path to a 16kHz mono PCM file
 	Fixture     []byte // T2: in-memory fixture bytes (preferred over FixturePath in tests)
-	// TTSMock emits frozen WSS V2 ai.tts.* frames (start + 10 binary + end)
-	// on user.speech.end. Dev-only; used for the 9/13 empty-run. When set,
-	// the T2 PCM fixture path is skipped so leftover PCM cannot mix with TTS.
+	// TTSMock emits the WSS V2 `ai.tts.*` sequence on user.speech.end:
+	// ai.tts.start{codec:"pcm"} + 25 × 20ms of 1kHz PCM16 + ai.tts.end.
+	// Dev-only. It exists to exercise the client's *turn-keyed* audio path
+	// (the one bracketed by start/end) with audio that actually plays; when
+	// set, the T2 PCM fixture path is skipped so leftover PCM cannot mix in.
 	TTSMock bool
 	Logger  *slog.Logger
 }
@@ -105,14 +106,40 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket) (Vo
 // 20ms of 16 kHz mono s16le.
 const devEchoChunkBytes = 640
 
-// Frozen empty-run TTS mock: 10 × 20ms frames at 24 kHz opus.
+// TTS mock 的负载：250 × 20ms = 5s 的 1kHz 正弦，16 kHz mono PCM16。
+//
+// 5 秒不是随便定的：500ms 的提示音短到人手来不及打断，而打断（P0-11）恰恰是
+// 这条链路最需要人工验证的行为 —— 提示音必须长过人的反应时间，测试才成立。
+//
+// 它曾经是 10 帧 ASCII（`mock-opus-frame-N`，17 字节）却声明 codec "opus" ——
+// 客户端按声明解不出 Opus，按实际负载又会因奇数长度被 PCM16 拒绝，于是这条
+// 「TTS 通路」在任何客户端上都不出声，只能验证「帧到没到」。这个 mock 存在的
+// 意义是验证**音频**通路，所以负载得是真的音频。
 const (
-	devEchoTTSMockFrameCount = 10
+	devEchoTTSMockFrameCount = 250
 	devEchoTTSMockVoiceID    = "mock_voice_01"
-	devEchoTTSMockSampleRate = 24_000
-	devEchoTTSMockCodec      = "opus"
+	devEchoTTSMockSampleRate = 16_000
+	devEchoTTSMockCodec      = "pcm"
 	devEchoTTSMockFrameMs    = 20
 )
+
+// encodeAudioFrame wraps a raw PCM chunk in the frozen `ai.tts.audio` wire
+// layout (4-byte big-endian seq + payload) and advances the session sequence.
+//
+// The fixture path used to hand the chunk bytes to the transport as-is. On the
+// wire that is a frame with no sequence at all, so a client reads the first two
+// samples as the sequence number: the values are effectively random, a barge-in
+// watermark records one of them, and every later frame compares *below* it and
+// is dropped as late — audio that dies after the first interruption, with no
+// client bug anywhere in the chain.
+func (s *devEchoSession) encodeAudioFrame(pcm []byte) ([]byte, error) {
+	frame, err := (voiceproto.AITTSAudio{Seq: s.nextSeq, Payload: pcm}).Encode()
+	if err != nil {
+		return nil, err
+	}
+	s.nextSeq++
+	return frame, nil
+}
 
 type devEchoSession struct {
 	echoText   string
@@ -210,7 +237,9 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 		chunk := make([]byte, devEchoChunkBytes)
 		n, _ := s.fixture.Read(chunk)
 		if n > 0 {
-			outbound = append(outbound, ProviderOutbound{Binary: chunk[:n]})
+			if frame, err := s.encodeAudioFrame(chunk[:n]); err == nil {
+				outbound = append(outbound, ProviderOutbound{Binary: frame})
+			}
 		}
 		// Peek for the next chunk. If EOF, close the fixture and let the
 		// trailing ai.turn.end handle the close. If more bytes, queue the
@@ -223,7 +252,9 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 				s.fixture = nil
 			}
 		case n2 > 0:
-			outbound = append(outbound, ProviderOutbound{Binary: check[:n2]})
+			if frame, err := s.encodeAudioFrame(check[:n2]); err == nil {
+				outbound = append(outbound, ProviderOutbound{Binary: frame})
+			}
 			moreChunksRemain = true
 		}
 	}
@@ -273,14 +304,14 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 		s.logger.Info("dev-echo emitted ai.tts.start", "turn_id", turnID, "codec", devEchoTTSMockCodec)
 	}
 
+	tone := DevEchoFixtureGenerator(devEchoTTSMockFrameCount * devEchoTTSMockFrameMs)
 	for i := 0; i < devEchoTTSMockFrameCount; i++ {
-		payload := []byte(fmt.Sprintf("mock-opus-frame-%d", i))
-		frame, err := (voiceproto.AITTSAudio{Seq: s.nextSeq, Payload: payload}).Encode()
+		offset := i * devEchoChunkBytes
+		frame, err := s.encodeAudioFrame(tone[offset : offset+devEchoChunkBytes])
 		if err != nil {
 			return outbound
 		}
 		outbound = append(outbound, ProviderOutbound{Binary: frame})
-		s.nextSeq++
 	}
 	if s.logger != nil {
 		s.logger.Info("dev-echo emitted ai.tts.audio", "count", devEchoTTSMockFrameCount)
@@ -347,9 +378,13 @@ func (s *devEchoSession) HandleClientAudio(_ context.Context, data []byte) ([]Pr
 		}, nil
 	}
 
+	frame, err := s.encodeAudioFrame(chunk[:n])
+	if err != nil {
+		return nil, err
+	}
 	return []ProviderOutbound{
 		{
-			Binary: chunk[:n],
+			Binary: frame,
 		},
 	}, nil
 }

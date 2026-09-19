@@ -347,8 +347,14 @@ func TestDevEchoFixture_SendsAudioChunksAfterSpeechEnd(t *testing.T) {
 	if typ != websocket.MessageBinary {
 		t.Fatalf("expected binary frame, got %v", typ)
 	}
-	if len(data) != 640 {
-		t.Fatalf("expected 640-byte audio chunk, got %d bytes", len(data))
+	// Wire layout is frozen: 4-byte big-endian seq + PCM payload. The fixture
+	// used to send the bare chunk, which a client reads as "seq = first two
+	// samples" — audio that survives until the first barge-in and then dies.
+	if len(data) != wireSeqBytes+640 {
+		t.Fatalf("expected %d bytes (4-byte seq + 640-byte chunk), got %d", wireSeqBytes+640, len(data))
+	}
+	if seq := binary.BigEndian.Uint32(data[:4]); seq != 0 {
+		t.Fatalf("first chunk seq = %d, want 0", seq)
 	}
 
 	// Exhaust the fixture: send enough binary frames to drain the remaining chunks.
@@ -521,8 +527,11 @@ func TestDevEchoFixture_LargeFixture_SendsMultipleChunks(t *testing.T) {
 			}
 			t.Fatalf("expected binary frame or ai.turn.end at chunk %d, got type=%v", gotChunks+1, typ)
 		}
-		if len(data) != chunkSize && gotChunks < wantChunks-1 {
-			t.Fatalf("expected %d-byte chunk, got %d bytes", chunkSize, len(data))
+		if len(data) != wireSeqBytes+chunkSize && gotChunks < wantChunks-1 {
+			t.Fatalf("expected %d bytes (4-byte seq + %d-byte chunk), got %d", wireSeqBytes+chunkSize, chunkSize, len(data))
+		}
+		if seq := binary.BigEndian.Uint32(data[:4]); seq != uint32(gotChunks) {
+			t.Fatalf("chunk %d seq = %d, want %d", gotChunks, seq, gotChunks)
 		}
 		gotChunks++
 
@@ -607,13 +616,19 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 		t.Fatalf("expected ai.tts.start, got %#v", start)
 	}
 
-	for i := 0; i < 10; i++ {
+	const mockFrames = 250
+	for i := 0; i < mockFrames; i++ {
 		typ, data := readNextMessage(ctx, t, conn)
 		if typ != websocket.MessageBinary {
 			t.Fatalf("audio[%d]: expected binary, got %v", i, typ)
 		}
 		if binary.BigEndian.Uint32(data[:4]) != uint32(i) {
 			t.Fatalf("audio[%d] seq = %d", i, binary.BigEndian.Uint32(data[:4]))
+		}
+		// The payload has to be PCM16 the client can actually play: it used to
+		// be ASCII, which is odd-length and dies in the decoder.
+		if payload := data[4:]; len(payload) == 0 || len(payload)%2 != 0 {
+			t.Fatalf("audio[%d] payload is not PCM16-aligned: %d bytes", i, len(payload))
 		}
 	}
 
@@ -626,6 +641,9 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 		t.Fatalf("expected ai.turn.end, got %#v", turnEnd)
 	}
 }
+
+// wireSeqBytes is the frozen `ai.tts.audio` sequence header: 4-byte big-endian.
+const wireSeqBytes = 4
 
 func readNextMessage(ctx context.Context, t *testing.T, conn *websocket.Conn) (websocket.MessageType, []byte) {
 	t.Helper()
