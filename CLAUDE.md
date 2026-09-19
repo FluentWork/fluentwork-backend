@@ -22,14 +22,22 @@ iOS App ──WSS──► voice-gateway:8081 ──► VolcEngine (生产)
 
 **关键组件**:
 - `handler.go` — WSS 连接处理、`sessionRuntime` 状态机
-- `provider.go` — Provider 接口定义
-- `provider_volc_duplex.go` — 火山引擎双工 Provider
+- `handler_control.go` — 控制帧逐帧分发（`HandleControl`）+ 失败策略表（`providerErrorStrategies`）
+- `turn.go` — `Turn` 状态机：turn 身份的唯一来源、合法迁移白名单、被拒事件计数
+- `utterance.go` — `Utterance` / `UtteranceWriter` / `audioFramer` / `SeqAllocator`：一次发言的音频出口与帧长推导
+- `provider.go` — Provider 接口定义（`VoiceProvider` / `VoiceProviderSession`）
+- `provider_volc_duplex.go` — 火山引擎双工 Provider（生产）
 - `provider_dev_echo.go` — 本地开发 Provider
+- `internal/voiceduplex/` — 火山双工会话传输层（M6 从 `voicepoc` 拆出；`voicepoc` 现在只剩 PoC/工具）
 
 **状态机关键字段**:
 - `rt.broken` — 音频转发失败后静默丢弃
 - `rt.reopenAttempted` — reopen-once 标志
 - `rt.warnDedup` — Warn 去重状态
+
+**音频流的不变量**（改这条链路前先读 `docs/98_` §五、`docs/101_` §1）：
+每一轮 AI 的音频**恰好一条 `ai.tts.start`，且必须在首帧二进制音频之前**；被用户打断的轮**不发**
+start。没有 start 的二进制帧会被 iOS 丢弃 —— 症状是「转写正常、没有声音」，而单测全绿。
 
 ### 帧协议
 
@@ -40,7 +48,9 @@ iOS App ──WSS──► voice-gateway:8081 ──► VolcEngine (生产)
 | `auth` | C→S | 认证 |
 | `session.start` | C→S | 启动会话 |
 | `user.speech.end` | C→S | 用户结束说话 |
+| `ai.tts.start` / `ai.tts.audio`（二进制）/ `ai.tts.end` | S→C | **AI 语音与救援梯子共用这条流**。每轮恰好一条 start，且在首帧之前 |
 | `ai.turn.end` | S→C | AI Turn 结束（含 outcome） |
+| `ai.rescue.ladder` | S→C | 卡壳梯子（**只带文本**，音频走上面的 `ai.tts.*`） |
 | `client.asr.transcription` | S→C | ASR 中继 |
 | `feedback.badge` | S→C | Badge 命中 |
 | `error` | S→C | 错误（非法 JSON / 已知类型的语义错误）。**未知 `type` 不发 error，忽略并计数** |
@@ -118,9 +128,11 @@ test(provider): add B15 regression tests
 修改以下代码前需要额外审查：
 
 1. `internal/voicegateway/handler.go` — 状态机逻辑
-2. `internal/voiceproto/frames.go` — 协议定义（影响 iOS）
-3. 数据库迁移文件
-4. 生产配置
+2. `internal/voicegateway/turn.go` / `handler_control.go` — turn 身份、迁移合法性与失败策略表
+3. `internal/voicegateway/utterance.go` — 音频切帧、序号与 `ai.tts.*` 的开合
+4. `internal/voiceproto/frames.go` — 协议定义（影响 iOS）
+5. 数据库迁移文件
+6. 生产配置
 
 ## 相关资源
 
@@ -148,7 +160,7 @@ test(provider): add B15 regression tests
 | `VOICE_DEV_ECHO_TEXT` | DevEcho Provider 的回显文本 | `""` |
 | `VOICE_DEV_ECHO_FIXTURE` | DevEcho 回放用 16kHz mono PCM/WAV 路径。`--dev-echo-fixture` 可覆盖。TTS mock 开启时忽略 | `""` |
 | `VOICE_RESCUE_ENABLED` | B8 卡壳救援接线开关（默认跟随 `APP_ENV`：development 开、生产关） | 跟随环境 |
-| `VOICE_DEV_ECHO_TTS_MOCK` | DevEcho 发送冻结协议 `ai.tts.*` mock 帧（9/13 空跑）。也认 `DEV_ECHO_TTS_MOCK`。需 `VOICE_GATEWAY_PROVIDER=dev-echo` | `false` |
+| `VOICE_DEV_ECHO_TTS_MOCK` | DevEcho 发送冻结协议 `ai.tts.*` mock 帧（`ai.tts.start` + 250 × 20ms + `ai.tts.end`），客户端能真放、真验。也认 `DEV_ECHO_TTS_MOCK`。需 `VOICE_GATEWAY_PROVIDER=dev-echo` | `false` |
 | `VOLC_SPEECH_API_KEY` | 火山引擎 API Key | `""` |
 | `VOLC_SPEECH_APP_ID` | 火山引擎 App ID | `""` |
 

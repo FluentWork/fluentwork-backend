@@ -16,7 +16,8 @@
 │  cmd/app-server/       — 主业务服务 (Port 8080)                │
 │  internal/voicegateway/— 语音网关核心 (Handler, Provider)        │
 │  internal/voiceproto/  — WSS 帧协议定义                        │
-│  internal/voicepoc/    — 火山引擎双工会话                      │
+│  internal/voiceduplex/ — 火山引擎双工会话（生产）               │
+│  internal/voicepoc/    — WER / 注入窗口等 PoC 工具              │
 │  internal/session/      — Session 生命周期管理                   │
 │  internal/corpuss/     — 语料库服务                            │
 │  pkg/logx/             — 结构化日志                            │
@@ -248,6 +249,11 @@ R6 不是口号，它已经进了 lint 配置：`.golangci.yml` 的 `depguard` �
 | `docs/49_转发助手音频_实现说明.md` | 网关转发 `response.output_audio.delta`，AI 首次出声 | (本提交) |
 | `docs/66_长TTS打断_停止转发与collectTurn_实现说明.md` | 长 TTS 打断：停转发、帧序、collect 不提前结束、ASR 流式 | (本提交) |
 
+**这张表停在第 `66_` 号。** `69_`–`101_` 的文档写了（含 M1–M6 的 `98_` §七），
+但 §5 要求的"并**在本表登记**"这一步从 `docs/69_` 起没有再执行——表因此看起来停在两年前，
+误以为后面没东西。与其补一批可能记错的 sha，这里只留要求：**补登记时按 `docs/README.md`
+的顺序批量做，索引单点收在该文件**（它带状态列，也随改动更新）。
+
 ## 关键 Issue 追踪
 
 | Issue | 描述 | 状态 |
@@ -303,7 +309,11 @@ R6 不是口号，它已经进了 lint 配置：`.golangci.yml` 的 `depguard` �
 | `docs/46_dev_up_skip_migrations_实现说明.md` | 重启时复用已有 schema |
 | `docs/47_Volc消息读上限_实现说明.md` | `duplexReadLimit` / 每轮断连根因 |
 | `docs/48_duplex与后端消费边界.md` | duplex 是什么 / 只消费文本 / 两侧帧上限 |
-| `docs/49_转发助手音频_实现说明.md` | 转发助手音频 / 24k→16k / 不发 `ai.tts.start` |
+| `docs/49_转发助手音频_实现说明.md` | 转发助手音频 / 24k→16k；「不发 `ai.tts.start`」的结论已于 `3cb3774` 反转，见 `docs/101_` §1 |
 | `docs/66_长TTS打断_停止转发与collectTurn_实现说明.md` | 长 TTS 打断 / 停转发 / `response.done` 才结束 collect |
 | `AGENTS.md` | Agent 协作策略 |
 | `CLAUDE.md` | 本文件，Agent 上下文指南 |
+
+**本表同样停在第 `66_` 号，且 `docs/README.md` 是重复的一份。** 索引单点收在 `docs/README.md`
+（它带状态列，也随改动更新）；本表不再扩写，只保留上面这些历史条目。`69_`–`101_` 的入口见
+`docs/README.md`，语音链路（`94_`–`101_`）另见本文件 §7 与 `docs/98_`。
