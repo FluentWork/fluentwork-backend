@@ -240,11 +240,35 @@ func (h *Handler) logRescueAudioFailure(turnID string, err error) {
 // is the only marker providers without a TTS path (mock, dev-echo) ever send —
 // without it those providers would never rescue at all.
 func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
-	if !rt.rescueEnabled() {
-		return
-	}
 	for _, item := range outbound {
+		// The AI taking the floor. Checked before the terminator below so a batch
+		// that both speaks and ends — a short reply, or any turn that did not
+		// stream — still passes through `speaking` on its way to `closed`.
+		if isAIOutput(item) {
+			rt.turn.NoteFirstOutput()
+		}
 		if item.Control == nil {
+			continue
+		}
+		switch typed := item.Control.(type) {
+		case voiceproto.AITTSEnd:
+			if typed.Type == voiceproto.TypeAITTSEnd {
+				rt.turn.NoteAIEnd()
+			}
+		case voiceproto.AITurnEnd:
+			if typed.Type == voiceproto.TypeAITurnEnd {
+				rt.turn.NoteAIEnd()
+			}
+		}
+
+		// Everything below is rescue bookkeeping, which is genuinely optional.
+		// The turn machine above is not: whether a turn began, spoke and ended is
+		// session truth for every session (see noteUserSpeechStart, which is
+		// ungated for the same reason). Gating it on rescue meant that with rescue
+		// off — the production default — no end marker was ever applied, a finished
+		// turn sat in `finalizing`, and the *next* clean user.speech.start was
+		// counted as a client protocol violation.
+		if !rt.rescueEnabled() {
 			continue
 		}
 		switch typed := item.Control.(type) {
@@ -264,6 +288,26 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 	}
 }
 
+// isAIOutput reports whether an outbound frame is the AI producing something, as
+// opposed to terminating or bookkeeping.
+//
+// Binary frames count, and they carry no Control at all — on the streaming path
+// they are most of what the AI ever produces, so a check that only looked at
+// control frames would leave `speaking` unreachable in production.
+func isAIOutput(item ProviderOutbound) bool {
+	if len(item.Binary) > 0 {
+		return true
+	}
+	switch typed := item.Control.(type) {
+	case voiceproto.AITextDelta:
+		return typed.Type == voiceproto.TypeAITextDelta
+	case voiceproto.AITTSStart:
+		return typed.Type == voiceproto.TypeAITTSStart
+	default:
+		return false
+	}
+}
+
 // noteAITurnEnd opens the silence window and remembers which turn it belongs to.
 //
 // A turn that ended in timeout or error asked the user nothing, so there is
@@ -273,10 +317,10 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 // and its 30s deadline arrives *after* the ladder has already spent its three
 // rungs, so without this guard an unanswered turn is re-nagged from 33s onward
 // by a feature whose whole purpose is to stop nagging.
+//
+// The turn machine's own end event is *not* applied here — it is applied by the
+// caller for every session, rescue or not. This function is the optional half.
 func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string) {
-	// Every outcome closes the turn, including the ones rescue ignores: a
-	// timeout ended the turn as surely as an answer did.
-	rt.applyTurnEvent(EvAIEnd)
 	if !turnOutcomeSpoke(outcome) {
 		return
 	}

@@ -249,6 +249,64 @@ func (t *Turn) ApplySpeechEnd(clientTurnID string) bool {
 	return ok
 }
 
+// NoteFirstOutput records that the AI started producing for this turn.
+//
+// The caller cannot know which frame was first. ai.text.delta and the binary
+// audio frames both mean "the AI is speaking", they arrive interleaved from the
+// provider, and the first of them differs per provider and per turn. So this is
+// idempotent by design: once the turn is speaking, later output is accepted as
+// more of the same utterance rather than counted.
+//
+// Counting them was the alternative, and it is wrong in a specific way: the
+// rejections would be produced by the gateway's own frame stream, and the
+// counter exists precisely to tell the client's behaviour apart from ours
+// (docs/99_ D1).
+//
+// What is still counted is output from a turn that never began — an idle or
+// already-closed turn producing AI frames is an anomaly worth seeing.
+func (t *Turn) NoteFirstOutput() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == TurnSpeaking {
+		return true
+	}
+	next, allowed := turnTransitions[t.state][EvAIFirstOutput]
+	if !allowed {
+		t.rejected[EvAIFirstOutput]++
+		return false
+	}
+	t.state = next
+	return true
+}
+
+// NoteAIEnd records that the AI's turn ended, and is idempotent once closed.
+//
+// A single turn legitimately carries two end markers: ai.tts.end terminates the
+// audio stream and ai.turn.end finalizes the AI item, and the volc provider
+// sends both by design (see turnToOutbound). Only the first is a transition; the
+// second is the same turn saying goodbye twice. Treating it as a duplicate made
+// every clean volc turn report a protocol violation.
+func (t *Turn) NoteAIEnd() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == TurnClosed {
+		return true
+	}
+	next, allowed := turnTransitions[t.state][EvAIEnd]
+	if !allowed {
+		t.rejected[EvAIEnd]++
+		return false
+	}
+	t.state = next
+	return true
+}
+
 // Rejected reports how many events of each kind were refused, for logging.
 //
 // A non-zero count is not an error to act on — it is the answer to "does the

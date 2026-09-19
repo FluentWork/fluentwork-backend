@@ -29,6 +29,15 @@ func (r *recordingEmitter) emit(item ProviderOutbound) error {
 	return nil
 }
 
+// snapshot returns everything pushed so far, in order. Ordering assertions need
+// the interleaving of control and binary frames, which binaryFrames() flattens
+// away.
+func (r *recordingEmitter) snapshot() []ProviderOutbound {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]ProviderOutbound(nil), r.outbound...)
+}
+
 func (r *recordingEmitter) binaryFrames() [][]byte {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -215,6 +224,79 @@ func TestStreamedAudioEqualsTheBatchFrames(t *testing.T) {
 	}
 }
 
+// A streamed turn puts the start on the wire before its first frame, and does
+// not send a second one when the turn closes.
+//
+// This is the case that was missing. The batch path was covered (see
+// assertAudioClosesBeforeTurnEnd), the streaming path was not — and that is the
+// one production uses. The failure it guards against is silence on device.
+func TestStreamedAudioIsPrecededByTTSStart(t *testing.T) {
+	t.Parallel()
+
+	sess, emitter := streamableSession(t)
+
+	sess.AssistantAudio(randomPCM(t, 3200, 31))
+	sess.AssistantAudio(randomPCM(t, 1600, 32))
+
+	// The turn then closes, exactly as collectTurn leaves it: AudioPCM still
+	// holds the whole turn even though every frame already went out.
+	out := sess.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "ok",
+		Outcome:       voiceduplex.TurnOutcomeOK,
+		AudioPCM:      randomPCM(t, 4800, 33),
+	})
+
+	// What the client sees: everything pushed during the turn, then whatever the
+	// closeout returns. Both halves are one wire.
+	wire := append(emitter.snapshot(), out...)
+	assertTTSStartBeforeAudio(t, wire)
+
+	starts := 0
+	for _, item := range wire {
+		if _, ok := item.Control.(voiceproto.AITTSStart); ok {
+			starts++
+		}
+	}
+	if starts != 1 {
+		t.Fatalf("ai.tts.start frames on one turn = %d, want exactly 1 — a second start closes and reopens the client's stream mid-reply", starts)
+	}
+
+	// The start names the same turn as the audio it opens; the client keys frames
+	// by this id, so a mismatch attributes the audio to nobody.
+	for _, item := range wire {
+		start, ok := item.Control.(voiceproto.AITTSStart)
+		if !ok {
+			continue
+		}
+		if start.TurnID != "turn-1" {
+			t.Fatalf("ai.tts.start turn_id = %q, want %q (the id the frames and closeout carry)", start.TurnID, "turn-1")
+		}
+	}
+}
+
+// An interrupted turn never opens a stream it has no audio for. The start is
+// what registers a turn on the client; sending one after a barge-in would
+// re-register a turn the client has already marked superseded, and any late
+// frame of that turn would then be played instead of dropped.
+func TestInterruptedTurnDoesNotReopenItsStream(t *testing.T) {
+	t.Parallel()
+
+	sess, emitter := streamableSession(t)
+	sess.interruptedThisTurn = true
+
+	out := sess.turnToOutbound(voiceduplex.TurnResult{
+		AssistantText: "a reply the user cut off",
+		Outcome:       voiceduplex.TurnOutcomeOK,
+		AudioPCM:      randomPCM(t, 4800, 34),
+	})
+
+	for i, item := range append(emitter.snapshot(), out...) {
+		if _, ok := item.Control.(voiceproto.AITTSStart); ok {
+			t.Fatalf("ai.tts.start at [%d] on an interrupted turn — re-registers a superseded turn on the client", i)
+		}
+	}
+}
+
 // The trailing partial frame is the easiest thing to lose: the resampler holds
 // it back because it cannot know more samples are not coming. If the turn does
 // not flush it, the last few milliseconds of the assistant's speech are clipped
@@ -274,7 +356,7 @@ func TestTurnToOutbound_DoesNotFinalizeBeforeTheAudioTail(t *testing.T) {
 		// audioFrameBytes is 3200 (320 samples). 500*2 = 1000 bytes of
 		// payload, so the whole remainder sits in audioPending until flush.
 		pcm := randomPCM(t, 1000, 5)
-		sess, _ := streamableSession(t)
+		sess, emitter := streamableSession(t)
 		sess.AssistantAudio(pcm)
 
 		outbound := sess.turnToOutbound(voiceduplex.TurnResult{
@@ -283,6 +365,9 @@ func TestTurnToOutbound_DoesNotFinalizeBeforeTheAudioTail(t *testing.T) {
 			Outcome:       voiceduplex.TurnOutcomeOK,
 			AudioPCM:      pcm,
 		})
+		// Both halves are one wire to the client: the start that opened the
+		// stream went out during the turn, the flushed tail comes back here.
+		assertTTSStartBeforeAudio(t, append(emitter.snapshot(), outbound...))
 		assertAudioClosesBeforeTurnEnd(t, outbound, true)
 	})
 
@@ -297,6 +382,8 @@ func TestTurnToOutbound_DoesNotFinalizeBeforeTheAudioTail(t *testing.T) {
 			Outcome:       voiceduplex.TurnOutcomeOK,
 			AudioPCM:      pcm,
 		})
+		// Nothing streamed, so this batch carries the start as well as the audio.
+		assertTTSStartBeforeAudio(t, outbound)
 		assertAudioClosesBeforeTurnEnd(t, outbound, true)
 	})
 }
@@ -333,6 +420,49 @@ func assertAudioClosesBeforeTurnEnd(t *testing.T, outbound []ProviderOutbound, w
 	}
 	if lastAudio >= 0 && ttsEnd < lastAudio {
 		t.Fatalf("ai.tts.end at outbound[%d] precedes last audio at [%d]", ttsEnd, lastAudio)
+	}
+}
+
+// NOTE: this helper deliberately checks only the closeout batch it is handed.
+// The ai.tts.start lives in the *streamed* half of a turn, not in the returned
+// batch, so an ordering check that spans those two halves has to be made against
+// the combined wire — assertTTSStartBeforeAudio, called with emitter.snapshot()
+// plus the returned outbound. Passing just one half here would assert a
+// property of the batch and nothing about what the client actually receives.
+
+// assertTTSStartBeforeAudio pins the ordering the client depends on: the start
+// that opens a turn's audio stream has to precede the first binary frame of that
+// turn.
+//
+// It is not a formality. The start used to be appended in turnToOutbound, which
+// on the streaming path runs long after AssistantAudio has pushed every frame;
+// the client keys frames by turn, found no open stream, and dropped all of them.
+// The assistant was mute on device while the transcript kept working, and no
+// test on either side went red — the ordering assertions that did exist covered
+// audio/ai.tts.end/ai.turn.end and never mentioned the start.
+func assertTTSStartBeforeAudio(t *testing.T, wire []ProviderOutbound) {
+	t.Helper()
+	firstStart, firstAudio := -1, -1
+	for i, item := range wire {
+		if len(item.Binary) > 0 {
+			if firstAudio < 0 {
+				firstAudio = i
+			}
+			continue
+		}
+		if _, ok := item.Control.(voiceproto.AITTSStart); ok && firstStart < 0 {
+			firstStart = i
+		}
+	}
+	if firstAudio < 0 {
+		return
+	}
+	if firstStart < 0 {
+		t.Fatal("audio on the wire with no ai.tts.start — the client has no owner for these frames and drops them")
+	}
+	if firstStart > firstAudio {
+		t.Fatalf("ai.tts.start at [%d] follows the first audio frame at [%d] — the stream is opened after the audio it introduces, so the client discards the reply",
+			firstStart, firstAudio)
 	}
 }
 

@@ -157,6 +157,16 @@ type volcDuplexProviderSession struct {
 	// frame during the turn, so turnToOutbound must not send the whole turn's
 	// audio again.
 	streamedAudio bool
+	// ttsStarted is set when this turn's ai.tts.start has already gone out on the
+	// streaming path, so turnToOutbound must not send a second one.
+	//
+	// It exists because the start has to precede the *first audio frame*, and on
+	// the streaming path that frame leaves the moment the vendor yields it —
+	// long before turnToOutbound runs. Emitting the start at turn end instead put
+	// it after the audio it was supposed to introduce, and the client (which
+	// drops un-keyed frames) silently discarded the whole reply. See the note in
+	// AssistantAudio.
+	ttsStarted bool
 	// audioResampler converts vendor chunks to the client's playback rate as
 	// they arrive. Rebuilt each turn, which is what keeps the output
 	// byte-identical to the batch form it replaced: that one converted each
@@ -259,6 +269,7 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.streamedText = false
 	s.streamedAudio = false
 	s.streamedASR = false
+	s.ttsStarted = false
 	s.deliveredText.Reset()
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
@@ -273,6 +284,20 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 // transcript appear sooner; audio frames are what make the assistant *speak*
 // sooner. Before this, the whole turn's audio was resampled and cut into frames
 // at turn end, so the first syllable waited for the last one.
+//
+// # Why ai.tts.start is emitted here and not at turn end
+//
+// The client keys binary frames by turn: a frame that arrives while it has no
+// open `ai.tts.start` has no owner, and the default policy for an unowned frame
+// is to drop it. So the start has to be on the wire *before* the first audio
+// frame — and on this path the first audio frame leaves immediately, because
+// that is the entire point of streaming it.
+//
+// Emitting the start from turnToOutbound put it after every streamed frame: the
+// assistant went mute on device while the transcript kept working, and both
+// sides' tests stayed green. The batch path (no emitter, or a turn that never
+// streamed) still emits its start from turnToOutbound, which is ahead of its
+// frames by construction.
 func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 	if len(pcm) == 0 || s.emit == nil {
 		return
@@ -284,9 +309,31 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 	}
 	first := !s.streamedAudio
 	s.streamedAudio = true
+	// Marked before the emit, same as streamedText: a failed push means the
+	// client is gone, and re-sending the start at turn end would not reach it.
+	startTurn := first && !s.ttsStarted
+	if startTurn {
+		s.ttsStarted = true
+	}
+	// Same id the end-of-turn frames will carry — see AssistantTextDelta.
+	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
 	s.mu.Unlock()
 	if first {
 		s.markFirstAudio()
+	}
+	if startTurn {
+		if err := s.emit(s.ttsStartFrame(turnID)); err != nil {
+			s.mu.Lock()
+			if s.emitErr == nil {
+				s.emitErr = err
+			}
+			s.mu.Unlock()
+		} else if s.logger != nil {
+			s.logger.Info("volc-duplex emitted ai.tts.start",
+				"turn_id", turnID,
+				"voice_id", s.cfg.Voice,
+			)
+		}
 	}
 	for _, frame := range s.frameAudio(pcm, false) {
 		if err := s.emit(ProviderOutbound{Binary: frame}); err != nil {
@@ -296,6 +343,24 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 			}
 			s.mu.Unlock()
 		}
+	}
+}
+
+// ttsStartFrame builds the `ai.tts.start` that opens a turn's audio stream.
+//
+// One constructor for both emitters (the streaming path in AssistantAudio and
+// the batch path in turnToOutbound) so the two cannot describe the same stream
+// differently — the client keys frames by the turn_id in here, and a mismatch
+// between the two would strand the audio it is supposed to attribute.
+func (s *volcDuplexProviderSession) ttsStartFrame(turnID string) ProviderOutbound {
+	return ProviderOutbound{
+		Control: voiceproto.AITTSStart{
+			Type:       voiceproto.TypeAITTSStart,
+			TurnID:     turnID,
+			VoiceID:    s.cfg.Voice,
+			SampleRate: 16000,
+			Codec:      "pcm",
+		},
 	}
 }
 
@@ -309,11 +374,12 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 //
 // # Why this is a log and not a wire field
 //
-// The obvious carrier already exists and cannot be used. `ai.tts.start` is
-// deliberately **not** sent by this provider: `TTSFrameDispatcher` only claims
-// binary frames once it has seen one, and the decoder bound into it does not
-// drive `AVAudioEngine` — emitting it would move the audio onto a path that
-// makes no sound. (See the ordering note in `turnToOutbound`.)
+// The obvious carrier already exists and cannot be used. This provider does now
+// send `ai.tts.start` (see AssistantAudio), but the frozen frame has no field to
+// put an instant in — `turn_id`, `voice_id`, `sample_rate`, `codec` and nothing
+// else — and the wire format is frozen (`TestSchemaV1BytesAreFrozen`). So
+// carrying the timestamp there would mean changing the protocol to serve
+// telemetry.
 //
 // So the alternatives were a new control frame, widening every binary audio
 // frame for a stamp that matters once per turn, or a log. A log costs nothing
@@ -816,6 +882,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) 
 	streamedText := s.streamedText
 	streamedAudio := s.streamedAudio
 	streamedASR := s.streamedASR
+	ttsStarted := s.ttsStarted
 	if interrupted {
 		// Barge-in: drop the unsent partial frame. Flushing it would put
 		// leftover TTS on the wire after the user had already started speaking.
@@ -899,48 +966,22 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) 
 	// iOS finalizes the open AI item on ai.turn.end and leaves aiSpeaking.
 	// Any binary audio after that is a new bubble. Close the audio stream first.
 	//
-	// ai.tts.start is now always sent to establish turn attribution. The
-	// TTSPlaybackCoordinator routes frames by turn_id, so without a start the
-	// frames would be treated as unknown and dropped by default policy.
 	// The vendor's own output, before the 24k→16k resample: that is the audio
 	// the vendor produced and will bill for.
 	//
-	// # Why this audio must NOT go through UtteranceWriter
+	// The start frame is sent here only when the turn did not stream: if
+	// AssistantAudio already opened the stream, this would be a second start for
+	// the same turn, arriving after the audio it introduces. See the ordering
+	// note in AssistantAudio — that mistake is what muted the assistant, so this
+	// condition is load-bearing rather than tidiness.
 	//
-	// It looks like it should: the ladder's rung and this are the same frames on
-	// the same client, and one writer for both is what docs/97_ sketches. It
-	// cannot be done yet, and doing it would mute the assistant on device.
-	//
-	// iOS decides where a binary frame goes by whether it has seen an
-	// ai.tts.start (SpeechSessionMiddleware): with a stream open the frame goes
-	// to the TTS decoder, without one it goes to `audioEngine.play`. Production
-	// binds `MockTTSDecoder`, which records and discards — it does not drive the
-	// engine. So an ai.tts.start on the AI's own audio routes every frame into a
-	// decoder that throws it away: silence.
-	//
-	// That is not a guess. It is what happened on 2026-09-12, and iOS rolled it
-	// back with the note "wiring it in silenced the assistant on device the
-	// moment the gateway started sending ai.tts.start" (AppDependencies.swift).
-	// Their side is one line to restore; ours is this one. **The two must be
-	// re-landed together, with a device check between them** — the failure mode
-	// is silence, and no unit test on either side can see it. Their Opus decoder
-	// (ADR-0073) is the prerequisite.
-	//
-	// Until then: the framer is shared (that was the duplication worth removing),
-	// the stream control is not.
+	// Not sent at all on an interrupted turn: the audio block below is skipped,
+	// so there is no stream to open, and a start arriving after the barge-in
+	// would re-register a turn the client has already marked superseded.
 	s.usage.addDownlink(len(turn.AudioPCM))
 
-	// Send ai.tts.start before any audio frames
-	if reply != "" || len(turn.AudioPCM) > 0 {
-		outbound = append(outbound, ProviderOutbound{
-			Control: voiceproto.AITTSStart{
-				Type:       voiceproto.TypeAITTSStart,
-				TurnID:     turnID,
-				VoiceID:    s.cfg.Voice,
-				SampleRate: 16000,
-				Codec:      "pcm",
-			},
-		})
+	if !interrupted && !ttsStarted && (reply != "" || len(turn.AudioPCM) > 0) {
+		outbound = append(outbound, s.ttsStartFrame(turnID))
 		if s.logger != nil {
 			s.logger.Info("volc-duplex emitted ai.tts.start",
 				"turn_id", turnID,

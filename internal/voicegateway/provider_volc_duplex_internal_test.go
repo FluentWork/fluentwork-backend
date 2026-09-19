@@ -64,11 +64,13 @@ func startAudioDuplexStub(t *testing.T, audio []byte) string {
 }
 
 // The assistant's audio was read and discarded, which is why the speaking room
-// had no sound at all on the volc path. It is forwarded now, as plain binary
-// frames and deliberately without an ai.tts.start: TTSFrameDispatcher only
-// claims binary frames after it has seen one, and the decoder bound into it
-// (MockTTSDecoder) records without driving AVAudioEngine. No ai.tts.start means
-// the client falls back to audioEngine.play(frame:), which is what makes sound.
+// had no sound at all on the volc path. It is forwarded now, resampled and cut
+// into client frames.
+//
+// This exercises the *batch* path — no emitter is installed, so the whole turn
+// is emitted by turnToOutbound. The start-and-audio ordering that matters in
+// production is on the streaming path, and is pinned separately by
+// TestStreamedAudioIsPrecededByTTSStart and assertTTSStartBeforeAudio.
 func TestVolcDuplexForwardsAssistantAudioAsBinaryFrames(t *testing.T) {
 	t.Parallel()
 
