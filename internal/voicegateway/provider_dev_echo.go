@@ -95,16 +95,14 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket, aud
 		}
 	}
 	return &devEchoSession{
-		echoText: p.EchoText,
-		fixture:  fixture,
-		ttsMock:  p.TTSMock,
-		logger:   p.Logger,
-		audioSeq: audioSeq,
+		echoText:  p.EchoText,
+		fixture:   fixture,
+		ttsMock:   p.TTSMock,
+		logger:    p.Logger,
+		sessionID: ticket.SessionID,
+		audioSeq:  audioSeq,
 	}, nil
 }
-
-// 20ms of 16 kHz mono s16le.
-const devEchoChunkBytes = 640
 
 // TTS mock 的负载：250 × 20ms = 5s 的 1kHz 正弦，16 kHz mono PCM16。
 //
@@ -141,13 +139,11 @@ func (s *devEchoSession) encodeAudioFrame(pcm []byte) ([]byte, error) {
 }
 
 type devEchoSession struct {
-	echoText string
-	fixture  io.ReadCloser
-	ttsMock  bool
-	logger   *slog.Logger
-	// nextSeq numbers this provider's *turn ids* (canonicalTurnID), not audio
-	// frames. The two used to be the same field, which is why the names still
-	// look alike; audio numbering now belongs to the session's SeqAllocator.
+	echoText   string
+	fixture    io.ReadCloser
+	ttsMock    bool
+	logger     *slog.Logger
+	sessionID  string
 	nextSeq    uint32
 	audioSeq   *SeqAllocator
 	lastTurnID string
@@ -185,10 +181,10 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 	if frameType != voiceproto.TypeUserSpeechEnd {
 		return nil, nil
 	}
-	turnID := canonicalTurnID("", int(s.nextSeq))
+	turnID := canonicalTurnID("", s.sessionID)
 	var end voiceproto.UserSpeechEnd
 	if err := json.Unmarshal(data, &end); err == nil {
-		turnID = canonicalTurnID(end.TurnID, int(s.nextSeq))
+		turnID = canonicalTurnID(end.TurnID, s.sessionID)
 	}
 	s.lastTurnID = turnID
 	if s.ttsMock {
@@ -237,7 +233,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 	// sending binary audio frames).
 	moreChunksRemain := false
 	if s.fixture != nil {
-		chunk := make([]byte, devEchoChunkBytes)
+		chunk := make([]byte, UplinkChunkBytes)
 		n, _ := s.fixture.Read(chunk)
 		if n > 0 {
 			if frame, err := s.encodeAudioFrame(chunk[:n]); err == nil {
@@ -247,7 +243,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 		// Peek for the next chunk. If EOF, close the fixture and let the
 		// trailing ai.turn.end handle the close. If more bytes, queue the
 		// next chunk and signal HandleClientAudio to continue.
-		check := make([]byte, devEchoChunkBytes)
+		check := make([]byte, UplinkChunkBytes)
 		n2, err := s.fixture.Read(check)
 		switch {
 		case n2 == 0 || (err != nil && err != io.EOF):
@@ -309,8 +305,8 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 
 	tone := DevEchoFixtureGenerator(devEchoTTSMockFrameCount * devEchoTTSMockFrameMs)
 	for i := 0; i < devEchoTTSMockFrameCount; i++ {
-		offset := i * devEchoChunkBytes
-		frame, err := s.encodeAudioFrame(tone[offset : offset+devEchoChunkBytes])
+		offset := i * UplinkChunkBytes
+		frame, err := s.encodeAudioFrame(tone[offset : offset+UplinkChunkBytes])
 		if err != nil {
 			return outbound
 		}
@@ -361,14 +357,14 @@ func (s *devEchoSession) HandleClientAudio(_ context.Context, data []byte) ([]Pr
 		return nil, nil
 	}
 
-	chunk := make([]byte, devEchoChunkBytes)
+	chunk := make([]byte, UplinkChunkBytes)
 	n, err := s.fixture.Read(chunk)
 	if n == 0 || (err != nil && err != io.EOF) {
 		// Fixture exhausted or read error — close and end turn.
 		if err := s.fixture.Close(); err == nil {
 			s.fixture = nil
 		}
-		turnID := canonicalTurnID(s.lastTurnID, int(s.nextSeq))
+		turnID := canonicalTurnID(s.lastTurnID, s.sessionID)
 		return []ProviderOutbound{
 			{
 				Control: voiceproto.AITurnEnd{

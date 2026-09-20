@@ -1,19 +1,15 @@
 package voicegateway
 
 import (
-	"fmt"
 	"strings"
 )
 
 // canonicalTurnID prefers the client-supplied id (iOS: "turn-N").
-// When the client omits it, use the same namespace — never "volc-turn-*"
-// or "dev-echo-turn", which cannot join iOS tracker events.
-func canonicalTurnID(clientID string, seq int) string {
+// When the client omits it, fall back to session_id so all frames for the same
+// turn carry the same id (badge, ai.text.delta, ai.tts.start, ai.turn.end).
+func canonicalTurnID(clientID string, sessionID string) string {
 	if t := strings.TrimSpace(clientID); t != "" {
 		return t
 	}
-	if seq <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("turn-%d", seq)
+	return sessionID
 }

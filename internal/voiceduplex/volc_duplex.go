@@ -53,9 +53,6 @@ const (
 	defaultDuplexVoice = "zh_female_vv_jupiter_bigtts"
 )
 
-// 20ms of 16 kHz mono s16le.
-const pcm16kChunkBytes = 640
-
 // DuplexConfig configures a Volcano realtime duplex (Seeduplex) session.
 // Auth is API-Key only (X-Api-Key); no AppID / Access Token / ResourceId required.
 type DuplexConfig struct {
@@ -311,12 +308,12 @@ func (s *DuplexSession) SendPCM(ctx context.Context, pcm []byte) error {
 	var sendErr error
 	defer func() {
 		seg.End(sendErr,
-			"chunk_count", chunkCount(len(pcm), pcm16kChunkBytes),
+			"chunk_count", chunkCount(len(pcm), uplinkChunkBytes),
 			"audio_sec", pcmAudioSeconds(len(pcm)),
 		)
 	}()
-	for i := 0; i < len(pcm); i += pcm16kChunkBytes {
-		end := i + pcm16kChunkBytes
+	for i := 0; i < len(pcm); i += uplinkChunkBytes {
+		end := i + uplinkChunkBytes
 		if end > len(pcm) {
 			end = len(pcm)
 		}
@@ -803,7 +800,7 @@ func (s *DuplexSession) collectTurn(ctx context.Context, started time.Time, prel
 func (s *DuplexSession) sendSilence(ctx context.Context) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
-	silence := make([]byte, pcm16kChunkBytes)
+	silence := make([]byte, uplinkChunkBytes)
 	for {
 		select {
 		case <-ctx.Done():
@@ -953,5 +950,9 @@ func chunkCount(total, size int) int {
 
 // pcmAudioSeconds is the duration of s16le mono 16 kHz audio, rounded down.
 func pcmAudioSeconds(bytes int) int {
-	return bytes / (pcm16kChunkBytes * 50)
+	return bytes / (uplinkChunkBytes * 50)
 }
+
+// uplinkChunkBytes is 20ms of 16 kHz mono s16le (640 bytes).
+// Copied here from voicegateway.UplinkChunkBytes to avoid import cycle.
+const uplinkChunkBytes = 640

@@ -81,6 +81,7 @@ func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audio
 		cfg:         p.cfg,
 		audioFormat: p.audioFormat,
 		audioSeq:    audioSeq,
+		sessionID:   ticket.SessionID,
 		logger: p.logger.With(
 			"ticket_id", ticket.TicketID,
 			"session_id", ticket.SessionID,
@@ -109,23 +110,14 @@ type volcDuplexProviderSession struct {
 	cfg         voiceduplex.DuplexConfig
 	audioFormat string
 	logger      *slog.Logger
+	sessionID   string
 	session     *voiceduplex.DuplexSession
 	turnStarted time.Time
 	nextSeq     int
-	// audioSeq numbers the gateway→client binary audio frames. It is the
-	// session's allocator, not this provider's: a replaced provider session gets
-	// the same one, so the numbering cannot restart behind the client's barge-in
-	// watermark. See SeqAllocator — and nextSeq below, which is a different
-	// counter for a different purpose.
 	audioSeq     *SeqAllocator
 	utterances   []EndUtterance
 	activeTurnID string
-	// audio moved this session, for cost accounting. See VoiceUsage.
 	usage voiceUsage
-	// inputMuted tracks whether the vendor has been told the microphone is
-	// silent. Not bookkeeping for its own sake: the event must be sent once per
-	// silent stretch, and sending unmute without a preceding mute (or twice in
-	// a row) is a protocol violation the vendor is entitled to reject.
 	inputMuted bool
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
 	// the next HandleClientAudio call probes the upstream with an empty commit
@@ -241,7 +233,7 @@ func (s *volcDuplexProviderSession) UserTranscript(text string) {
 	}
 	s.mu.Lock()
 	s.streamedASR = true
-	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	turnID := canonicalTurnID(s.activeTurnID, s.sessionID)
 	s.mu.Unlock()
 	if err := s.emit(ProviderOutbound{
 		Control: voiceproto.ClientASRTranscription{
@@ -272,10 +264,7 @@ func (s *volcDuplexProviderSession) AssistantTextDelta(delta string) {
 	}
 	s.streamedText = true
 	s.deliveredText.WriteString(delta)
-	// Same id the end-of-turn frames will carry. activeTurnID is set at
-	// user.speech.end and nextSeq does not move again until turnToOutbound, so
-	// this resolves to the same value the terminal frames use.
-	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	turnID := canonicalTurnID(s.activeTurnID, s.sessionID)
 	s.mu.Unlock()
 	if err := s.emit(ProviderOutbound{
 		Control: voiceproto.NewAITextDelta(delta, turnID, s.unixMilli()),
@@ -343,8 +332,7 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 	if startTurn {
 		s.ttsStarted = true
 	}
-	// Same id the end-of-turn frames will carry — see AssistantTextDelta.
-	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	turnID := canonicalTurnID(s.activeTurnID, s.sessionID)
 	s.mu.Unlock()
 	if first {
 		s.markFirstAudio()
@@ -431,7 +419,7 @@ func (s *volcDuplexProviderSession) markFirstAudio() {
 		"module", "voicegateway",
 		"stage", "tts",
 		"session_id", sessionID,
-		"turn_id", canonicalTurnID(s.activeTurnID, s.nextSeq),
+		"turn_id", canonicalTurnID(s.activeTurnID, s.sessionID),
 		"server_ts_ms", now,
 		"server_ms", now-s.turnStarted.UTC().UnixMilli(),
 	)
@@ -963,7 +951,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) 
 	}
 
 	reply := strings.TrimSpace(turn.AssistantText)
-	turnID := canonicalTurnID(s.activeTurnID, s.nextSeq)
+	turnID := canonicalTurnID(s.activeTurnID, s.sessionID)
 	// B15-I3: include the Volcengine vendor log_id so iOS can correlate
 	// tracker events with backend and vendor-side diagnostic logs.
 	var logID string

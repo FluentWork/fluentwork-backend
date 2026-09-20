@@ -441,10 +441,11 @@ func TestTurnToOutboundFallbackUsesTurnNNotVolcPrefix(t *testing.T) {
 		logger:      slog.Default(),
 		audioFormat: "pcm-s16le",
 		nextSeq:     3,
+		sessionID:   "test-session-id", // P0 fix: canonicalTurnID now needs sessionID for fallback
 	}
 	out := sess.turnToOutbound(voiceduplex.TurnResult{Outcome: voiceduplex.TurnOutcomeOK})
-	if got := aiTurnEndID(out); got != "turn-3" {
-		t.Fatalf("fallback turn_id = %q, want turn-3 (not volc-turn-3)", got)
+	if got := aiTurnEndID(out); got != "test-session-id" {
+		t.Fatalf("fallback turn_id = %q, want test-session-id (falls back to sessionID when activeTurnID is empty)", got)
 	}
 }
 
