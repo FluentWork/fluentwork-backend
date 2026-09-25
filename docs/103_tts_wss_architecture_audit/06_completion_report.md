@@ -148,8 +148,10 @@ ok   github.com/FluentWork/fluentwork-backend/internal/voicegateway  2.681s
 - ✅ 测试覆盖补充
 
 ### P2 (文档类，无代码改动)
-- M1-M6 实施状态已记录在 `02_milestone_status.md`
-- F1-F9 发现项已记录在 `03_findings_assessment.md`
+- M1-M6 实施状态与 F1-F9 关闭情况已记录在 `01_implementation_status.md`
+  （原文写的 `02_milestone_status.md` 与 `03_findings_assessment.md` 从未存在，
+  这两个名字是当时的草稿名；实际落地的是 `01_implementation_status.md`，
+  它一份同时覆盖里程碑状态与发现项关闭表）
 - 无需进一步代码改动
 
 ### 建议
