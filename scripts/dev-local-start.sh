@@ -6,6 +6,8 @@ cd "$ROOT"
 
 WITH_GATEWAY=1
 WITH_SERVICES=1
+WITH_SEED="${AUTO_CORPUS_SEED:-1}"
+KILL_STALE=1
 PORT="${PORT:-8080}"
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 # HOST is used for WSS URL returned to iOS clients.
@@ -18,12 +20,17 @@ usage() {
 Start FluentWork with local MySQL + Redis + backend servers for development.
 
 Usage:
-  ./scripts/dev-local-start.sh [--no-gateway] [--no-services] [--port 8080]
+  ./scripts/dev-local-start.sh [--no-gateway] [--no-services] [--no-seed]
+                               [--no-kill-stale]
+                               [--port 8080] [--gateway-port 8081] [--host IP]
 
 Options:
   --no-gateway     Skip starting voice-gateway
   --no-services    Assume MySQL/Redis are already running (skip brew services start)
+  --no-seed        Skip seeding the badge corpus
+  --no-kill-stale  Refuse to reclaim ports held by our own leftover dev services
   --port 8080      HTTP port for app-server (default: 8080)
+  --gateway-port 8081  Port for voice-gateway (default: 8081)
   --host IP        Host IP for WSS URL (default: 127.0.0.1 for simulator;
                    use LAN IP like 192.168.1.100 for physical device testing)
 
@@ -43,8 +50,20 @@ while [[ $# -gt 0 ]]; do
       WITH_SERVICES=0
       shift
       ;;
+    --no-seed)
+      WITH_SEED=0
+      shift
+      ;;
+    --no-kill-stale)
+      KILL_STALE=0
+      shift
+      ;;
     --port)
       PORT="$2"
+      shift 2
+      ;;
+    --gateway-port)
+      GATEWAY_PORT="$2"
       shift 2
       ;;
     --host)
@@ -161,6 +180,14 @@ fi
 # must resolve even with no .env.dev. Same default as dev-up.sh --local-mysql.
 export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
 
+# cmd/app-server/main.go:274-280 only defaults the in-process review worker ON
+# when MYSQL_DSN is empty. This script is *always* the MySQL stack, so without
+# this line the worker is off — and since no dev script starts cmd/worker
+# either, reviews silently never complete. dev-up.sh already did this; the
+# asymmetry meant the *recommended* entry (dev-stack.zsh -> here) was the one
+# that quietly produced no reviews.
+export APP_RUN_REVIEW_WORKER="${APP_RUN_REVIEW_WORKER:-1}"
+
 # Override ports and WSS URL.
 # Bind to 0.0.0.0 so iOS physical device on LAN can reach the services.
 # Use $HOST in VOICE_GATEWAY_WSS_URL so the iOS app connects to the right address.
@@ -173,94 +200,90 @@ export VOICE_GATEWAY_WSS_URL="ws://${HOST}:${GATEWAY_PORT}/v1/voice"
 export APP_SERVER_INTERNAL_URL="http://127.0.0.1:${PORT}"
 
 # ---------------------------------------------------------------------------
-# 4. Start app-server
+# 5. 服务的构建、启动、监管：唯一实现在 scripts/lib/dev-service.sh
 # ---------------------------------------------------------------------------
-SERVER_PID=""
-GATEWAY_PID=""
+source "$ROOT/scripts/lib/dev-service.sh"
+dev_services_init
 
-cleanup() {
-  echo ""
-  echo "🛑 Shutting down..."
-  if [[ -n "${GATEWAY_PID}" ]] && kill -0 "$GATEWAY_PID" >/dev/null 2>&1; then
-    kill "$GATEWAY_PID" >/dev/null 2>&1 || true
-    wait "$GATEWAY_PID" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "${SERVER_PID}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    kill "$SERVER_PID" >/dev/null 2>&1 || true
-    wait "$SERVER_PID" >/dev/null 2>&1 || true
-  fi
-  echo "✅ Stopped."
-}
-trap cleanup EXIT INT TERM
+trap dev_cleanup EXIT INT TERM
 
+echo "🚀 FluentWork 本地启动（app-server :${PORT}，voice-gateway :${GATEWAY_PORT}，host ${HOST}）"
 echo ""
-echo "🚀 Starting app-server on http://${HOST}:${PORT}"
 
-go run ./cmd/app-server &
-SERVER_PID=$!
-
-for i in $(seq 1 60); do
-  if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    echo "❌ app-server exited before becoming healthy" >&2
-    exit 1
-  fi
-  if curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
-    echo "✅ app-server is healthy"
-    break
-  fi
-  if [ $i -eq 60 ]; then
-    echo "❌ app-server did not become healthy" >&2
-    exit 1
-  fi
-  sleep 0.5
-done
-
-# ---------------------------------------------------------------------------
-# 5. Start voice-gateway (optional)
-# ---------------------------------------------------------------------------
+echo "① 端口预检"
+dev_preflight_port app-server "$PORT" "$KILL_STALE" || exit 1
 if [[ "$WITH_GATEWAY" -eq 1 ]]; then
-  echo "🚀 Starting voice-gateway on ws://${HOST}:${GATEWAY_PORT}/v1/voice"
-  go run ./cmd/voice-gateway &
-  GATEWAY_PID=$!
-
-  for i in $(seq 1 60); do
-    if ! kill -0 "$GATEWAY_PID" >/dev/null 2>&1; then
-      echo "❌ voice-gateway exited before becoming healthy" >&2
-      exit 1
-    fi
-    if curl -sf "http://127.0.0.1:${GATEWAY_PORT}/healthz" >/dev/null 2>&1; then
-      echo "✅ voice-gateway is healthy"
-      break
-    fi
-    if [ $i -eq 60 ]; then
-      echo "❌ voice-gateway did not become healthy" >&2
-      exit 1
-    fi
-    sleep 0.5
-  done
+  dev_preflight_port voice-gateway "$GATEWAY_PORT" "$KILL_STALE" || exit 1
 fi
-
-# ---------------------------------------------------------------------------
-# 6. Smoke test
-# ---------------------------------------------------------------------------
 echo ""
-echo "✅ Smoke-testing guest auth..."
+
+echo "② 构建"
+APP_BIN="$(dev_build app-server ./cmd/app-server)" || {
+  echo "✘ 构建阶段失败，未启动任何服务。" >&2
+  exit 1
+}
+GATEWAY_BIN=""
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  GATEWAY_BIN="$(dev_build voice-gateway ./cmd/voice-gateway)" || {
+    echo "✘ 构建阶段失败，未启动任何服务。" >&2
+    exit 1
+  }
+fi
+SEED_BIN=""
+if [[ "$WITH_SEED" == "1" ]]; then
+  SEED_BIN="$(dev_build corpus-seed ./cmd/corpus-seed)" || {
+    echo "✘ 构建阶段失败，未启动任何服务。" >&2
+    exit 1
+  }
+fi
+echo ""
+
+echo "③ 启动"
+dev_start_service app-server "$PORT" "$APP_BIN"
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  dev_start_service voice-gateway "$GATEWAY_PORT" "$GATEWAY_BIN"
+fi
+echo ""
+
+echo "④ 等就绪"
+dev_wait_healthy app-server "$PORT" "http://127.0.0.1:${PORT}/healthz" 90 || exit 1
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  dev_wait_healthy voice-gateway "$GATEWAY_PORT" "http://127.0.0.1:${GATEWAY_PORT}/healthz" 90 || exit 1
+fi
+echo ""
+
+echo "⑤ 冒烟测试（游客鉴权）"
 curl -sS -H 'Content-Type: application/json' \
   -d '{"device_id":"local-dev-device"}' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
 echo ""
+echo ""
 
-if [[ "$WITH_GATEWAY" -eq 1 ]]; then
-  echo "✅ All services running."
-  echo "   app-server:     http://${HOST}:${PORT}"
-  echo "   voice-gateway:   ws://${HOST}:${GATEWAY_PORT}/v1/voice"
-  echo "   MySQL:           127.0.0.1:3306"
-  echo "   Redis:           127.0.0.1:6379"
+# 徽章语料：网关只为「能在语料里找到的短语」发 feedback.badge，而语料由
+# app-server 提供。这一步以前只在 dev-up.sh 里有 —— 于是走本脚本（以及
+# dev-stack.zsh，也就是文档推荐的入口）的人永远打不出徽章，必须自己再跑一遍
+# corpus-seed。现在两条路都做，用 --no-seed 关闭。
+if [[ "$WITH_SEED" == "1" ]]; then
+  SEED_ID="${SEED_DEVICE_ID:-corpus-seed-dev-device}"
+  echo "⑥ 播种徽章语料（device_id=${SEED_ID}）"
+  "$SEED_BIN" -base-url "http://127.0.0.1:${PORT}" -device-id "${SEED_ID}" | tail -2
+  echo "   语料属于 device_id=${SEED_ID}。真机不需要播种：开发模式下 app-server"
+  echo "   会在游客的第一次会话里给它发同一份起步语料（corpus.StarterProvisioner）。"
+  echo "   要把语料钉在某个设备上："
+  echo "     ./bin/corpus-seed -device-id <你的 device id>"
   echo ""
-  echo "   iOS app:        Set LOCAL_HOST=${HOST} in Xcode scheme"
-  echo "   Ctrl-C to stop."
-  wait "$SERVER_PID" "$GATEWAY_PID"
-else
-  echo "✅ app-server running on http://${HOST}:${PORT}. Ctrl-C to stop."
-  wait "$SERVER_PID"
 fi
+
+echo "⑦ 就绪"
+dev_print_summary
+echo ""
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  echo "   iOS：WSS 地址 ws://${HOST}:${GATEWAY_PORT}/v1/voice（由 POST /api/v1/sessions 返回）"
+  echo "        Xcode scheme 里设 LOCAL_HOST=${HOST} 只影响 HTTP，不影响 WSS。"
+fi
+echo "   存储：MySQL 127.0.0.1:3306 / Redis 127.0.0.1:6379"
+echo "   进程内 review worker 已开启：APP_RUN_REVIEW_WORKER=${APP_RUN_REVIEW_WORKER}"
+echo ""
+echo "   Ctrl-C 停止。"
+
+dev_supervise

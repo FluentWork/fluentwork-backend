@@ -8,7 +8,8 @@ WITH_MYSQL=0
 LOCAL_MYSQL=0
 SKIP_MIGRATIONS=0
 WITH_GATEWAY=1
-AUTO_CORPUS_SEED="${AUTO_CORPUS_SEED:-1}"
+WITH_SEED="${AUTO_CORPUS_SEED:-1}"
+KILL_STALE=1
 PORT="${PORT:-8080}"
 GATEWAY_PORT="${GATEWAY_PORT:-8081}"
 # HOST is used for VOICE_GATEWAY_WSS_URL returned to iOS clients.
@@ -22,7 +23,8 @@ Start FluentWork app-server (and voice-gateway by default) for local development
 
 Usage:
   ./scripts/dev-up.sh [--mysql] [--local-mysql] [--skip-migrations]
-                      [--no-gateway] [--port 8080] [--host IP]
+                      [--no-gateway] [--no-seed] [--no-kill-stale]
+                      [--port 8080] [--gateway-port 8081] [--host IP]
 
 Default mode uses the in-memory account/session store (no Docker required).
 Pass --mysql to start MySQL 8 via Docker Compose and apply migrations.
@@ -33,8 +35,19 @@ Pass --skip-migrations to reuse the schema already in MySQL. Needed on any
   so replaying them aborts with "Duplicate column name ..." even though the
   schema is current. Only meaningful together with --mysql / --local-mysql.
 Pass --no-gateway to run only app-server.
+Pass --no-seed to skip seeding the badge corpus (see below).
+Pass --no-kill-stale to refuse to reclaim ports held by our own leftover
+  dev services instead of reclaiming them.
 Pass --host IP to set the WSS URL host (default: 127.0.0.1 for simulator;
   use LAN IP like 192.168.1.100 for physical device testing).
+
+Badge corpus: the gateway only emits feedback.badge for phrases it can find
+in the corpus, and the corpus is served by app-server. This script seeds it
+by default (device_id=corpus-seed-dev-device, override with SEED_DEVICE_ID),
+so "speak a phrase -> get a badge" works without a second command.
+
+Services are built to ./bin/ and run as supervised child processes; each one
+logs to .dev-logs/<name>.log. ./scripts/dev-status.sh shows the whole picture.
 EOF
 }
 
@@ -57,8 +70,20 @@ while [[ $# -gt 0 ]]; do
       WITH_GATEWAY=0
       shift
       ;;
+    --no-seed)
+      WITH_SEED=0
+      shift
+      ;;
+    --no-kill-stale)
+      KILL_STALE=0
+      shift
+      ;;
     --port)
       PORT="$2"
+      shift 2
+      ;;
+    --gateway-port)
+      GATEWAY_PORT="$2"
       shift 2
       ;;
     --host)
@@ -111,25 +136,6 @@ export APP_SERVER_INTERNAL_URL="http://127.0.0.1:${PORT}"
 export VOICE_GATEWAY_HTTP_ADDR="0.0.0.0:${GATEWAY_PORT}"
 
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
-
-wait_for_url() {
-  local url="$1"
-  local name="$2"
-  local pid="$3"
-  local i
-  for i in $(seq 1 60); do
-    if ! kill -0 "$pid" >/dev/null 2>&1; then
-      echo "${name} exited before becoming healthy" >&2
-      return 1
-    fi
-    if curl -sf "$url" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.5
-  done
-  echo "${name} did not become healthy at $url" >&2
-  return 1
-}
 
 apply_migrations() {
   local file
@@ -188,80 +194,113 @@ else
   unset MYSQL_DSN || true
 fi
 
-# Every dev-up mode should produce reviews; with a shared MySQL store the
-# app-server in-process worker is otherwise disabled (production uses the
-# standalone cmd/worker).
-if [[ "$WITH_MYSQL" -eq 1 ]]; then
-  export APP_RUN_REVIEW_WORKER=1
+# Every dev-up mode should produce reviews. cmd/app-server/main.go:274-280 only
+# defaults the in-process review worker ON when MYSQL_DSN is empty (in-memory
+# stores cannot be shared with a standalone cmd/worker). So with a shared MySQL
+# store it must be asked for explicitly, or reviews silently never complete.
+if [[ -n "${MYSQL_DSN:-}" ]]; then
+  export APP_RUN_REVIEW_WORKER="${APP_RUN_REVIEW_WORKER:-1}"
 fi
 
-SERVER_PID=""
-GATEWAY_PID=""
+# ---------------------------------------------------------------------------
+# 服务的构建、启动、监管：唯一实现在 scripts/lib/dev-service.sh
+# ---------------------------------------------------------------------------
+source "$ROOT/scripts/lib/dev-service.sh"
+dev_services_init
 
-cleanup() {
-  if [[ -n "${GATEWAY_PID}" ]] && kill -0 "$GATEWAY_PID" >/dev/null 2>&1; then
-    kill "$GATEWAY_PID" >/dev/null 2>&1 || true
-    wait "$GATEWAY_PID" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "${SERVER_PID}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    kill "$SERVER_PID" >/dev/null 2>&1 || true
-    wait "$SERVER_PID" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT INT TERM
+trap dev_cleanup EXIT INT TERM
 
-echo "Starting app-server on http://${HOST}:${PORT}"
-echo "  GET  /healthz"
-echo "  GET  /readyz"
-echo "  POST /api/v1/auth/guest"
-echo "  POST /api/v1/sessions"
-echo "  POST /internal/v1/tickets/consume"
-echo
+echo "🚀 FluentWork 本地启动（app-server :${PORT}，voice-gateway :${GATEWAY_PORT}，host ${HOST}）"
+echo ""
 
-go run ./cmd/app-server &
-SERVER_PID=$!
-
-if ! wait_for_url "http://127.0.0.1:${PORT}/healthz" "app-server" "$SERVER_PID"; then
-  exit 1
-fi
-
+# 1. 端口预检 —— 放在构建之前：端口冲突是最常见的「起不来」，
+#    而它和「编译不过」是两回事，报错必须分开。
+echo "① 端口预检"
+dev_preflight_port app-server "$PORT" "$KILL_STALE" || exit 1
 if [[ "$WITH_GATEWAY" -eq 1 ]]; then
-  echo "Starting voice-gateway on ws://${HOST}:${GATEWAY_PORT}/v1/voice"
-  go run ./cmd/voice-gateway &
-  GATEWAY_PID=$!
-  if ! wait_for_url "http://127.0.0.1:${GATEWAY_PORT}/healthz" "voice-gateway" "$GATEWAY_PID"; then
-    exit 1
-  fi
+  dev_preflight_port voice-gateway "$GATEWAY_PORT" "$KILL_STALE" || exit 1
 fi
+echo ""
 
-echo "Healthy. Smoke-testing guest auth..."
+# 2. 构建 —— 全部构建完再启动。构建与就绪分开计时，
+#    这样「还在编译」永远不会被报成「服务起不来」。
+echo "② 构建"
+APP_BIN="$(dev_build app-server ./cmd/app-server)" || {
+  echo "✘ 构建阶段失败，未启动任何服务。" >&2
+  exit 1
+}
+GATEWAY_BIN=""
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  GATEWAY_BIN="$(dev_build voice-gateway ./cmd/voice-gateway)" || {
+    echo "✘ 构建阶段失败，未启动任何服务。" >&2
+    exit 1
+  }
+fi
+SEED_BIN=""
+if [[ "$WITH_SEED" == "1" ]]; then
+  SEED_BIN="$(dev_build corpus-seed ./cmd/corpus-seed)" || {
+    echo "✘ 构建阶段失败，未启动任何服务。" >&2
+    exit 1
+  }
+fi
+echo ""
+
+# 3. 启动
+echo "③ 启动"
+dev_start_service app-server "$PORT" "$APP_BIN"
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  dev_start_service voice-gateway "$GATEWAY_PORT" "$GATEWAY_BIN"
+fi
+echo ""
+
+# 4. 等就绪
+echo "④ 等就绪"
+dev_wait_healthy app-server "$PORT" "http://127.0.0.1:${PORT}/healthz" 90 || exit 1
+if [[ "$WITH_GATEWAY" -eq 1 ]]; then
+  dev_wait_healthy voice-gateway "$GATEWAY_PORT" "http://127.0.0.1:${GATEWAY_PORT}/healthz" 90 || exit 1
+fi
+echo ""
+
+# 5. 冒烟：游客鉴权
+echo "⑤ 冒烟测试（游客鉴权）"
 curl -sS -H 'Content-Type: application/json' \
   -d '{"device_id":"local-dev-device"}' \
   "http://127.0.0.1:${PORT}/api/v1/auth/guest"
-echo
-if [[ "$AUTO_CORPUS_SEED" == "1" ]]; then
+echo ""
+echo ""
+
+# 6. 徽章语料 —— 网关只为「能在语料里找到的短语」发 feedback.badge，
+#    而语料由 app-server 提供。以前这一步只在 dev-up.sh 里有，于是走
+#    dev-stack.zsh / dev-local-start.sh 的人永远打不出徽章，得自己再跑一遍
+#    corpus-seed。现在两条路都做，用 --no-seed 关闭。
+if [[ "$WITH_SEED" == "1" ]]; then
   SEED_ID="${SEED_DEVICE_ID:-corpus-seed-dev-device}"
-  echo "Seeding dev corpus (device_id=${SEED_ID})..."
-  go run ./cmd/corpus-seed \
-    -base-url "http://127.0.0.1:${PORT}" \
-    -device-id "${SEED_ID}" | tail -2
-  # The corpus is scoped by user, and a physical device authenticates as its own
-  # guest — never this id. App-server now covers that case itself: in
-  # development it provisions the same starter corpus for a guest's first
-  # session (corpus.StarterProvisioner), so a phone fires badges with no extra
-  # step. This seed stays for pinning a *specific* device deliberately.
-  echo "   corpus belongs to device_id=${SEED_ID}."
-  echo "   A physical device needs no seeding in development: app-server seeds the"
-  echo "   same starter corpus on its first session. To pin one explicitly:"
-  echo "     go run ./cmd/corpus-seed -device-id <your device id>"
+  echo "⑥ 播种徽章语料（device_id=${SEED_ID}）"
+  "$SEED_BIN" -base-url "http://127.0.0.1:${PORT}" -device-id "${SEED_ID}" | tail -2
+  echo "   语料属于 device_id=${SEED_ID}。真机不需要播种：开发模式下 app-server"
+  echo "   会在游客的第一次会话里给它发同一份起步语料（corpus.StarterProvisioner）。"
+  echo "   要把语料钉在某个设备上："
+  echo "     ./bin/corpus-seed -device-id <你的 device id>"
+  echo ""
 fi
-echo "📡 WSS URL for iOS: ws://${HOST}:${GATEWAY_PORT}/v1/voice"
-echo "   Set LOCAL_HOST=${HOST} in Xcode scheme for physical device testing."
-echo
+
+# 7. 汇总
+echo "⑦ 就绪"
+dev_print_summary
+echo ""
+echo "   接口：GET  http://127.0.0.1:${PORT}/healthz"
+echo "         GET  http://127.0.0.1:${PORT}/readyz"
+echo "         POST http://127.0.0.1:${PORT}/api/v1/auth/guest"
 if [[ "$WITH_GATEWAY" -eq 1 ]]; then
-  echo "app-server (pid ${SERVER_PID}) and voice-gateway (pid ${GATEWAY_PID}) are running. Ctrl-C to stop."
-  wait "$SERVER_PID" "$GATEWAY_PID"
-else
-  echo "app-server is running (pid ${SERVER_PID}). Ctrl-C to stop."
-  wait "$SERVER_PID"
+  echo "   iOS：WSS 地址 ws://${HOST}:${GATEWAY_PORT}/v1/voice（由 POST /api/v1/sessions 返回）"
+  echo "        Xcode scheme 里设 LOCAL_HOST=${HOST} 只影响 HTTP，不影响 WSS。"
 fi
+if [[ -n "${MYSQL_DSN:-}" ]]; then
+  echo "   存储：MySQL（进程内 review worker 已开启：APP_RUN_REVIEW_WORKER=${APP_RUN_REVIEW_WORKER}）"
+else
+  echo "   存储：内存（进程内 review worker 默认开启）"
+fi
+echo ""
+echo "   Ctrl-C 停止。"
+
+dev_supervise

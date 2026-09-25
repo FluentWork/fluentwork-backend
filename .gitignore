@@ -1,6 +1,8 @@
 .DS_Store
 bin/
 dist/
+# dev-*.sh 把每个服务的日志写到这里（DEV_LOG_DIR，默认 .dev-logs/）
+.dev-logs/
 coverage.out
 *.test
 .env
