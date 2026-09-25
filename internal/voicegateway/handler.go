@@ -391,9 +391,10 @@ type sessionRuntime struct {
 	// when nothing is speaking) and rescueSpeechGen is the token that both the
 	// ladder goroutine and the read loop use to decide whether a rung is still
 	// current. See beginRescueSpeech.
-	rescueSpeechMu   sync.Mutex
-	rescueSpeechTurn string
-	rescueSpeechGen  uint64
+	rescueSpeechMu      sync.Mutex
+	rescueSpeechTurn    string
+	rescueSpeechGen     uint64
+	rescueSpeechTurnRef *uint32
 	// sessionID is this runtime's session, for the paths that report about it
 	// without having the ticket in hand — the provider's outbound hooks, which
 	// run on whichever goroutine is relaying vendor output.
@@ -409,6 +410,7 @@ type sessionRuntime struct {
 	// ladder. One allocator per client session, because the client's barge-in
 	// watermark is per WebSocket session and does not distinguish producers.
 	audioSeq *SeqAllocator
+	turnRefs *TurnRefAllocator
 }
 
 // clock returns the runtime's clock, defaulting to time.Now so a directly-built
@@ -506,6 +508,7 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		sessionID:          session.SessionID,
 		turn:               NewTurn(session.SessionID),
 		audioSeq:           &SeqAllocator{},
+		turnRefs:           &TurnRefAllocator{},
 		writeTimeout:       h.writeTimeout,
 		silenceDetector:    h.rescueDetectorForSession(),
 		rescueOrchestrator: h.rescueOrchestrator,
@@ -578,7 +581,7 @@ func (h *Handler) handleAudio(
 			// Same allocator as the session being replaced, so the numbering
 			// continues instead of restarting behind the client's barge-in
 			// watermark. There is nothing to carry: see SeqAllocator.
-			reopened, openErr := h.provider.Open(ctx, session, rt.audioSeq)
+			reopened, openErr := h.provider.Open(ctx, session, rt.audioSeq, rt.turnRefs)
 			if openErr == nil {
 				// The same frame the session opened with, not a blank one: a
 				// reopened session that has forgotten what the practice is

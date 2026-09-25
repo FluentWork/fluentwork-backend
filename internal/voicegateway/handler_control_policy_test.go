@@ -20,7 +20,7 @@ import (
 // happens when forwarding fails" is unanswerable from the outside.
 type refusingProvider struct{}
 
-func (refusingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
+func (refusingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator, *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	return refusingSession{}, nil
 }
 

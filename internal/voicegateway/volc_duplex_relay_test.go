@@ -70,7 +70,7 @@ func (s *volcStubSession) Close(_ context.Context) error                   { ret
 
 type volcStubProvider struct{ session *volcStubSession }
 
-func (p *volcStubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
+func (p *volcStubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator, _ *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	return p.session, nil
 }
 

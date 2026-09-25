@@ -285,7 +285,7 @@ func (h *Handler) openSession(ctx context.Context, conn *websocket.Conn, session
 			return rtSendError(ctx, conn, rt, "activate_failed", err.Error())
 		}
 	}
-	provider, err := h.provider.Open(ctx, session, rt.audioSeq)
+	provider, err := h.provider.Open(ctx, session, rt.audioSeq, rt.turnRefs)
 	if err != nil {
 		h.logger.Warn("provider open failed", "session_id", session.SessionID, "err", err)
 		return rtSendError(ctx, conn, rt, "provider_open_failed", err.Error())

@@ -312,7 +312,7 @@ func TestTurnToOutboundFlushesTheTrailingAudio(t *testing.T) {
 
 	streamedBytes := 0
 	for _, frame := range emitter.binaryFrames() {
-		streamedBytes += len(frame) - audioFrameHeaderBytes
+		streamedBytes += len(frame) - voiceproto.AudioFrameLayoutH4.HeaderBytes()
 	}
 
 	outbound := sess.turnToOutbound(voiceduplex.TurnResult{
@@ -321,7 +321,7 @@ func TestTurnToOutboundFlushesTheTrailingAudio(t *testing.T) {
 	flushedBytes := 0
 	for _, item := range outbound {
 		if len(item.Binary) > 0 {
-			flushedBytes += len(item.Binary) - audioFrameHeaderBytes
+			flushedBytes += len(item.Binary) - voiceproto.AudioFrameLayoutH4.HeaderBytes()
 		}
 	}
 
@@ -486,7 +486,7 @@ func TestAssistantAudioWithoutAnEmitterDoesNotSuppressTheAudio(t *testing.T) {
 	var sent int
 	for _, item := range outbound {
 		if len(item.Binary) > 0 {
-			sent += len(item.Binary) - audioFrameHeaderBytes
+			sent += len(item.Binary) - voiceproto.AudioFrameLayoutH4.HeaderBytes()
 		}
 	}
 	if want := len(resampleToPlaybackRate(pcm)); sent != want {

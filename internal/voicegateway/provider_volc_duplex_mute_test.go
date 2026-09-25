@@ -85,7 +85,7 @@ func openMuteTestSession(t *testing.T) (*volcDuplexProviderSession, <-chan map[s
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 
-	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{})
+	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{}, nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

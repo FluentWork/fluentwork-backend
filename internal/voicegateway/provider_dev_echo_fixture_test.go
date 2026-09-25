@@ -70,7 +70,7 @@ func TestFixtureAudioFramesCarryTheWireSequenceHeader(t *testing.T) {
 	provider.Fixture = voicegateway.DevEchoFixtureGenerator(40) // 2 × 20ms chunks
 
 	sess, err := provider.Open(
-		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-fix"}, &voicegateway.SeqAllocator{},
+		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-fix"}, &voicegateway.SeqAllocator{}, nil,
 	)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

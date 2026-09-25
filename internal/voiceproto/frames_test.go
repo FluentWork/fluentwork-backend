@@ -1,7 +1,9 @@
 package voiceproto_test
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -114,6 +116,51 @@ func TestSchemaV2AddsTTSFrames(t *testing.T) {
 	}
 	if refs["#/$defs/aiTTSAudio"] {
 		t.Fatal("aiTTSAudio must not be in JSON control oneOf; it is a binary message")
+	}
+}
+
+func TestTTSCodecFieldsAreAllDeclaredInTheMirroredSchema(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+
+	cases := []struct {
+		def string
+		typ reflect.Type
+	}{
+		{"aiTTSStart", reflect.TypeOf(voiceproto.AITTSStart{})},
+		{"aiTTSEnd", reflect.TypeOf(voiceproto.AITTSEnd{})},
+	}
+	for _, tc := range cases {
+		def, ok := defs[tc.def].(map[string]any)
+		if !ok {
+			t.Fatalf("schema missing $defs.%s", tc.def)
+		}
+		if def["additionalProperties"] != false {
+			t.Fatalf("$defs.%s must set additionalProperties:false, otherwise an undeclared field is not a defect", tc.def)
+		}
+		props, ok := def["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("$defs.%s missing properties", tc.def)
+		}
+		for i := 0; i < tc.typ.NumField(); i++ {
+			tag := tc.typ.Field(i).Tag.Get("json")
+			name, _, _ := strings.Cut(tag, ",")
+			if name == "" || name == "-" {
+				continue
+			}
+			if _, ok := props[name]; !ok {
+				t.Fatalf("$defs.%s does not declare %q, which %s can emit; with additionalProperties:false every frame carrying it is invalid",
+					tc.def, name, tc.typ.Name())
+			}
+		}
 	}
 }
 
@@ -428,7 +475,7 @@ func TestAITTSAudioBinaryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	got, err := voiceproto.DecodeAITTSAudio(raw)
+	got, err := voiceproto.DecodeAITTSAudio(raw, voiceproto.AudioFrameLayoutH4)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -438,8 +485,157 @@ func TestAITTSAudioBinaryRoundTrip(t *testing.T) {
 	if _, err := (voiceproto.AITTSAudio{Seq: 0, Payload: nil}).Encode(); err == nil {
 		t.Fatal("empty payload must fail")
 	}
-	if _, err := voiceproto.DecodeAITTSAudio([]byte{0, 0, 0, 1}); err == nil {
+	if _, err := voiceproto.DecodeAITTSAudio([]byte{0, 0, 0, 1}, voiceproto.AudioFrameLayoutH4); err == nil {
 		t.Fatal("truncated payload must fail")
+	}
+}
+
+func TestAudioFrameLayoutForIsTheOnlyLayoutDecision(t *testing.T) {
+	t.Parallel()
+	if got := voiceproto.AudioFrameLayoutFor(nil); got != voiceproto.AudioFrameLayoutH4 {
+		t.Fatalf("unattributed turn must select h4, got %v", got)
+	}
+	ref := uint32(1)
+	if got := voiceproto.AudioFrameLayoutFor(&ref); got != voiceproto.AudioFrameLayoutH8 {
+		t.Fatalf("attributed turn must select h8, got %v", got)
+	}
+	if got := voiceproto.AudioFrameLayoutH4.HeaderBytes(); got != 4 {
+		t.Fatalf("h4 header = %d, want 4", got)
+	}
+	if got := voiceproto.AudioFrameLayoutH8.HeaderBytes(); got != 8 {
+		t.Fatalf("h8 header = %d, want 8", got)
+	}
+}
+
+func TestH8FramePutsTurnRefBetweenSeqAndPayload(t *testing.T) {
+	t.Parallel()
+	ref := uint32(0x01020304)
+	raw, err := (voiceproto.AITTSAudio{Seq: 0x0A0B0C0D, TurnRef: &ref, Payload: []byte{0xAA, 0xBB}}).Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if len(raw) != 8+2 {
+		t.Fatalf("h8 frame is %d bytes, want 10", len(raw))
+	}
+	if got := binary.BigEndian.Uint32(raw[0:4]); got != 0x0A0B0C0D {
+		t.Fatalf("seq bytes = %08x", got)
+	}
+	if got := binary.BigEndian.Uint32(raw[4:8]); got != 0x01020304 {
+		t.Fatalf("turn_ref bytes = %08x", got)
+	}
+	if got := raw[8:]; string(got) != "\xaa\xbb" {
+		t.Fatalf("payload bytes = %x", got)
+	}
+}
+
+func TestH8FrameRoundTripsThroughTheCodec(t *testing.T) {
+	t.Parallel()
+	ref := uint32(42)
+	raw, err := (voiceproto.AITTSAudio{Seq: 7, TurnRef: &ref, Payload: []byte{1, 2, 3, 4}}).Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := voiceproto.DecodeAITTSAudio(raw, voiceproto.AudioFrameLayoutH8)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Seq != 7 {
+		t.Fatalf("seq = %d, want 7", got.Seq)
+	}
+	if got.TurnRef == nil || *got.TurnRef != 42 {
+		t.Fatalf("turn_ref = %#v, want 42", got.TurnRef)
+	}
+	if string(got.Payload) != "\x01\x02\x03\x04" {
+		t.Fatalf("payload = %x", got.Payload)
+	}
+}
+
+func TestReadingAnH8FrameAsH4ShiftsThePayloadByFourBytes(t *testing.T) {
+	t.Parallel()
+	ref := uint32(0xDEADBEEF)
+	payload := []byte{0xAA, 0xBB, 0xCC, 0xDD}
+	raw, err := (voiceproto.AITTSAudio{Seq: 1, TurnRef: &ref, Payload: payload}).Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	misread, err := voiceproto.DecodeAITTSAudio(raw, voiceproto.AudioFrameLayoutH4)
+	if err != nil {
+		t.Fatalf("decode as h4: %v", err)
+	}
+	if len(misread.Payload) != len(payload)+4 {
+		t.Fatalf("misread payload is %d bytes, want %d", len(misread.Payload), len(payload)+4)
+	}
+	if string(misread.Payload[:4]) != string(raw[4:8]) {
+		t.Fatalf("misread payload does not start with the turn_ref half: %x", misread.Payload[:4])
+	}
+	if string(misread.Payload) == string(payload) {
+		t.Fatal("reading an h8 frame as h4 must corrupt the payload, not round-trip it")
+	}
+}
+
+func TestH8FrameShorterThanItsHeaderIsRejected(t *testing.T) {
+	t.Parallel()
+	if _, err := voiceproto.DecodeAITTSAudio(make([]byte, 8), voiceproto.AudioFrameLayoutH8); err == nil {
+		t.Fatal("an h8 frame with no payload byte must fail")
+	}
+	if _, err := voiceproto.DecodeAITTSAudio(make([]byte, 7), voiceproto.AudioFrameLayoutH8); err == nil {
+		t.Fatal("an h8 frame shorter than its header must fail")
+	}
+}
+
+func TestTTSStartCarriesTurnRefOnlyWhenTheTurnIsAttributed(t *testing.T) {
+	t.Parallel()
+	plain, err := json.Marshal(voiceproto.AITTSStart{
+		Type: voiceproto.TypeAITTSStart, TurnID: "t", VoiceID: "v", SampleRate: 16000, Codec: "pcm",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(plain), "turn_ref") {
+		t.Fatalf("an unattributed start must not name turn_ref: %s", plain)
+	}
+
+	ref := uint32(3)
+	raw, err := json.Marshal(voiceproto.AITTSStart{
+		Type: voiceproto.TypeAITTSStart, TurnID: "t", VoiceID: "v", SampleRate: 16000, Codec: "pcm", TurnRef: &ref,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded voiceproto.AITTSStart
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.TurnRef == nil || *decoded.TurnRef != 3 {
+		t.Fatalf("turn_ref round trip: %#v", decoded.TurnRef)
+	}
+}
+
+func TestTTSEndCarriesTurnRefOnlyWhenTheTurnIsAttributed(t *testing.T) {
+	t.Parallel()
+	plain, err := json.Marshal(voiceproto.AITTSEnd{
+		Type: voiceproto.TypeAITTSEnd, TurnID: "t", CompletionStatus: "ok",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(plain), "turn_ref") {
+		t.Fatalf("an unattributed end must not name turn_ref: %s", plain)
+	}
+
+	ref := uint32(3)
+	raw, err := json.Marshal(voiceproto.AITTSEnd{
+		Type: voiceproto.TypeAITTSEnd, TurnID: "t", CompletionStatus: "interrupted", TurnRef: &ref,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded voiceproto.AITTSEnd
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.TurnRef == nil || *decoded.TurnRef != 3 {
+		t.Fatalf("turn_ref round trip: %#v", decoded.TurnRef)
 	}
 }
 

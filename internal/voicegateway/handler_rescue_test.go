@@ -144,7 +144,7 @@ type rescueProvider struct {
 	bootstrap rescueBootstrap
 }
 
-func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator) (VoiceProviderSession, error) {
+func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator, *TurnRefAllocator) (VoiceProviderSession, error) {
 	return &rescueProviderSession{bootstrap: p.bootstrap}, nil
 }
 
@@ -379,13 +379,17 @@ func rescueReadAudioStream(
 	if got := start["type"]; got != voiceproto.TypeAITTSStart {
 		t.Fatalf("expected %s, got %v", voiceproto.TypeAITTSStart, start)
 	}
+	layout := voiceproto.AudioFrameLayoutH4
+	if _, attributed := start["turn_ref"]; attributed {
+		layout = voiceproto.AudioFrameLayoutH8
+	}
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
 			t.Fatalf("read during audio stream: %v", err)
 		}
 		if typ == websocket.MessageBinary {
-			frame, err := voiceproto.DecodeAITTSAudio(data)
+			frame, err := voiceproto.DecodeAITTSAudio(data, layout)
 			if err != nil {
 				t.Fatalf("decode binary audio frame: %v", err)
 			}
@@ -847,7 +851,11 @@ func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
 
 	rig.clock.advance(rescueTestLevel1)
 	rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
-	rescueWaitForType(readCtx, t, conn, voiceproto.TypeAITTSStart)
+	start := rescueWaitForType(readCtx, t, conn, voiceproto.TypeAITTSStart)
+	startRef, attributed := start["turn_ref"]
+	if !attributed {
+		t.Fatalf("the rung's ai.tts.start carries no turn_ref, so its frames cannot be attributed: %#v", start)
+	}
 
 	// Read a couple of frames so the stream is demonstrably under way.
 	frames := 0
@@ -890,6 +898,9 @@ func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
 		}
 		if got := raw["completion_status"]; got != "interrupted" {
 			t.Fatalf("ai.tts.end status = %v, want interrupted once the user spoke", got)
+		}
+		if got := raw["turn_ref"]; got != startRef {
+			t.Fatalf("interrupting end turn_ref = %#v, want %#v (the value its start announced)", got, startRef)
 		}
 		if frames >= total {
 			t.Fatalf("all %d frames were spent before the interrupt: the rung finished first, so this proved nothing", frames)

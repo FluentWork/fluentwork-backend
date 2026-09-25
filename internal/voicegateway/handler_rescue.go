@@ -154,10 +154,10 @@ func (h *Handler) emitRescue(
 	// user could have been stuck on.
 	rt.rescueLog.noteLadder(frame.TurnID, frame.Level, frame.Text)
 
-	token := rt.beginRescueSpeech(frame.TurnID)
+	token, turnRef := rt.beginRescueSpeech(frame.TurnID)
 	spoken := false
 	if delivery.Audio != nil {
-		spoken = h.sendRescueAudio(ctx, conn, rt, *delivery.Audio, frame.TurnID, token)
+		spoken = h.sendRescueAudio(ctx, conn, rt, *delivery.Audio, frame.TurnID, token, turnRef)
 	}
 
 	h.logger.Info("B8 rescue ladder emitted",
@@ -188,6 +188,7 @@ func (h *Handler) sendRescueAudio(
 	audio RescueAudio,
 	turnID string,
 	token uint64,
+	turnRef *uint32,
 ) bool {
 	writer, err := beginUtterance(Utterance{
 		ID:      turnID,
@@ -197,7 +198,7 @@ func (h *Handler) sendRescueAudio(
 		Codec:   audio.Codec,
 	}, func(outbound []ProviderOutbound) error {
 		return rt.sendWithoutRescueState(ctx, conn, outbound)
-	}, rt.audioSeq, func() bool {
+	}, rt.audioSeq, turnRef, func() bool {
 		return rt.rescueSpeechCurrent(token)
 	})
 	if err != nil {
@@ -560,12 +561,13 @@ func (rt *sessionRuntime) rescueSnapshot(session ConsumedTicket) (conversation.C
 // writes its frames, and the read loop stops it the moment the learner speaks.
 // A counter rather than a bool because the stop must also cancel a *pending*
 // start — a bool would let the next rung inherit the previous one's liveness.
-func (rt *sessionRuntime) beginRescueSpeech(turnID string) uint64 {
+func (rt *sessionRuntime) beginRescueSpeech(turnID string) (uint64, *uint32) {
 	rt.rescueSpeechMu.Lock()
 	defer rt.rescueSpeechMu.Unlock()
 	rt.rescueSpeechGen++
 	rt.rescueSpeechTurn = turnID
-	return rt.rescueSpeechGen
+	rt.rescueSpeechTurnRef = rt.turnRefs.Next()
+	return rt.rescueSpeechGen, rt.rescueSpeechTurnRef
 }
 
 // finishRescueSpeech releases the stream after the ladder ended it normally.
@@ -581,6 +583,7 @@ func (rt *sessionRuntime) finishRescueSpeech(token uint64) {
 		return
 	}
 	rt.rescueSpeechTurn = ""
+	rt.rescueSpeechTurnRef = nil
 }
 
 // rescueSpeechCurrent reports whether token still owns the audio stream.
@@ -613,6 +616,8 @@ func (rt *sessionRuntime) stopRescueSpeech(
 	}
 	rt.rescueSpeechGen++ // cancels the token the ladder goroutine holds
 	rt.rescueSpeechTurn = ""
+	turnRef := rt.rescueSpeechTurnRef
+	rt.rescueSpeechTurnRef = nil
 	rt.rescueSpeechMu.Unlock()
 
 	// The end frame is sent from *this* goroutine, not by the writer: the user is
@@ -623,6 +628,7 @@ func (rt *sessionRuntime) stopRescueSpeech(
 		Type:             voiceproto.TypeAITTSEnd,
 		TurnID:           turnID,
 		CompletionStatus: "interrupted",
+		TurnRef:          turnRef,
 	}
 	if err := rt.sendWithoutRescueState(ctx, conn, []ProviderOutbound{{Control: end}}); err != nil && warn != nil {
 		// The learner has already started talking; a failed stop costs them a

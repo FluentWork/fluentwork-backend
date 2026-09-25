@@ -69,7 +69,7 @@ func NewDevEchoVoiceProvider(echoText string, logger *slog.Logger) DevEchoVoiceP
 }
 
 // Open returns a fresh session that echoes the configured text.
-func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error) {
+func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator, turnRefs *TurnRefAllocator) (VoiceProviderSession, error) {
 	if strings.TrimSpace(p.EchoText) == "" {
 		p.Logger.Warn("dev-echo provider started with empty EchoText; badges will never fire",
 			"session_id", ticket.SessionID,
@@ -101,6 +101,7 @@ func (p DevEchoVoiceProvider) Open(_ context.Context, ticket ConsumedTicket, aud
 		logger:    p.Logger,
 		sessionID: ticket.SessionID,
 		audioSeq:  audioSeq,
+		turnRefs:  turnRefs,
 	}, nil
 }
 
@@ -130,8 +131,8 @@ const (
 // watermark records one of them, and every later frame compares *below* it and
 // is dropped as late — audio that dies after the first interruption, with no
 // client bug anywhere in the chain.
-func (s *devEchoSession) encodeAudioFrame(pcm []byte) ([]byte, error) {
-	frame, err := (voiceproto.AITTSAudio{Seq: s.audioSeq.Next(), Payload: pcm}).Encode()
+func (s *devEchoSession) encodeAudioFrame(pcm []byte, turnRef *uint32) ([]byte, error) {
+	frame, err := (voiceproto.AITTSAudio{Seq: s.audioSeq.Next(), TurnRef: turnRef, Payload: pcm}).Encode()
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +146,7 @@ type devEchoSession struct {
 	logger     *slog.Logger
 	sessionID  string
 	audioSeq   *SeqAllocator
+	turnRefs   *TurnRefAllocator
 	lastTurnID string
 }
 
@@ -235,7 +237,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 		chunk := make([]byte, UplinkChunkBytes)
 		n, _ := s.fixture.Read(chunk)
 		if n > 0 {
-			if frame, err := s.encodeAudioFrame(chunk[:n]); err == nil {
+			if frame, err := s.encodeAudioFrame(chunk[:n], nil); err == nil {
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		}
@@ -250,7 +252,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 				s.fixture = nil
 			}
 		case n2 > 0:
-			if frame, err := s.encodeAudioFrame(check[:n2]); err == nil {
+			if frame, err := s.encodeAudioFrame(check[:n2], nil); err == nil {
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 			moreChunksRemain = true
@@ -277,6 +279,7 @@ func (s *devEchoSession) HandleClientControl(_ context.Context, frameType string
 
 func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 	var outbound []ProviderOutbound
+	turnRef := s.turnRefs.Next()
 	echoText := strings.TrimSpace(s.echoText)
 	if echoText != "" {
 		outbound = append(outbound, ProviderOutbound{
@@ -296,6 +299,7 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 			VoiceID:    devEchoTTSMockVoiceID,
 			SampleRate: devEchoTTSMockSampleRate,
 			Codec:      devEchoTTSMockCodec,
+			TurnRef:    turnRef,
 		},
 	})
 	if s.logger != nil {
@@ -305,7 +309,7 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 	tone := DevEchoFixtureGenerator(devEchoTTSMockFrameCount * devEchoTTSMockFrameMs)
 	for i := 0; i < devEchoTTSMockFrameCount; i++ {
 		offset := i * UplinkChunkBytes
-		frame, err := s.encodeAudioFrame(tone[offset : offset+UplinkChunkBytes])
+		frame, err := s.encodeAudioFrame(tone[offset:offset+UplinkChunkBytes], turnRef)
 		if err != nil {
 			return outbound
 		}
@@ -323,6 +327,7 @@ func (s *devEchoSession) emitMockTTSTurn(turnID string) []ProviderOutbound {
 				TurnID:           turnID,
 				CompletionStatus: "ok",
 				DurationMs:       &durationMs,
+				TurnRef:          turnRef,
 			},
 		},
 		ProviderOutbound{
@@ -376,7 +381,7 @@ func (s *devEchoSession) HandleClientAudio(_ context.Context, data []byte) ([]Pr
 		}, nil
 	}
 
-	frame, err := s.encodeAudioFrame(chunk[:n])
+	frame, err := s.encodeAudioFrame(chunk[:n], nil)
 	if err != nil {
 		return nil, err
 	}

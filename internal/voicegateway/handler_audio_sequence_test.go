@@ -40,7 +40,7 @@ func (p *sequencedProvider) setFail(v bool) {
 	p.fail = v
 }
 
-func (p *sequencedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, audioSeq *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
+func (p *sequencedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, audioSeq *voicegateway.SeqAllocator, _ *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opens++

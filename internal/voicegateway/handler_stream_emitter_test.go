@@ -79,7 +79,7 @@ type emitterTrackingProvider struct {
 	sessions []*emitterTrackingSession
 }
 
-func (p *emitterTrackingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
+func (p *emitterTrackingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator, *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	sess := &emitterTrackingSession{}
 	p.mu.Lock()
 	p.sessions = append(p.sessions, sess)

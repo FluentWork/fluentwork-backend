@@ -164,16 +164,21 @@ type outboundSink func([]ProviderOutbound) error
 // runtime's, so the framer returns frames and lets each caller send them.
 type audioFramer struct {
 	alloc   *SeqAllocator
+	turnRef *uint32
 	format  AudioFormat
 	frameMS int
 	pending []byte
 }
 
-func newAudioFramer(alloc *SeqAllocator, format AudioFormat, frameMS int) *audioFramer {
+func newAudioFramer(alloc *SeqAllocator, turnRef *uint32, format AudioFormat, frameMS int) *audioFramer {
 	if frameMS <= 0 {
 		frameMS = ClientFrameMS
 	}
-	return &audioFramer{alloc: alloc, format: format, frameMS: frameMS}
+	return &audioFramer{alloc: alloc, turnRef: turnRef, format: format, frameMS: frameMS}
+}
+
+func (f *audioFramer) headerBytes() int {
+	return voiceproto.AudioFrameLayoutFor(f.turnRef).HeaderBytes()
 }
 
 // Write buffers one chunk and returns every whole frame it completed.
@@ -210,7 +215,7 @@ func (f *audioFramer) Flush() [][]byte {
 func (f *audioFramer) Reset() { f.pending = nil }
 
 func (f *audioFramer) encode(payload []byte) []byte {
-	encoded, err := (voiceproto.AITTSAudio{Seq: f.alloc.Next(), Payload: payload}).Encode()
+	encoded, err := (voiceproto.AITTSAudio{Seq: f.alloc.Next(), TurnRef: f.turnRef, Payload: payload}).Encode()
 	if err != nil {
 		// Unreachable: payload is never empty here. Returning nil would silently
 		// shorten the stream, so the branch is written out rather than ignored.
@@ -240,6 +245,7 @@ type streamWriter struct {
 	turnID  string
 	voiceID string
 	codec   string
+	turnRef *uint32
 	// pace is how long one frame of audio takes to speak. Injected so tests do
 	// not wait in real time for a three-second rung.
 	pace time.Duration
@@ -265,6 +271,7 @@ func beginUtterance(
 	u Utterance,
 	send outboundSink,
 	audio *SeqAllocator,
+	turnRef *uint32,
 	live func() bool,
 ) (UtteranceWriter, error) {
 	if send == nil {
@@ -280,11 +287,12 @@ func beginUtterance(
 	frameMS := u.frameMSOrDefault()
 	w := &streamWriter{
 		send:    send,
-		framer:  newAudioFramer(audio, format, frameMS),
+		framer:  newAudioFramer(audio, turnRef, format, frameMS),
 		format:  format,
 		turnID:  u.ID,
 		voiceID: u.VoiceID,
 		codec:   u.codecOrPCM(),
+		turnRef: turnRef,
 		pace:    time.Duration(frameMS) * time.Millisecond,
 		live:    live,
 	}
@@ -294,6 +302,7 @@ func beginUtterance(
 		VoiceID:    w.voiceID,
 		SampleRate: format.SampleRate,
 		Codec:      w.codec,
+		TurnRef:    w.turnRef,
 	}}}); err != nil {
 		return nil, err
 	}
@@ -322,7 +331,7 @@ func (w *streamWriter) Audio(pcm []byte) error {
 		if err := w.send([]ProviderOutbound{{Binary: frame}}); err != nil {
 			return err
 		}
-		w.sentBytes += len(frame) - audioFrameHeaderBytes
+		w.sentBytes += len(frame) - w.framer.headerBytes()
 	}
 	return nil
 }
@@ -344,7 +353,7 @@ func (w *streamWriter) finish(status string) error {
 		if err := w.send([]ProviderOutbound{{Binary: frame}}); err != nil {
 			return err
 		}
-		w.sentBytes += len(frame) - audioFrameHeaderBytes
+		w.sentBytes += len(frame) - w.framer.headerBytes()
 	}
 	// Duration is what was actually sent, not what was synthesized: a stream
 	// interrupted after two frames lasted two frames, and the client uses this
@@ -358,5 +367,6 @@ func (w *streamWriter) finish(status string) error {
 		TurnID:           w.turnID,
 		CompletionStatus: status,
 		DurationMs:       &durationMS,
+		TurnRef:          w.turnRef,
 	}}})
 }

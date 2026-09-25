@@ -56,3 +56,26 @@ func (a *SeqAllocator) Peek() uint32 {
 	}
 	return a.next.Load()
 }
+
+// TurnRefAllocator owns the numbering of the turns whose audio frames the
+// gateway attributes.
+type TurnRefAllocator struct {
+	next atomic.Uint32
+}
+
+// Next returns the next turn reference, or nil when there is no allocator.
+func (a *TurnRefAllocator) Next() *uint32 {
+	if a == nil {
+		return nil
+	}
+	ref := a.next.Add(1)
+	return &ref
+}
+
+// Peek reports the last reference handed out, for tests and for logging.
+func (a *TurnRefAllocator) Peek() uint32 {
+	if a == nil {
+		return 0
+	}
+	return a.next.Load()
+}

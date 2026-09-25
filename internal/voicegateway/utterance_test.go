@@ -73,7 +73,7 @@ func TestUtterance_StartThenFramesThenEnd(t *testing.T) {
 
 	w, err := beginUtterance(Utterance{
 		ID: "t1", Kind: UtteranceLadder, VoiceID: "v", Codec: "pcm",
-	}, sink.send, alloc, nil)
+	}, sink.send, alloc, nil, nil)
 	if err != nil {
 		t.Fatalf("beginUtterance: %v", err)
 	}
@@ -96,13 +96,108 @@ func TestUtterance_StartThenFramesThenEnd(t *testing.T) {
 	}
 }
 
+func TestUtterance_AttributedStreamCarriesTurnRefOnStartFramesAndEnd(t *testing.T) {
+	sink := &recordingSink{}
+	turnRef := (&TurnRefAllocator{}).Next()
+	pcm := make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*2)
+
+	w, err := beginUtterance(Utterance{
+		ID: "t1", Kind: UtteranceLadder, VoiceID: "v", Codec: "pcm",
+	}, sink.send, &SeqAllocator{}, turnRef, nil)
+	if err != nil {
+		t.Fatalf("beginUtterance: %v", err)
+	}
+	if err := w.Audio(pcm); err != nil {
+		t.Fatalf("Audio: %v", err)
+	}
+	if err := w.End(); err != nil {
+		t.Fatalf("End: %v", err)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+
+	start, ok := sink.items[0].Control.(voiceproto.AITTSStart)
+	if !ok {
+		t.Fatalf("first outbound is not ai.tts.start: %#v", sink.items[0])
+	}
+	if start.TurnRef == nil || *start.TurnRef != *turnRef {
+		t.Fatalf("start turn_ref = %#v, want %d", start.TurnRef, *turnRef)
+	}
+
+	frameBytes := ClientAudioFormat.FrameBytes(ClientFrameMS)
+	frames := 0
+	for _, item := range sink.items {
+		if len(item.Binary) == 0 {
+			continue
+		}
+		frames++
+		if len(item.Binary) != 8+frameBytes {
+			t.Fatalf("frame %d is %d bytes, want an 8-byte header plus %d of payload", frames, len(item.Binary), frameBytes)
+		}
+		if got := binary.BigEndian.Uint32(item.Binary[4:8]); got != *turnRef {
+			t.Fatalf("frame %d turn_ref = %d, want %d", frames, got, *turnRef)
+		}
+	}
+	if frames != 2 {
+		t.Fatalf("binary frames = %d, want 2", frames)
+	}
+
+	end, ok := sink.items[len(sink.items)-1].Control.(voiceproto.AITTSEnd)
+	if !ok {
+		t.Fatalf("last outbound is not ai.tts.end: %#v", sink.items[len(sink.items)-1])
+	}
+	if end.TurnRef == nil || *end.TurnRef != *turnRef {
+		t.Fatalf("end turn_ref = %#v, want %d", end.TurnRef, *turnRef)
+	}
+}
+
+func TestUtterance_UnattributedStreamStaysOnTheH4Layout(t *testing.T) {
+	sink := &recordingSink{}
+	w, err := beginUtterance(Utterance{
+		ID: "t1", Kind: UtteranceLadder, VoiceID: "v", Codec: "pcm",
+	}, sink.send, &SeqAllocator{}, nil, nil)
+	if err != nil {
+		t.Fatalf("beginUtterance: %v", err)
+	}
+	if err := w.Audio(make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS))); err != nil {
+		t.Fatalf("Audio: %v", err)
+	}
+	if err := w.End(); err != nil {
+		t.Fatalf("End: %v", err)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	start, ok := sink.items[0].Control.(voiceproto.AITTSStart)
+	if !ok {
+		t.Fatalf("first outbound is not ai.tts.start: %#v", sink.items[0])
+	}
+	if start.TurnRef != nil {
+		t.Fatalf("unattributed start carries turn_ref %d", *start.TurnRef)
+	}
+	frameBytes := ClientAudioFormat.FrameBytes(ClientFrameMS)
+	for _, item := range sink.items {
+		if len(item.Binary) > 0 && len(item.Binary) != 4+frameBytes {
+			t.Fatalf("unattributed frame is %d bytes, want a 4-byte header plus %d of payload", len(item.Binary), frameBytes)
+		}
+	}
+	end, ok := sink.items[len(sink.items)-1].Control.(voiceproto.AITTSEnd)
+	if !ok {
+		t.Fatalf("last outbound is not ai.tts.end: %#v", sink.items[len(sink.items)-1])
+	}
+	if end.TurnRef != nil {
+		t.Fatalf("unattributed end carries turn_ref %d", *end.TurnRef)
+	}
+}
+
 // The start frame announces the format the client must prepare for, and it comes
 // from the utterance's format rather than from a constant — that is what makes
 // the frame size and the announced rate impossible to disagree.
 func TestUtterance_StartAnnouncesTheFormatItWillSend(t *testing.T) {
 	sink := &recordingSink{}
 	format := AudioFormat{SampleRate: 24000, Channels: 1, BitsPerSample: 16}
-	w, err := beginUtterance(Utterance{ID: "t1", Format: format}, sink.send, &SeqAllocator{}, nil)
+	w, err := beginUtterance(Utterance{ID: "t1", Format: format}, sink.send, &SeqAllocator{}, nil, nil)
 	if err != nil {
 		t.Fatalf("beginUtterance: %v", err)
 	}
@@ -132,7 +227,7 @@ func TestUtterance_EndAndInterruptProduceOneEndFrame(t *testing.T) {
 	for _, order := range []string{"end-first", "interrupt-first"} {
 		t.Run(order, func(t *testing.T) {
 			sink := &recordingSink{}
-			w, err := beginUtterance(Utterance{ID: "t1"}, sink.send, &SeqAllocator{}, nil)
+			w, err := beginUtterance(Utterance{ID: "t1"}, sink.send, &SeqAllocator{}, nil, nil)
 			if err != nil {
 				t.Fatalf("beginUtterance: %v", err)
 			}
@@ -168,7 +263,7 @@ func TestUtterance_StopsWhenItIsNoLongerLive(t *testing.T) {
 	live := true
 	pcm := make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*10)
 
-	w, err := beginUtterance(Utterance{ID: "t1"}, sink.send, &SeqAllocator{}, func() bool { return live })
+	w, err := beginUtterance(Utterance{ID: "t1"}, sink.send, &SeqAllocator{}, nil, func() bool { return live })
 	if err != nil {
 		t.Fatalf("beginUtterance: %v", err)
 	}
@@ -194,7 +289,7 @@ func TestUtterance_PacesFramesAtTheRateTheyAreSpoken(t *testing.T) {
 	frameBytes := short.BytesPerMS() * 10
 
 	start := time.Now()
-	w, err := beginUtterance(Utterance{ID: "t1", Format: short, FrameMS: 10}, sink.send, &SeqAllocator{}, nil)
+	w, err := beginUtterance(Utterance{ID: "t1", Format: short, FrameMS: 10}, sink.send, &SeqAllocator{}, nil, nil)
 	if err != nil {
 		t.Fatalf("beginUtterance: %v", err)
 	}
@@ -231,7 +326,7 @@ func TestUtterance_RefusesToStartWithoutEssentials(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := beginUtterance(tc.u, tc.sink, tc.alloc, nil); err == nil {
+			if _, err := beginUtterance(tc.u, tc.sink, tc.alloc, nil, nil); err == nil {
 				t.Fatal("expected an error")
 			}
 		})
@@ -241,30 +336,43 @@ func TestUtterance_RefusesToStartWithoutEssentials(t *testing.T) {
 // The duration reported to the client is what was actually sent, not what was
 // synthesized: an interrupted rung lasted as long as it lasted.
 func TestUtterance_ReportsTheDurationItActuallySent(t *testing.T) {
-	sink := &recordingSink{}
-	pcm := make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*4) // 400 ms
-	w, err := beginUtterance(Utterance{ID: "t1"}, sink.send, &SeqAllocator{}, nil)
-	if err != nil {
-		t.Fatalf("beginUtterance: %v", err)
-	}
-	if err := w.Audio(pcm); err != nil {
-		t.Fatalf("Audio: %v", err)
-	}
-	if err := w.Interrupt(); err != nil {
-		t.Fatalf("Interrupt: %v", err)
-	}
+	for _, tc := range []struct {
+		name    string
+		turnRef *uint32
+	}{
+		{"h4", nil},
+		{"h8", (&TurnRefAllocator{}).Next()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			pcm := make([]byte, ClientAudioFormat.FrameBytes(1)*400) // 400 ms
+			w, err := beginUtterance(Utterance{ID: "t1", FrameMS: 1}, sink.send, &SeqAllocator{}, tc.turnRef, nil)
+			if err != nil {
+				t.Fatalf("beginUtterance: %v", err)
+			}
+			if err := w.Audio(pcm); err != nil {
+				t.Fatalf("Audio: %v", err)
+			}
+			if err := w.Interrupt(); err != nil {
+				t.Fatalf("Interrupt: %v", err)
+			}
 
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	end, ok := sink.items[len(sink.items)-1].Control.(voiceproto.AITTSEnd)
-	if !ok {
-		t.Fatalf("last control frame = %T, want AITTSEnd", sink.items[len(sink.items)-1].Control)
-	}
-	if end.DurationMs == nil || *end.DurationMs != 400 {
-		t.Fatalf("duration = %v, want 400ms", end.DurationMs)
-	}
-	if end.CompletionStatus != "interrupted" {
-		t.Fatalf("status = %q, want interrupted", end.CompletionStatus)
+			sink.mu.Lock()
+			defer sink.mu.Unlock()
+			end, ok := sink.items[len(sink.items)-1].Control.(voiceproto.AITTSEnd)
+			if !ok {
+				t.Fatalf("last control frame = %T, want AITTSEnd", sink.items[len(sink.items)-1].Control)
+			}
+			if end.DurationMs == nil {
+				t.Fatal("duration_ms is absent")
+			}
+			if *end.DurationMs != 400 {
+				t.Fatalf("duration = %d, want 400ms", *end.DurationMs)
+			}
+			if end.CompletionStatus != "interrupted" {
+				t.Fatalf("status = %q, want interrupted", end.CompletionStatus)
+			}
+		})
 	}
 }
 

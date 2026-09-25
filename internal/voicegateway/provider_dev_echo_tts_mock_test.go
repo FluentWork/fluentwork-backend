@@ -21,7 +21,7 @@ func TestDevEchoTTSMock_EmitsStartTenBinaryEnd(t *testing.T) {
 	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{
 		SessionID: "s-tts",
 		UserID:    "u-tts",
-	}, &voicegateway.SeqAllocator{})
+	}, &voicegateway.SeqAllocator{}, nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestDevEchoTTSMock_SecondTurnContinuesSeq(t *testing.T) {
 
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.TTSMock = true
-	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"}, &voicegateway.SeqAllocator{})
+	sess, err := provider.Open(context.Background(), voicegateway.ConsumedTicket{SessionID: "s"}, &voicegateway.SeqAllocator{}, nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDevEchoTTSMock_FramesArePCM16WithEvenLength(t *testing.T) {
 	provider := voicegateway.NewDevEchoVoiceProvider("", nil)
 	provider.TTSMock = true
 	sess, err := provider.Open(
-		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-pcm"}, &voicegateway.SeqAllocator{},
+		context.Background(), voicegateway.ConsumedTicket{SessionID: "s-pcm"}, &voicegateway.SeqAllocator{}, nil,
 	)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

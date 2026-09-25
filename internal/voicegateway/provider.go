@@ -36,7 +36,7 @@ type VoiceProvider interface {
 	// numbering simply continues. See SeqAllocator.
 	//
 	// A provider that emits no client-bound audio frames may ignore it.
-	Open(ctx context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error)
+	Open(ctx context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator, turnRefs *TurnRefAllocator) (VoiceProviderSession, error)
 }
 
 // ContinuationTurn is one transcript turn of a previous session, handed to a
@@ -99,7 +99,7 @@ type MockVoiceProvider struct {
 //
 // The mock's nextSeq numbers its *own* mock playback frames, not client-bound
 // audio — it emits none — so it keeps its own counter and ignores the allocator.
-func (p MockVoiceProvider) Open(_ context.Context, _ ConsumedTicket, _ *SeqAllocator) (VoiceProviderSession, error) {
+func (p MockVoiceProvider) Open(_ context.Context, _ ConsumedTicket, _ *SeqAllocator, _ *TurnRefAllocator) (VoiceProviderSession, error) {
 	return &mockVoiceProviderSession{nextSeq: 1, serverASRText: p.ServerASRText}, nil
 }
 

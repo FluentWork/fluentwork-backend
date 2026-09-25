@@ -617,12 +617,23 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 	if start["type"] != "ai.tts.start" {
 		t.Fatalf("expected ai.tts.start, got %#v", start)
 	}
+	startRef, attributed := start["turn_ref"]
+	if !attributed {
+		t.Fatalf("ai.tts.start carries no turn_ref, so the frames below are unattributed: %#v", start)
+	}
+	wantRef, isNumber := startRef.(float64)
+	if !isNumber {
+		t.Fatalf("turn_ref decoded as %T, want a JSON number", startRef)
+	}
 
 	const mockFrames = 250
 	for i := 0; i < mockFrames; i++ {
 		typ, data := readNextMessage(ctx, t, conn)
 		if typ != websocket.MessageBinary {
 			t.Fatalf("audio[%d]: expected binary, got %v", i, typ)
+		}
+		if len(data) != 8+voicegateway.UplinkChunkBytes {
+			t.Fatalf("audio[%d] is %d bytes, want an 8-byte header plus %d of payload", i, len(data), voicegateway.UplinkChunkBytes)
 		}
 		// 1-based since the session allocator took over the numbering: dev-echo
 		// used to count from 0 while volc-duplex counted from 1, and two
@@ -631,9 +642,12 @@ func TestDevEchoTTSMock_WSSWritesBinarySeqFrames(t *testing.T) {
 		if want := uint32(i + 1); binary.BigEndian.Uint32(data[:4]) != want {
 			t.Fatalf("audio[%d] seq = %d, want %d", i, binary.BigEndian.Uint32(data[:4]), want)
 		}
+		if got := binary.BigEndian.Uint32(data[4:8]); got != uint32(wantRef) {
+			t.Fatalf("audio[%d] turn_ref = %d, want %v (the value its start announced)", i, got, wantRef)
+		}
 		// The payload has to be PCM16 the client can actually play: it used to
 		// be ASCII, which is odd-length and dies in the decoder.
-		if payload := data[4:]; len(payload) == 0 || len(payload)%2 != 0 {
+		if payload := data[8:]; len(payload) == 0 || len(payload)%2 != 0 {
 			t.Fatalf("audio[%d] payload is not PCM16-aligned: %d bytes", i, len(payload))
 		}
 	}

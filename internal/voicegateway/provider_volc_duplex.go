@@ -73,7 +73,7 @@ func NewVolcDuplexProvider(cfg Config, logger *slog.Logger) VolcDuplexProvider {
 }
 
 // Open creates one live duplex session wrapper.
-func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator) (VoiceProviderSession, error) {
+func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audioSeq *SeqAllocator, turnRefs *TurnRefAllocator) (VoiceProviderSession, error) {
 	if strings.TrimSpace(p.cfg.APIKey) == "" {
 		return nil, fmt.Errorf("volc-duplex provider missing speech API key")
 	}
@@ -81,6 +81,7 @@ func (p VolcDuplexProvider) Open(_ context.Context, ticket ConsumedTicket, audio
 		cfg:         p.cfg,
 		audioFormat: p.audioFormat,
 		audioSeq:    audioSeq,
+		turnRefs:    turnRefs,
 		sessionID:   ticket.SessionID,
 		logger: p.logger.With(
 			"ticket_id", ticket.TicketID,
@@ -106,19 +107,21 @@ const keepaliveIdleThreshold = 60 * time.Second
 const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
-	mu           sync.Mutex
-	cfg          voiceduplex.DuplexConfig
-	audioFormat  string
-	logger       *slog.Logger
-	sessionID    string
-	session      *voiceduplex.DuplexSession
-	turnStarted  time.Time
-	nextSeq      int
-	audioSeq     *SeqAllocator
-	utterances   []EndUtterance
-	activeTurnID string
-	usage        voiceUsage
-	inputMuted   bool
+	mu            sync.Mutex
+	cfg           voiceduplex.DuplexConfig
+	audioFormat   string
+	logger        *slog.Logger
+	sessionID     string
+	session       *voiceduplex.DuplexSession
+	turnStarted   time.Time
+	nextSeq       int
+	audioSeq      *SeqAllocator
+	turnRefs      *TurnRefAllocator
+	utterances    []EndUtterance
+	activeTurnID  string
+	activeTurnRef *uint32
+	usage         voiceUsage
+	inputMuted    bool
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
 	// the next HandleClientAudio call probes the upstream with an empty commit
 	// before forwarding the real payload. Probing first (instead of reacting to
@@ -291,6 +294,7 @@ func (s *volcDuplexProviderSession) resetTurnStreamingState() {
 	s.interruptedThisTurn = false
 	s.audioResampler = nil
 	s.framer = nil
+	s.activeTurnRef = nil
 	s.collectingTurn = false
 }
 
@@ -369,6 +373,7 @@ func (s *volcDuplexProviderSession) AssistantAudio(pcm []byte) {
 // differently — the client keys frames by the turn_id in here, and a mismatch
 // between the two would strand the audio it is supposed to attribute.
 func (s *volcDuplexProviderSession) ttsStartFrame(turnID string) ProviderOutbound {
+	s.activeTurnRef = s.turnRefs.Next()
 	return ProviderOutbound{
 		Control: voiceproto.AITTSStart{
 			Type:       voiceproto.TypeAITTSStart,
@@ -376,6 +381,7 @@ func (s *volcDuplexProviderSession) ttsStartFrame(turnID string) ProviderOutboun
 			VoiceID:    s.cfg.Voice,
 			SampleRate: 16000,
 			Codec:      "pcm",
+			TurnRef:    s.activeTurnRef,
 		},
 	}
 }
@@ -451,7 +457,7 @@ func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte 
 		s.audioResampler = &pcmResampler{}
 	}
 	if s.framer == nil {
-		s.framer = newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
+		s.framer = newAudioFramer(s.seq(), s.activeTurnRef, ClientAudioFormat, ClientFrameMS)
 	}
 	frames := s.framer.Write(s.audioResampler.Write(pcm))
 	if flush {
@@ -1039,7 +1045,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) 
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
 		} else if pcm := resampleToPlaybackRate(turn.AudioPCM); len(pcm) > 0 {
-			framer := newAudioFramer(s.seq(), ClientAudioFormat, ClientFrameMS)
+			framer := newAudioFramer(s.seq(), s.activeTurnRef, ClientAudioFormat, ClientFrameMS)
 			for _, frame := range append(framer.Write(pcm), framer.Flush()...) {
 				outbound = append(outbound, ProviderOutbound{Binary: frame})
 			}
@@ -1066,6 +1072,7 @@ func (s *volcDuplexProviderSession) turnToOutbound(turn voiceduplex.TurnResult) 
 			TurnID:           turnID,
 			CompletionStatus: ttsCompletionStatus(turn.Outcome),
 			DurationMs:       audioDurationMs(len(turn.AudioPCM)),
+			TurnRef:          s.activeTurnRef,
 		},
 	})
 
@@ -1107,17 +1114,6 @@ const duplexOutputRate = 24000
 // the payload straight in, so bytes at any other rate come out at the wrong
 // speed and pitch.
 const clientPlaybackRate = 16000
-
-// audioFrameHeaderBytes is the big-endian uint32 sequence number that precedes
-// every gateway→client binary audio frame, matching the client's
-// WSAudioFrameCodec.
-//
-// It is the only frame-layout number left here. The frame *size* used to be
-// declared here as `audioFrameBytes = 3200` — a second copy of a value the
-// rescue ladder also had, derived from a sample rate neither constant mentioned.
-// Both now come from AudioFormat.FrameBytes, and the frames themselves are built
-// by audioFramer, which is also what the ladder uses (docs/94_ F4/F5).
-const audioFrameHeaderBytes = 4
 
 // VoiceUsage implements VoiceUsageReporter. Read at session end, when the
 // gateway hands the session's totals to cost accounting.

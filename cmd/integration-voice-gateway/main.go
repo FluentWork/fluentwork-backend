@@ -280,7 +280,7 @@ func (*integrationLifecycle) ContinuationContext(_ context.Context, _, _ string,
 
 type integrationProvider struct{ session *integrationProviderSession }
 
-func (p *integrationProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator) (voicegateway.VoiceProviderSession, error) {
+func (p *integrationProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator, _ *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	return p.session, nil
 }
 

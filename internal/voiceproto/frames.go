@@ -169,26 +169,55 @@ func NewAITextDelta(text, turnID string, serverTsMs int64) AITextDelta {
 
 // AITTSStart warms the client decoder before binary TTS audio (WSS V2).
 type AITTSStart struct {
-	Type       string `json:"type"`
-	TurnID     string `json:"turn_id"`
-	VoiceID    string `json:"voice_id"`
-	SampleRate int    `json:"sample_rate"`
-	Codec      string `json:"codec"`
+	Type       string  `json:"type"`
+	TurnID     string  `json:"turn_id"`
+	VoiceID    string  `json:"voice_id"`
+	SampleRate int     `json:"sample_rate"`
+	Codec      string  `json:"codec"`
+	TurnRef    *uint32 `json:"turn_ref,omitempty"`
 }
 
 // AITTSAudio is a WebSocket binary TTS frame, not JSON.
 // Wire layout matches iOS WSAudioFrameCodec: 4-byte big-endian seq + payload.
 type AITTSAudio struct {
 	Seq     uint32
+	TurnRef *uint32
 	Payload []byte
 }
 
 // AITTSEnd terminates the TTS stream after the last binary audio message.
 type AITTSEnd struct {
-	Type             string `json:"type"`
-	TurnID           string `json:"turn_id"`
-	CompletionStatus string `json:"completion_status"`
-	DurationMs       *int   `json:"duration_ms,omitempty"`
+	Type             string  `json:"type"`
+	TurnID           string  `json:"turn_id"`
+	CompletionStatus string  `json:"completion_status"`
+	DurationMs       *int    `json:"duration_ms,omitempty"`
+	TurnRef          *uint32 `json:"turn_ref,omitempty"`
+}
+
+// AudioFrameLayout is the header shape of one downlink binary audio message.
+type AudioFrameLayout uint8
+
+const (
+	// AudioFrameLayoutH4 is [4-byte seq][payload].
+	AudioFrameLayoutH4 AudioFrameLayout = iota
+	// AudioFrameLayoutH8 is [4-byte seq][4-byte turn_ref][payload].
+	AudioFrameLayoutH8
+)
+
+// HeaderBytes is how many bytes precede the payload in this layout.
+func (l AudioFrameLayout) HeaderBytes() int {
+	if l == AudioFrameLayoutH8 {
+		return 8
+	}
+	return 4
+}
+
+// AudioFrameLayoutFor selects the layout a turn's binary frames use.
+func AudioFrameLayoutFor(turnRef *uint32) AudioFrameLayout {
+	if turnRef == nil {
+		return AudioFrameLayoutH4
+	}
+	return AudioFrameLayoutH8
 }
 
 // Encode writes the frozen binary ai.tts.audio layout. Payload must be non-empty.
@@ -196,25 +225,32 @@ func (f AITTSAudio) Encode() ([]byte, error) {
 	if len(f.Payload) == 0 {
 		return nil, fmt.Errorf("ai.tts.audio payload must be non-empty")
 	}
-	out := make([]byte, 4+len(f.Payload))
+	layout := AudioFrameLayoutFor(f.TurnRef)
+	header := layout.HeaderBytes()
+	out := make([]byte, header+len(f.Payload))
 	binary.BigEndian.PutUint32(out[:4], f.Seq)
-	copy(out[4:], f.Payload)
+	if layout == AudioFrameLayoutH8 {
+		binary.BigEndian.PutUint32(out[4:8], *f.TurnRef)
+	}
+	copy(out[header:], f.Payload)
 	return out, nil
 }
 
 // DecodeAITTSAudio parses a WebSocket binary TTS message.
-func DecodeAITTSAudio(raw []byte) (AITTSAudio, error) {
-	if len(raw) < 5 {
-		return AITTSAudio{}, fmt.Errorf("ai.tts.audio truncated: %d bytes", len(raw))
+func DecodeAITTSAudio(raw []byte, layout AudioFrameLayout) (AITTSAudio, error) {
+	header := layout.HeaderBytes()
+	if len(raw) < header+1 {
+		return AITTSAudio{}, fmt.Errorf("ai.tts.audio truncated: %d bytes, need at least %d", len(raw), header+1)
 	}
-	payload := append([]byte(nil), raw[4:]...)
-	if len(payload) == 0 {
-		return AITTSAudio{}, fmt.Errorf("ai.tts.audio payload must be non-empty")
-	}
-	return AITTSAudio{
+	frame := AITTSAudio{
 		Seq:     binary.BigEndian.Uint32(raw[:4]),
-		Payload: payload,
-	}, nil
+		Payload: append([]byte(nil), raw[header:]...),
+	}
+	if layout == AudioFrameLayoutH8 {
+		turnRef := binary.BigEndian.Uint32(raw[4:8])
+		frame.TurnRef = &turnRef
+	}
+	return frame, nil
 }
 
 // Turn outcomes carried on ai.turn.end (S→C).

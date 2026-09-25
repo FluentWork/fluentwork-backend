@@ -115,7 +115,8 @@
         "turn_id": { "type": "string", "minLength": 1 },
         "voice_id": { "type": "string", "minLength": 1 },
         "sample_rate": { "type": "integer", "enum": [16000, 24000, 48000] },
-        "codec": { "type": "string", "enum": ["opus", "pcm"] }
+        "codec": { "type": "string", "enum": ["opus", "pcm"] },
+        "turn_ref": { "type": "integer", "minimum": 1, "description": "Optional. Selects the downlink binary audio layout for this turn: present -> h8 (8-byte header, carries turn_ref), absent -> h4 (4-byte header). This field is the layout switch, which is what makes the change rollback-able without a handshake. See schemas/transport/wss-binary-audio-frames-v1.json (layout_selection)." }
       }
     },
     "aiTTSAudio": {
@@ -134,7 +135,8 @@
         "type": { "const": "ai.tts.end" },
         "turn_id": { "type": "string", "minLength": 1 },
         "completion_status": { "type": "string", "enum": ["ok", "interrupted", "error"] },
-        "duration_ms": { "type": "integer", "minimum": 0 }
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "turn_ref": { "type": "integer", "minimum": 1, "description": "Optional. Closes the client's turn_ref -> turn_id mapping entry opened by the matching ai.tts.start, so the mapping does not grow for the life of the socket. Present exactly when the matching ai.tts.start carried it." }
       }
     },
     "aiTurnEnd": {
