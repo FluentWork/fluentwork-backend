@@ -144,7 +144,6 @@ type devEchoSession struct {
 	ttsMock    bool
 	logger     *slog.Logger
 	sessionID  string
-	nextSeq    uint32
 	audioSeq   *SeqAllocator
 	lastTurnID string
 }

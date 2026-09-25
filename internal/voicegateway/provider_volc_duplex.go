@@ -106,19 +106,19 @@ const keepaliveIdleThreshold = 60 * time.Second
 const keepaliveProbeTimeout = 3 * time.Second
 
 type volcDuplexProviderSession struct {
-	mu          sync.Mutex
-	cfg         voiceduplex.DuplexConfig
-	audioFormat string
-	logger      *slog.Logger
-	sessionID   string
-	session     *voiceduplex.DuplexSession
-	turnStarted time.Time
-	nextSeq     int
+	mu           sync.Mutex
+	cfg          voiceduplex.DuplexConfig
+	audioFormat  string
+	logger       *slog.Logger
+	sessionID    string
+	session      *voiceduplex.DuplexSession
+	turnStarted  time.Time
+	nextSeq      int
 	audioSeq     *SeqAllocator
 	utterances   []EndUtterance
 	activeTurnID string
-	usage voiceUsage
-	inputMuted bool
+	usage        voiceUsage
+	inputMuted   bool
 	// B15-followup (#43): when lastAudioAt is older than keepaliveIdleThreshold,
 	// the next HandleClientAudio call probes the upstream with an empty commit
 	// before forwarding the real payload. Probing first (instead of reacting to
