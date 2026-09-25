@@ -1,0 +1,664 @@
+{
+  "report": {
+    "samples_run": 30,
+    "samples_missing": 0,
+    "samples_failed": 0,
+    "overall_rate": 0.14661654135338345,
+    "by_trap": [
+      {
+        "key": "number",
+        "samples": 1,
+        "rate": 0.25,
+        "substitutions": 2,
+        "deletions": 0,
+        "insertions": 0,
+        "reference_words": 8
+      },
+      {
+        "key": "ed-suffix",
+        "samples": 3,
+        "rate": 0.2413793103448276,
+        "substitutions": 5,
+        "deletions": 0,
+        "insertions": 2,
+        "reference_words": 29
+      },
+      {
+        "key": "r-l",
+        "samples": 15,
+        "rate": 0.2366412213740458,
+        "substitutions": 24,
+        "deletions": 0,
+        "insertions": 7,
+        "reference_words": 131
+      },
+      {
+        "key": "th",
+        "samples": 17,
+        "rate": 0.1503267973856209,
+        "substitutions": 16,
+        "deletions": 0,
+        "insertions": 7,
+        "reference_words": 153
+      },
+      {
+        "key": "final-consonant",
+        "samples": 11,
+        "rate": 0.0967741935483871,
+        "substitutions": 8,
+        "deletions": 0,
+        "insertions": 1,
+        "reference_words": 93
+      },
+      {
+        "key": "cluster",
+        "samples": 13,
+        "rate": 0.08333333333333333,
+        "substitutions": 8,
+        "deletions": 0,
+        "insertions": 2,
+        "reference_words": 120
+      },
+      {
+        "key": "v-w",
+        "samples": 3,
+        "rate": 0.07692307692307693,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 1,
+        "reference_words": 26
+      }
+    ],
+    "by_scene": [
+      {
+        "key": "review",
+        "samples": 6,
+        "rate": 0.21568627450980393,
+        "substitutions": 10,
+        "deletions": 0,
+        "insertions": 1,
+        "reference_words": 51
+      },
+      {
+        "key": "standup",
+        "samples": 8,
+        "rate": 0.19736842105263158,
+        "substitutions": 10,
+        "deletions": 0,
+        "insertions": 5,
+        "reference_words": 76
+      },
+      {
+        "key": "interview",
+        "samples": 4,
+        "rate": 0.15789473684210525,
+        "substitutions": 4,
+        "deletions": 0,
+        "insertions": 2,
+        "reference_words": 38
+      },
+      {
+        "key": "smalltalk",
+        "samples": 4,
+        "rate": 0.08571428571428572,
+        "substitutions": 2,
+        "deletions": 0,
+        "insertions": 1,
+        "reference_words": 35
+      },
+      {
+        "key": "meeting",
+        "samples": 8,
+        "rate": 0.06060606060606061,
+        "substitutions": 4,
+        "deletions": 0,
+        "insertions": 0,
+        "reference_words": 66
+      }
+    ],
+    "by_difficulty": [
+      {
+        "key": "hard",
+        "samples": 7,
+        "rate": 0.24193548387096775,
+        "substitutions": 12,
+        "deletions": 0,
+        "insertions": 3,
+        "reference_words": 62
+      },
+      {
+        "key": "medium",
+        "samples": 16,
+        "rate": 0.11971830985915492,
+        "substitutions": 14,
+        "deletions": 0,
+        "insertions": 3,
+        "reference_words": 142
+      },
+      {
+        "key": "easy",
+        "samples": 7,
+        "rate": 0.11290322580645161,
+        "substitutions": 4,
+        "deletions": 0,
+        "insertions": 3,
+        "reference_words": 62
+      }
+    ]
+  },
+  "samples": [
+    {
+      "id": "wer-01",
+      "scene": "standup",
+      "difficulty": "easy",
+      "traps": [
+        "th",
+        "final-consonant"
+      ],
+      "reference": "I think we should ship it this week.",
+      "hypothesis": "I think we should ship it this week.",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-02",
+      "scene": "standup",
+      "difficulty": "medium",
+      "traps": [
+        "ed-suffix",
+        "cluster"
+      ],
+      "reference": "Yesterday I finished the login page and started on the API.",
+      "hypothesis": "Yesterday, I finished the logging page and started on the API.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 10,
+      "ReferenceLength": 11,
+      "rate": 0.09090909090909091
+    },
+    {
+      "id": "wer-03",
+      "scene": "standup",
+      "difficulty": "medium",
+      "traps": [
+        "r-l",
+        "th"
+      ],
+      "reference": "I'm blocked on the review, so I'll pair with Sarah this afternoon.",
+      "hypothesis": "I am broke on the review, so I will peel with share this afternoon.",
+      "Substitutions": 5,
+      "Deletions": 0,
+      "Insertions": 2,
+      "Correct": 7,
+      "ReferenceLength": 12,
+      "rate": 0.5833333333333334
+    },
+    {
+      "id": "wer-04",
+      "scene": "standup",
+      "difficulty": "easy",
+      "traps": [
+        "th",
+        "cluster"
+      ],
+      "reference": "Nothing much today, just some cleanup and a few small fixes.",
+      "hypothesis": "Nothing much today, just some clean up and a few small fixes.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 1,
+      "Correct": 10,
+      "ReferenceLength": 11,
+      "rate": 0.18181818181818182
+    },
+    {
+      "id": "wer-05",
+      "scene": "standup",
+      "difficulty": "easy",
+      "traps": [
+        "th",
+        "r-l"
+      ],
+      "reference": "I'll pick up the third ticket after lunch.",
+      "hypothesis": "I will pick up the third ticket after lunch.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 1,
+      "Correct": 7,
+      "ReferenceLength": 8,
+      "rate": 0.25
+    },
+    {
+      "id": "wer-06",
+      "scene": "standup",
+      "difficulty": "medium",
+      "traps": [
+        "final-consonant",
+        "cluster"
+      ],
+      "reference": "We need to test the release branch before Friday.",
+      "hypothesis": "We need to test the release branch before Friday.",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    },
+    {
+      "id": "wer-07",
+      "scene": "standup",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "final-consonant"
+      ],
+      "reference": "I spent the morning on the database migration.",
+      "hypothesis": "I spent the morning on the database migration.",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-08",
+      "scene": "standup",
+      "difficulty": "easy",
+      "traps": [
+        "r-l",
+        "final-consonant"
+      ],
+      "reference": "The build is green, so I'll merge it now.",
+      "hypothesis": "The building is green, so I will merge it now.",
+      "Substitutions": 2,
+      "Deletions": 0,
+      "Insertions": 1,
+      "Correct": 7,
+      "ReferenceLength": 9,
+      "rate": 0.3333333333333333
+    },
+    {
+      "id": "wer-09",
+      "scene": "meeting",
+      "difficulty": "easy",
+      "traps": [
+        "th",
+        "r-l"
+      ],
+      "reference": "Could you clarify what you mean by that?",
+      "hypothesis": "Could you clarify what you mean by that?",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-10",
+      "scene": "meeting",
+      "difficulty": "medium",
+      "traps": [
+        "cluster",
+        "final-consonant"
+      ],
+      "reference": "Let's wrap up and take the rest offline.",
+      "hypothesis": "Let's wrap up and take the rest offline",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-11",
+      "scene": "meeting",
+      "difficulty": "hard",
+      "traps": [
+        "th",
+        "r-l"
+      ],
+      "reference": "I'd rather not push the deadline this time.",
+      "hypothesis": "I'd rather not push the deadline this time",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-12",
+      "scene": "meeting",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "cluster"
+      ],
+      "reference": "That works for me, let's go with the second option.",
+      "hypothesis": "That works for me let's go with the second option",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 10,
+      "ReferenceLength": 10,
+      "rate": 0
+    },
+    {
+      "id": "wer-13",
+      "scene": "meeting",
+      "difficulty": "medium",
+      "traps": [
+        "final-consonant",
+        "r-l"
+      ],
+      "reference": "Sorry, I didn't catch the last part.",
+      "hypothesis": "Sorry i didn't catch the last pass",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 6,
+      "ReferenceLength": 7,
+      "rate": 0.14285714285714285
+    },
+    {
+      "id": "wer-14",
+      "scene": "meeting",
+      "difficulty": "medium",
+      "traps": [
+        "r-l",
+        "final-consonant"
+      ],
+      "reference": "Can we circle back to the budget later?",
+      "hypothesis": "Can we cycle back to the budget later?",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 7,
+      "ReferenceLength": 8,
+      "rate": 0.125
+    },
+    {
+      "id": "wer-15",
+      "scene": "meeting",
+      "difficulty": "hard",
+      "traps": [
+        "th",
+        "number"
+      ],
+      "reference": "I have a hard stop at three thirty.",
+      "hypothesis": "I have a hard stop at 3:30.",
+      "Substitutions": 2,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 6,
+      "ReferenceLength": 8,
+      "rate": 0.25
+    },
+    {
+      "id": "wer-16",
+      "scene": "meeting",
+      "difficulty": "medium",
+      "traps": [
+        "cluster",
+        "final-consonant"
+      ],
+      "reference": "Let's agree on the next steps before we finish.",
+      "hypothesis": "Let's agree on the next steps before we finish",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    },
+    {
+      "id": "wer-17",
+      "scene": "review",
+      "difficulty": "easy",
+      "traps": [
+        "th",
+        "cluster"
+      ],
+      "reference": "This function is too long, we should split it.",
+      "hypothesis": "This function is too long. We should split it.",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    },
+    {
+      "id": "wer-18",
+      "scene": "review",
+      "difficulty": "medium",
+      "traps": [
+        "r-l",
+        "ed-suffix"
+      ],
+      "reference": "I left a comment about the error handling.",
+      "hypothesis": "I lift a comment about the error handling.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 7,
+      "ReferenceLength": 8,
+      "rate": 0.125
+    },
+    {
+      "id": "wer-19",
+      "scene": "review",
+      "difficulty": "hard",
+      "traps": [
+        "th",
+        "r-l",
+        "cluster"
+      ],
+      "reference": "The third test is failing on the CI server.",
+      "hypothesis": "The third test is falling on the CI server.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 9,
+      "rate": 0.1111111111111111
+    },
+    {
+      "id": "wer-20",
+      "scene": "review",
+      "difficulty": "medium",
+      "traps": [
+        "r-l",
+        "final-consonant"
+      ],
+      "reference": "Could you rebase this branch before you merge?",
+      "hypothesis": "Could you replace this brunch before your merge?",
+      "Substitutions": 3,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 5,
+      "ReferenceLength": 8,
+      "rate": 0.375
+    },
+    {
+      "id": "wer-21",
+      "scene": "review",
+      "difficulty": "hard",
+      "traps": [
+        "th",
+        "r-l"
+      ],
+      "reference": "I think there's a race condition in the cache.",
+      "hypothesis": "I think there is a race condition in the catch.",
+      "Substitutions": 2,
+      "Deletions": 0,
+      "Insertions": 1,
+      "Correct": 7,
+      "ReferenceLength": 9,
+      "rate": 0.3333333333333333
+    },
+    {
+      "id": "wer-22",
+      "scene": "review",
+      "difficulty": "hard",
+      "traps": [
+        "r-l",
+        "cluster"
+      ],
+      "reference": "We should add a retry with exponential backoff.",
+      "hypothesis": "We should add a try with exceptional back.",
+      "Substitutions": 3,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 5,
+      "ReferenceLength": 8,
+      "rate": 0.375
+    },
+    {
+      "id": "wer-23",
+      "scene": "smalltalk",
+      "difficulty": "easy",
+      "traps": [
+        "v-w",
+        "final-consonant"
+      ],
+      "reference": "How was your weekend? Did you do anything fun?",
+      "hypothesis": "How was your weekend? Did you do anything fun?",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    },
+    {
+      "id": "wer-24",
+      "scene": "smalltalk",
+      "difficulty": "medium",
+      "traps": [
+        "v-w",
+        "cluster"
+      ],
+      "reference": "I've been trying to learn Spanish on the side.",
+      "hypothesis": "I have been trying to learn Spanish on the side.",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 1,
+      "Correct": 8,
+      "ReferenceLength": 9,
+      "rate": 0.2222222222222222
+    },
+    {
+      "id": "wer-25",
+      "scene": "smalltalk",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "v-w"
+      ],
+      "reference": "The weather is really nice today, isn't it?",
+      "hypothesis": "The weather is really nice today isn't it",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 8,
+      "rate": 0
+    },
+    {
+      "id": "wer-26",
+      "scene": "smalltalk",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "cluster"
+      ],
+      "reference": "Thanks for your time today, I really appreciate it.",
+      "hypothesis": "Thanks for your time today i'm really appreciate it",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 8,
+      "ReferenceLength": 9,
+      "rate": 0.1111111111111111
+    },
+    {
+      "id": "wer-27",
+      "scene": "interview",
+      "difficulty": "hard",
+      "traps": [
+        "th",
+        "r-l",
+        "ed-suffix"
+      ],
+      "reference": "I've been working as a backend engineer for three years.",
+      "hypothesis": "I have been working as a back end engineer for 3 years.",
+      "Substitutions": 3,
+      "Deletions": 0,
+      "Insertions": 2,
+      "Correct": 7,
+      "ReferenceLength": 10,
+      "rate": 0.5
+    },
+    {
+      "id": "wer-28",
+      "scene": "interview",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "cluster"
+      ],
+      "reference": "My strength is that I learn quickly from feedback.",
+      "hypothesis": "My strength is that I learn quickly from feedback.",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    },
+    {
+      "id": "wer-29",
+      "scene": "interview",
+      "difficulty": "hard",
+      "traps": [
+        "r-l",
+        "final-consonant"
+      ],
+      "reference": "I'd like to grow into a tech lead role eventually.",
+      "hypothesis": "I'd like to grow into a tech leader role eventually",
+      "Substitutions": 1,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 10,
+      "rate": 0.1
+    },
+    {
+      "id": "wer-30",
+      "scene": "interview",
+      "difficulty": "medium",
+      "traps": [
+        "th",
+        "r-l",
+        "cluster"
+      ],
+      "reference": "Could you tell me more about the team structure?",
+      "hypothesis": "Could you tell me more about the team structure?",
+      "Substitutions": 0,
+      "Deletions": 0,
+      "Insertions": 0,
+      "Correct": 9,
+      "ReferenceLength": 9,
+      "rate": 0
+    }
+  ]
+}

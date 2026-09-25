@@ -9,29 +9,31 @@ import (
 // The recorded 30-sample measurement, re-scored offline.
 //
 // This is the guard on the number the tool prints. It reads the transcripts
-// captured in `docs/52`'s report — the actual ASR output, not a fixture — so it
-// re-derives the headline figures **mechanically** instead of asserting numbers
-// someone computed by hand.
+// captured in the 2026-09-11 report — the actual ASR output, not a fixture — so
+// it re-derives the headline figures **mechanically** instead of asserting
+// numbers someone computed by hand.
 //
-// That distinction is the whole point. `docs/52` recorded 14.7% raw and 10.4%
+// That distinction is the whole point. The report recorded 14.7% raw and 10.4%
 // normalised. The raw figure reproduces exactly; **the normalised one does not**
-// — applying the rules that document names ("数字读法 + 缩写展开") exhaustively
+// — applying the rules that report names ("数字读法 + 缩写展开") exhaustively
 // gives 7.9%, and adding the compound rule gives 6.4%. Neither is 10.4%, which
 // sits between two rule sets and matches neither. It appears to have counted
 // the specific instances someone noticed rather than the ones the rules imply.
 //
 // So this test pins the reproducible figures and names what they replace. A
 // change to the normaliser moves them, and moving them must be deliberate —
-// which is exactly what was missing when 10.4% was written down.
+// which was exactly what was missing when 10.4% was written down.
 //
-// Reads from `docs/` rather than a `testdata/` copy on purpose: the report is
-// the measurement record, and a second copy of it would be a second thing to
-// keep in sync. If the artifact moves, this test says so rather than quietly
-// skipping — a guard that can skip itself is not a guard.
+// The artifact lives in `testdata/` and nowhere else. It used to be read out of
+// the repository's `docs/` tree, on the reasoning that a second copy would be a
+// second thing to keep in sync; `docs/` was deleted on 2026-09-25, which left
+// the record with no home and this test with nothing to read. One location,
+// next to the test that consumes it. If it moves again, this test says so rather
+// than quietly skipping — a guard that can skip itself is not a guard.
 func TestRecordedSampleRunRescoresToTheDocumentedBaseline(t *testing.T) {
 	t.Parallel()
 
-	const reportPath = "../../docs/52_wer_report_2026-09-11.json"
+	const reportPath = "testdata/52_wer_report_2026-09-11.json"
 	raw, err := os.ReadFile(reportPath)
 	if err != nil {
 		t.Fatalf("the WER measurement record is missing (%v); if it moved, point this test at it — "+
@@ -68,10 +70,10 @@ func TestRecordedSampleRunRescoresToTheDocumentedBaseline(t *testing.T) {
 		normTot.ReferenceLength += n.ReferenceLength
 	}
 
-	// Raw — unchanged by the normaliser, and the figure `docs/52` records.
+	// Raw — unchanged by the normaliser, and the figure the report records.
 	assertWER(t, "raw", rawTot, 39, 266, 14.7)
-	// Normalised — mechanically derived. Supersedes the 10.4% in docs/52 §2,
-	// which is not reproducible from the rules that document states.
+	// Normalised — mechanically derived. Supersedes the 10.4% the report
+	// states, which is not reproducible from the rules it names.
 	assertWER(t, "normalised", normTot, 18, 282, 6.4)
 
 	// The gap is the measurement: how much of the raw error was formatting
