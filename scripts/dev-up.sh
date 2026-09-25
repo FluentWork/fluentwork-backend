@@ -89,29 +89,9 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-load_env_file() {
-  local file="$1"
-  local line key value
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in
-      ''|\#*) continue ;;
-    esac
-    key="${line%%=*}"
-    value="${line#*=}"
-    # Strip inline `# comment` tails so values like
-    # `ARK_API_KEY=ark-xxx  # Dev/POC` load the real key.
-    value="${value%%#*}"
-    key="${key%"${key##*[![:space:]]}"}"
-    key="${key#"${key%%[![:space:]]*}"}"
-    [[ -z "$key" ]] && continue
-    # Shell / --host / CI exports win. .env.volc.local otherwise forces
-    # VOICE_GATEWAY_PROVIDER=volc-duplex and a stale LAN IP.
-    if eval "[ -n \"\${$key+x}\" ]"; then
-      continue
-    fi
-    export "$key=$value"
-  done < "$file"
-}
+# dotenv semantics live in scripts/lib/load-env.sh; rationale in docs/106_.
+source "$ROOT/scripts/lib/load-env.sh"
+load_env_snapshot
 
 if [[ -f "$ROOT/.env" ]]; then
   load_env_file "$ROOT/.env"

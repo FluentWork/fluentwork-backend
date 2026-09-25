@@ -137,45 +137,36 @@ echo "✅ Redis is ready"
 echo "📡 Using host IP for WSS URL: $HOST"
 
 # ---------------------------------------------------------------------------
-# 4. Load .env.dev (sh-compatible: no process substitution)
+# 4. Load environment files
 # ---------------------------------------------------------------------------
+# dotenv semantics live in scripts/lib/load-env.sh; rationale in docs/106_.
+source "$ROOT/scripts/lib/load-env.sh"
+load_env_snapshot
+
+# .env.dev is gitignored (.gitignore: `.env.*`), so a fresh clone never has it.
+# It used to be a hard requirement here; the DSN default below replaces that.
 if [[ -f "$ROOT/.env.dev" ]]; then
   echo "📋 Loading .env.dev configuration..."
-  set -a
-  _env_tmp=$(mktemp)
-  grep -v '^#' "$ROOT/.env.dev" | grep -v '^$' > "$_env_tmp"
-  while IFS='=' read -r key value; do
-    value="${value%\"}"
-    value="${value#\"}"
-    export "$key=$value"
-  done < "$_env_tmp"
-  rm -f "$_env_tmp"
-  set +a
+  load_env_file "$ROOT/.env.dev"
 else
-  echo "❌ .env.dev not found. Run from project root." >&2
-  exit 1
+  echo "ℹ️  .env.dev absent (it is gitignored); using built-in local defaults."
 fi
 
-# Overlay .env.volc.local if present (gitignored) — supplies volc-duplex keys.
-# Values here take precedence so the gateway can boot with a real provider
-# without editing the committed .env.dev.
 if [[ -f "$ROOT/.env.volc.local" ]]; then
-  echo "📋 Loading .env.volc.local (overrides volc-related vars)..."
-  set -a
-  _env_tmp=$(mktemp)
-  grep -v '^#' "$ROOT/.env.volc.local" | grep -v '^$' > "$_env_tmp"
-  while IFS='=' read -r key value; do
-    value="${value%\"}"
-    value="${value#\"}"
-    export "$key=$value"
-  done < "$_env_tmp"
-  rm -f "$_env_tmp"
-  set +a
+  echo "📋 Loading .env.volc.local (overrides .env.dev)..."
+  load_env_file "$ROOT/.env.volc.local"
 fi
+
+# This script is the MySQL stack (it just started MySQL and Redis), so the DSN
+# must resolve even with no .env.dev. Same default as dev-up.sh --local-mysql.
+export MYSQL_DSN="${MYSQL_DSN:-fw:fw@tcp(127.0.0.1:3306)/fluentwork?parseTime=true&charset=utf8mb4&loc=UTC}"
 
 # Override ports and WSS URL.
 # Bind to 0.0.0.0 so iOS physical device on LAN can reach the services.
 # Use $HOST in VOICE_GATEWAY_WSS_URL so the iOS app connects to the right address.
+# APP_ENV must be explicit (config.Load has no implicit default); .env.dev used to
+# supply it, and that file is gitignored.
+export APP_ENV="${APP_ENV:-development}"
 export HTTP_ADDR="0.0.0.0:${PORT}"
 export VOICE_GATEWAY_HTTP_ADDR="0.0.0.0:${GATEWAY_PORT}"
 export VOICE_GATEWAY_WSS_URL="ws://${HOST}:${GATEWAY_PORT}/v1/voice"

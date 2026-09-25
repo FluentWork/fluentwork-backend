@@ -40,6 +40,9 @@ go test ./...
 echo "== go build"
 go build ./...
 
+echo "== 环境加载器"
+"$ROOT/scripts/check-env-loaders.sh"
+
 echo "== 缺陷修复纪律"
 "$ROOT/scripts/check-defect-discipline.sh"
 
