@@ -240,6 +240,11 @@ func (h *Handler) logRescueAudioFailure(turnID string, err error) {
 // is accepted as well: it means the same thing, arrives at the same moment, and
 // is the only marker providers without a TTS path (mock, dev-echo) ever send —
 // without it those providers would never rescue at all.
+//
+// Neither marker is sufficient on its own. Both are also what a provider sends
+// when the *session* opens, and that frame belongs to no turn: it exists so the
+// client can leave `aiSpeaking`. The turn machine is the only thing that can
+// tell the two apart, and only before the turn is closed — see NoteAIEnd.
 func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 	for _, item := range outbound {
 		// The AI taking the floor. Checked before the terminator below so a batch
@@ -251,14 +256,19 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 		if item.Control == nil {
 			continue
 		}
+		// The end marker closes the turn for every session, rescue or not, and it
+		// is also the last moment anything can say whether the turn it closed was
+		// one the AI spoke in. Read here rather than inside the rescue half, which
+		// is gated: the answer has to be captured before the gate, not after.
+		spoke := false
 		switch typed := item.Control.(type) {
 		case voiceproto.AITTSEnd:
 			if typed.Type == voiceproto.TypeAITTSEnd {
-				rt.turn.NoteAIEnd()
+				spoke = rt.turn.NoteAIEnd()
 			}
 		case voiceproto.AITurnEnd:
 			if typed.Type == voiceproto.TypeAITurnEnd {
-				rt.turn.NoteAIEnd()
+				spoke = rt.turn.NoteAIEnd()
 			}
 		}
 
@@ -279,11 +289,11 @@ func (rt *sessionRuntime) noteProviderOutbound(outbound []ProviderOutbound) {
 			}
 		case voiceproto.AITTSEnd:
 			if typed.Type == voiceproto.TypeAITTSEnd {
-				rt.noteAITurnEnd(typed.TurnID, "")
+				rt.noteAITurnEnd(typed.TurnID, "", spoke)
 			}
 		case voiceproto.AITurnEnd:
 			if typed.Type == voiceproto.TypeAITurnEnd {
-				rt.noteAITurnEnd(typed.TurnID, typed.Outcome)
+				rt.noteAITurnEnd(typed.TurnID, typed.Outcome, spoke)
 			}
 		}
 	}
@@ -311,18 +321,24 @@ func isAIOutput(item ProviderOutbound) bool {
 
 // noteAITurnEnd opens the silence window and remembers which turn it belongs to.
 //
-// A turn that ended in timeout or error asked the user nothing, so there is
-// nothing for them to be stuck on: opening a window there would have the gateway
-// volunteer a skeleton for a conversation that never happened. That is not
-// hypothetical — B15's 30s turn timeout ends a turn with exactly that outcome,
-// and its 30s deadline arrives *after* the ladder has already spent its three
-// rungs, so without this guard an unanswered turn is re-nagged from 33s onward
-// by a feature whose whole purpose is to stop nagging.
+// Two guards, each answering a different question, and both are needed:
+//
+//   - spoke — did the AI take the floor in this turn? The session-open
+//     announcement does not, so a window opened for it would arm the ladder
+//     before the AI had asked anything and prompt the user for a conversation
+//     that has not started. See Turn.NoteAIEnd.
+//   - turnOutcomeSpoke — did the turn end in a way that left the user something
+//     to answer? A turn that ended in timeout or error asked nothing, so there is
+//     nothing for them to be stuck on. That is not hypothetical — B15's 30s turn
+//     timeout ends a turn with exactly that outcome, and its 30s deadline arrives
+//     *after* the ladder has already spent its three rungs, so without this guard
+//     an unanswered turn is re-nagged from 33s onward by a feature whose whole
+//     purpose is to stop nagging.
 //
 // The turn machine's own end event is *not* applied here — it is applied by the
 // caller for every session, rescue or not. This function is the optional half.
-func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string) {
-	if !turnOutcomeSpoke(outcome) {
+func (rt *sessionRuntime) noteAITurnEnd(turnID, outcome string, spoke bool) {
+	if !spoke || !turnOutcomeSpoke(outcome) {
 		return
 	}
 	if tr := strings.TrimSpace(turnID); tr != "" {

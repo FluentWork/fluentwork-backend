@@ -297,7 +297,7 @@ func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("bootstrap outbound is %T, want voiceproto.AITurnEnd", out[0].Control)
 	}
-	if end.TurnID != "bootstrap" || end.Outcome != "ok" {
+	if end.TurnID != bootstrapTurnID || end.Outcome != "ok" {
 		t.Fatalf("unexpected bootstrap turn.end: %+v", end)
 	}
 	// iOS keeps the first non-empty log_id for the whole session; a greeting

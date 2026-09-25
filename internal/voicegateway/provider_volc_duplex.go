@@ -501,7 +501,7 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	return []ProviderOutbound{{
 		Control: voiceproto.AITurnEnd{
 			Type:    voiceproto.TypeAITurnEnd,
-			TurnID:  "bootstrap",
+			TurnID:  bootstrapTurnID,
 			Outcome: "ok",
 		},
 	}}, nil

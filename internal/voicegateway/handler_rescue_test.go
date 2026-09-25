@@ -92,46 +92,91 @@ func (rescueLifecycle) ContinuationContext(context.Context, string, string, int)
 	return nil, nil
 }
 
-// rescueBootstrap says which AI-turn markers the provider emits when the session
-// opens. Production emits both; mock and dev-echo emit only the turn end; and a
-// split between them is exactly what the window-opening rule has to survive.
-type rescueBootstrap struct {
+// rescueAITurn describes the markers one AI turn emits as it ends.
+//
+// It describes a *turn* — one the AI took after the user spoke. The frame that
+// announces the session opening is deliberately not modelled by it: that frame
+// belongs to no turn, and the whole point of
+// TestHandler_Rescue_SessionOpenAnnouncementDoesNotOpenTheWindow is that it
+// opens nothing.
+type rescueAITurn struct {
 	ttsEnd  bool
 	turnEnd bool
 	// turnEndOutcome is the ai.turn.end outcome. Empty behaves like "ok".
 	turnEndOutcome string
 }
 
-// rescueProviderSession emits the configured bootstrap markers and otherwise
-// stays quiet — it never produces an AI turn of its own, so the only window that
-// can open is the bootstrap one.
+// rescueProviderSession announces the session opening the way every real
+// provider does, then replies to the user's *first* utterance with one AI turn
+// and stays silent after that.
+//
+// One reply rather than a reply per utterance, because several tests need to
+// watch what a user's own utterance does to a window that is already open —
+// `I think` trailing off, or an answer in full — and a stub that answered every
+// time would open a fresh window underneath them and hide the thing under test.
 type rescueProviderSession struct {
-	bootstrap rescueBootstrap
+	mu      sync.Mutex
+	turn    rescueAITurn
+	replied bool
 }
 
+// Start announces the session opening.
+//
+// Deliberately not configurable, and deliberately shaped like volc-duplex's: a
+// synthetic ai.turn.end under bootstrapTurnID carrying an "ok" outcome, with no
+// text delta. It is the same frame in all three providers, and the outcome is
+// "ok" — which is exactly why the outcome guard cannot be what keeps it from
+// arming the ladder.
 func (s *rescueProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []ContinuationTurn) ([]ProviderOutbound, error) {
-	out := []ProviderOutbound{
-		{Control: voiceproto.NewAITextDelta("provider-ready", "stub-turn-1", 1)},
+	return []ProviderOutbound{{
+		Control: voiceproto.AITurnEnd{
+			Type:    voiceproto.TypeAITurnEnd,
+			TurnID:  bootstrapTurnID,
+			Outcome: "ok",
+		},
+	}}, nil
+}
+
+// HandleClientControl answers the user's utterance with a real AI turn.
+//
+// This is what opens the silence window in production: the AI takes the floor,
+// finishes, and the user is the one who owes the next move. The turn is named
+// after the client's, which is what the provider does.
+func (s *rescueProviderSession) HandleClientControl(_ context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
+	if frameType != voiceproto.TypeUserSpeechEnd {
+		return nil, nil
 	}
-	if s.bootstrap.ttsEnd {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.replied {
+		return nil, nil
+	}
+	s.replied = true
+
+	var end voiceproto.UserSpeechEnd
+	_ = json.Unmarshal(data, &end)
+	turnID := strings.TrimSpace(end.TurnID)
+	if turnID == "" {
+		turnID = "stub-ai-turn"
+	}
+	out := []ProviderOutbound{
+		{Control: voiceproto.NewAITextDelta("what would you say next?", turnID, 1)},
+	}
+	if s.turn.ttsEnd {
 		out = append(out, ProviderOutbound{Control: voiceproto.AITTSEnd{
 			Type:             voiceproto.TypeAITTSEnd,
-			TurnID:           "stub-turn-1",
+			TurnID:           turnID,
 			CompletionStatus: "ok",
 		}})
 	}
-	if s.bootstrap.turnEnd {
+	if s.turn.turnEnd {
 		out = append(out, ProviderOutbound{Control: voiceproto.AITurnEnd{
 			Type:    voiceproto.TypeAITurnEnd,
-			TurnID:  "stub-turn-1",
-			Outcome: s.bootstrap.turnEndOutcome,
+			TurnID:  turnID,
+			Outcome: s.turn.turnEndOutcome,
 		}})
 	}
 	return out, nil
-}
-
-func (s *rescueProviderSession) HandleClientControl(context.Context, string, []byte) ([]ProviderOutbound, error) {
-	return nil, nil
 }
 
 func (s *rescueProviderSession) HandleClientAudio(context.Context, []byte) ([]ProviderOutbound, error) {
@@ -141,11 +186,11 @@ func (s *rescueProviderSession) SnapshotUtterances() []EndUtterance { return nil
 func (s *rescueProviderSession) Close(context.Context) error        { return nil }
 
 type rescueProvider struct {
-	bootstrap rescueBootstrap
+	turn rescueAITurn
 }
 
 func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator, *TurnRefAllocator) (VoiceProviderSession, error) {
-	return &rescueProviderSession{bootstrap: p.bootstrap}, nil
+	return &rescueProviderSession{turn: p.turn}, nil
 }
 
 // rescueTextGenerator answers each rung with a recognisable string, so a test
@@ -241,7 +286,7 @@ type rescueRig struct {
 
 // newRescueRig builds a gateway with B8 wired. synth may be nil, which is the
 // configuration production runs today (no audio path yet).
-func newRescueRig(t *testing.T, bootstrap rescueBootstrap, synth *rescueAudioSynthesizer) *rescueRig {
+func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer) *rescueRig {
 	t.Helper()
 
 	clock := newRescueTestClock()
@@ -255,7 +300,7 @@ func newRescueRig(t *testing.T, bootstrap rescueBootstrap, synth *rescueAudioSyn
 	h := NewHandler(
 		rescueTicketConsumer{},
 		rescueLifecycle{},
-		&rescueProvider{bootstrap: bootstrap},
+		&rescueProvider{turn: turn},
 		slog.New(slog.DiscardHandler),
 		Options{InsecureSkipOrigin: true, RescueTick: rescueTestTick},
 	)
@@ -274,9 +319,11 @@ func newRescueRig(t *testing.T, bootstrap rescueBootstrap, synth *rescueAudioSyn
 }
 
 // connect completes the handshake and session.start, returning the connection
-// and the bootstrap frames the gateway pushed. It returns only once the frames
-// that open the rescue window have been *read*, which means the window is
-// already open in the gateway too — sendOutbound opens it before writing.
+// and the frames the gateway pushed in reply.
+//
+// It stops once the session-open announcement has been read. That announcement
+// opens no window — see TestHandler_Rescue_SessionOpenAnnouncementDoesNotOpenTheWindow —
+// so every test that needs an armed ladder goes on to call speakTurn.
 func (r *rescueRig) connect(t *testing.T) (*websocket.Conn, []map[string]any) {
 	t.Helper()
 
@@ -307,8 +354,8 @@ func (r *rescueRig) connect(t *testing.T) (*websocket.Conn, []map[string]any) {
 		t.Fatalf("write session.start: %v", err)
 	}
 
-	// Read until a window opener goes past, so every caller starts from a
-	// deterministic state instead of guessing how many frames the bootstrap is.
+	// Read past the session-open announcement, so every caller starts from a
+	// deterministic state instead of guessing how many frames it is.
 	var frames []map[string]any
 	for {
 		frame := rescueReadFrame(ctx, t, conn)
@@ -318,6 +365,38 @@ func (r *rescueRig) connect(t *testing.T) (*websocket.Conn, []map[string]any) {
 		}
 	}
 	return conn, frames
+}
+
+// speakTurn drives one complete user utterance and waits for the stub's reply to
+// finish, which is the moment the silence window opens.
+//
+// It is the production sequence, and the order inside it is what makes the
+// window open: the user's complete answer closes whatever window was open, and
+// the AI's own turn end — the first thing after it that says the AI stopped
+// talking — opens the next one. Callers that want the user's *next* utterance to
+// be the last thing that happened must not use this twice.
+func (r *rescueRig) speakTurn(ctx context.Context, t *testing.T, conn *websocket.Conn, turnID string) {
+	t.Helper()
+
+	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
+	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechEnd{
+		Type:   voiceproto.TypeUserSpeechEnd,
+		Text:   "I would start with the migration window.",
+		TurnID: turnID,
+	})
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("waiting for the AI reply to %s: %v", turnID, err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		if raw["type"] == voiceproto.TypeAITTSEnd || raw["type"] == voiceproto.TypeAITurnEnd {
+			return
+		}
+	}
 }
 
 func rescueReadFrame(ctx context.Context, t *testing.T, conn *websocket.Conn) map[string]any {
@@ -448,11 +527,13 @@ func rescueLevelOf(t *testing.T, frame map[string]any) int {
 func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, &rescueAudioSynthesizer{})
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, &rescueAudioSynthesizer{})
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
 
 	want := []struct {
 		advance time.Duration
@@ -476,8 +557,8 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 		}
 		// The ladder belongs to the AI's turn: user.speech.start carries no
 		// turn_id and the user has not spoken, so there is no other id to use.
-		if got := frame["turn_id"]; got != "stub-turn-1" {
-			t.Errorf("level %d turn_id = %v, want stub-turn-1", step.level, got)
+		if got := frame["turn_id"]; got != "t-user-1" {
+			t.Errorf("level %d turn_id = %v, want t-user-1", step.level, got)
 		}
 		// The rung is spoken through the client's existing TTS stream, not a URL
 		// (docs/92): the frame stays text-only and the audio follows on the same
@@ -487,8 +568,8 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 		}
 		start := rescueReadFrame(readCtx, t, conn)
 		frames, end := rescueReadAudioStream(readCtx, t, conn, start)
-		if got := start["turn_id"]; got != "stub-turn-1" {
-			t.Errorf("level %d ai.tts.start turn_id = %v, want stub-turn-1", step.level, got)
+		if got := start["turn_id"]; got != "t-user-1" {
+			t.Errorf("level %d ai.tts.start turn_id = %v, want t-user-1", step.level, got)
 		}
 		if got := start["sample_rate"]; got != float64(16000) || start["codec"] != "pcm" {
 			t.Errorf("level %d ai.tts.start = %#v, want 16000/pcm", step.level, start)
@@ -533,11 +614,13 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 func TestHandler_Rescue_GeneratorSeesTurnContext(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
@@ -546,7 +629,7 @@ func TestHandler_Rescue_GeneratorSeesTurnContext(t *testing.T) {
 	if got.ScenarioContext != "system design discussion" {
 		t.Errorf("scenario = %q, want the session's scene_type", got.ScenarioContext)
 	}
-	if got.LastAIMessage != "provider-ready" {
+	if got.LastAIMessage != "what would you say next?" {
 		t.Errorf("last AI message = %q, want the AI's own deltas", got.LastAIMessage)
 	}
 }
@@ -556,11 +639,13 @@ func TestHandler_Rescue_GeneratorSeesTurnContext(t *testing.T) {
 func TestHandler_Rescue_WithoutSynthesizerEmitsTextOnlyLadder(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
@@ -579,11 +664,13 @@ func TestHandler_Rescue_WithoutSynthesizerEmitsTextOnlyLadder(t *testing.T) {
 func TestHandler_Rescue_AITTSEndAloneOpensTheWindow(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
@@ -597,11 +684,13 @@ func TestHandler_Rescue_AITTSEndAloneOpensTheWindow(t *testing.T) {
 func TestHandler_Rescue_AITurnEndAloneOpensTheWindow(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
@@ -610,23 +699,54 @@ func TestHandler_Rescue_AITurnEndAloneOpensTheWindow(t *testing.T) {
 	}
 }
 
+// The frame every provider emits when the session opens is not a turn.
+//
+// It is a synthetic ai.turn.end that exists so the client can leave `aiSpeaking`,
+// and it carries an "ok" outcome — so the outcome guard, which asks "did this
+// turn ask the user something", lets it through. A window opened there arms the
+// ladder before the AI has asked anything, and the user is prompted for a
+// conversation that has not started.
+func TestHandler_Rescue_SessionOpenAnnouncementDoesNotOpenTheWindow(t *testing.T) {
+	t.Parallel()
+
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
+	conn, _ := rig.connect(t)
+
+	rig.clock.advance(30 * time.Second)
+
+	quietCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	rescueExpectNoType(quietCtx, t, conn, voiceproto.TypeRescueLadder)
+
+	if got := len(rig.gen.levels()); got != 0 {
+		t.Errorf("generator ran %d times before the session had a turn, want 0", got)
+	}
+}
+
 // A user who answers in full is not stuck, and must not be talked over. The
 // clock is advanced far past every threshold afterwards, so the only thing that
 // can keep the ladder away is the complete utterance having closed the window.
+//
+// The stub replies to the first utterance only, so the answer in full is the
+// last thing that happens. Without that, the reply it would otherwise get would
+// open a fresh window underneath the test and this would prove nothing.
 func TestHandler_Rescue_CompleteAnswerIsNotRescued(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
 
+	// The AI asks. This is what opens the window the answer below has to close.
+	rig.speakTurn(ctx, t, conn, "t-ask-1")
+
 	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
 	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechEnd{
 		Type:   voiceproto.TypeUserSpeechEnd,
 		Text:   "I agree with your point, the trade-off is worth it",
-		TurnID: "t-user-1",
+		TurnID: "t-answer-1",
 	})
 
 	rig.clock.advance(30 * time.Second)
@@ -644,11 +764,15 @@ func TestHandler_Rescue_CompleteAnswerIsNotRescued(t *testing.T) {
 func TestHandler_Rescue_DoesNotFireWhileTheUserIsSpeaking(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	// An open window to talk over: without it the clock alone would keep the
+	// ladder away and the test would pass for the wrong reason.
+	rig.speakTurn(ctx, t, conn, "t-ask-1")
 
 	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
 	rig.clock.advance(30 * time.Second)
@@ -664,11 +788,15 @@ func TestHandler_Rescue_DoesNotFireWhileTheUserIsSpeaking(t *testing.T) {
 func TestHandler_Rescue_IncompleteAnswerKeepsTheClockRunning(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	// The AI asks, which starts the clock this test is about. The stub does not
+	// reply again, so the trailing-off below is the last thing that happens.
+	rig.speakTurn(ctx, t, conn, "t-ask-1")
 
 	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
 	// Still short of the first rung when the user trails off.
@@ -697,7 +825,7 @@ func TestHandler_Rescue_NotWiredNeverFires(t *testing.T) {
 	h := NewHandler(
 		rescueTicketConsumer{},
 		rescueLifecycle{},
-		&rescueProvider{bootstrap: rescueBootstrap{ttsEnd: true, turnEnd: true}},
+		&rescueProvider{turn: rescueAITurn{ttsEnd: true, turnEnd: true}},
 		slog.New(slog.DiscardHandler),
 		Options{InsecureSkipOrigin: true, RescueTick: rescueTestTick},
 	)
@@ -726,7 +854,7 @@ func TestHandler_Rescue_NotWiredNeverFires(t *testing.T) {
 func TestHandler_RescueDetectorIsPerSessionAndLeavesTheTemplateAlone(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 
 	first := rig.handler.rescueDetectorForSession()
 	second := rig.handler.rescueDetectorForSession()
@@ -761,11 +889,14 @@ func TestHandler_RescueDetectorIsPerSessionAndLeavesTheTemplateAlone(t *testing.
 func TestHandler_Rescue_TurnAbortResumesRescue(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, nil)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil)
 	conn, _ := rig.connect(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	// An open window to resume into, and a stub that will not speak again.
+	rig.speakTurn(ctx, t, conn, "t-ask-1")
 
 	rescueSendFrame(ctx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
 	rescueSendFrame(ctx, t, conn, voiceproto.ClientTurnAbort{
@@ -786,6 +917,11 @@ func TestHandler_Rescue_TurnAbortResumesRescue(t *testing.T) {
 // B15's 30s turn timeout ends a turn this way and arrives after the ladder has
 // already spent its rungs, so without this guard an unanswered turn would be
 // re-nagged from 33s by a feature whose purpose is to stop nagging.
+//
+// The turn does speak here — the stub answers and only its *outcome* is a
+// failure — so the outcome is the only thing keeping the window shut. A stub
+// that stayed silent would leave this test passing on the turn-never-spoke
+// guard instead, and the rule it exists to pin would go untested.
 func TestHandler_Rescue_FailedTurnDoesNotOpenWindow(t *testing.T) {
 	t.Parallel()
 
@@ -793,8 +929,12 @@ func TestHandler_Rescue_FailedTurnDoesNotOpenWindow(t *testing.T) {
 		t.Run(outcome, func(t *testing.T) {
 			t.Parallel()
 
-			rig := newRescueRig(t, rescueBootstrap{turnEnd: true, turnEndOutcome: outcome}, nil)
+			rig := newRescueRig(t, rescueAITurn{turnEnd: true, turnEndOutcome: outcome}, nil)
 			conn, _ := rig.connect(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+			defer cancel()
+			rig.speakTurn(ctx, t, conn, "t-ask-1")
 
 			rig.clock.advance(30 * time.Second)
 
@@ -814,11 +954,13 @@ func TestHandler_Rescue_FailedTurnDoesNotOpenWindow(t *testing.T) {
 func TestHandler_Rescue_PartialTurnStillOpensWindow(t *testing.T) {
 	t.Parallel()
 
-	rig := newRescueRig(t, rescueBootstrap{turnEnd: true, turnEndOutcome: voiceproto.TurnOutcomePartial}, nil)
+	rig := newRescueRig(t, rescueAITurn{turnEnd: true, turnEndOutcome: voiceproto.TurnOutcomePartial}, nil)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-ask-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
@@ -843,11 +985,13 @@ func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
 
 	const total = 30
 	synth := &rescueAudioSynthesizer{pcm: make([]byte, ClientAudioFormat.FrameBytes(ClientFrameMS)*total)}
-	rig := newRescueRig(t, rescueBootstrap{ttsEnd: true, turnEnd: true}, synth)
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, synth)
 	conn, _ := rig.connect(t)
 
 	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
 	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-ask-1")
 
 	rig.clock.advance(rescueTestLevel1)
 	rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)

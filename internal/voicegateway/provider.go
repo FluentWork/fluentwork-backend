@@ -109,6 +109,20 @@ type mockVoiceProviderSession struct {
 	serverASRText string
 }
 
+// bootstrapTurnID names the frame every provider emits when the session opens.
+//
+// It is not a turn. The frame exists so the client can leave `aiSpeaking` — iOS
+// enters that state on socketReady and only leaves it on ai.turn.end, so without
+// the announcement the user's first tap reads as a barge-in and emits a spurious
+// `interrupt`. Nothing was asked of the user, and no turn was taken.
+//
+// The name is shared rather than repeated per provider so the three cannot drift
+// apart on it, and so a test can emit the same frame production does. The
+// gateway itself does **not** match on it: what keeps this frame from arming the
+// rescue ladder is that no turn spoke, which the turn machine decides on its own
+// — see Turn.NoteAIEnd.
+const bootstrapTurnID = "bootstrap"
+
 func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []ContinuationTurn) ([]ProviderOutbound, error) {
 	const stub = "ready"
 	s.utterances = append(s.utterances, EndUtterance{
@@ -119,12 +133,12 @@ func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.Session
 	s.nextSeq++
 	return []ProviderOutbound{
 		{
-			Control: voiceproto.NewAITextDelta(stub, "bootstrap", time.Now().UnixMilli()),
+			Control: voiceproto.NewAITextDelta(stub, bootstrapTurnID, time.Now().UnixMilli()),
 		},
 		{
 			Control: voiceproto.AITurnEnd{
 				Type:   voiceproto.TypeAITurnEnd,
-				TurnID: "bootstrap",
+				TurnID: bootstrapTurnID,
 			},
 		},
 	}, nil

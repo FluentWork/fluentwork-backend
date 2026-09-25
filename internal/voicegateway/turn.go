@@ -282,29 +282,41 @@ func (t *Turn) NoteFirstOutput() bool {
 	return true
 }
 
-// NoteAIEnd records that the AI's turn ended, and is idempotent once closed.
+// NoteAIEnd records that the AI's turn ended, and reports whether the turn it
+// closed was one the AI actually spoke in.
 //
-// A single turn legitimately carries two end markers: ai.tts.end terminates the
-// audio stream and ai.turn.end finalizes the AI item, and the volc provider
-// sends both by design (see turnToOutbound). Only the first is a transition; the
-// second is the same turn saying goodbye twice. Treating it as a duplicate made
-// every clean volc turn report a protocol violation.
-func (t *Turn) NoteAIEnd() bool {
+// The report is B8's arming rule, not a rejection count: a silence window may
+// only open for a turn the AI took, and TurnSpeaking is what "took it" means
+// here. Nothing else can answer that question — the wire says only that a turn
+// ended, and a provider announces the session opening with the same frame it
+// uses for a reply, so the frame alone cannot tell the two apart.
+//
+// The state is read *before* the transition, because closing the turn destroys
+// the answer: TurnClosed is reached both by a reply that spoke and by an
+// announcement that never did.
+//
+// Idempotent once closed — a single turn legitimately carries two end markers
+// (ai.tts.end terminates the audio stream, ai.turn.end finalizes the item), and
+// only the first is a transition. A repeat reports false: it is the same turn
+// saying goodbye twice, and re-opening the window on it would restart the
+// ladder's clock for no reason.
+func (t *Turn) NoteAIEnd() (spoke bool) {
 	if t == nil {
 		return false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state == TurnClosed {
-		return true
+		return false
 	}
+	spoke = t.state == TurnSpeaking
 	next, allowed := turnTransitions[t.state][EvAIEnd]
 	if !allowed {
 		t.rejected[EvAIEnd]++
 		return false
 	}
 	t.state = next
-	return true
+	return spoke
 }
 
 // Rejected reports how many events of each kind were refused, for logging.

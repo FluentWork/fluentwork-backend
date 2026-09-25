@@ -156,12 +156,12 @@ func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart, _ [
 	const stub = "ready"
 	return []ProviderOutbound{
 		{
-			Control: voiceproto.NewAITextDelta(stub, "bootstrap", time.Now().UnixMilli()),
+			Control: voiceproto.NewAITextDelta(stub, bootstrapTurnID, time.Now().UnixMilli()),
 		},
 		{
 			Control: voiceproto.AITurnEnd{
 				Type:    voiceproto.TypeAITurnEnd,
-				TurnID:  "bootstrap",
+				TurnID:  bootstrapTurnID,
 				Outcome: "ok",
 				LogID:   "dev-echo", // B15-I3: dev provider placeholder log_id
 			},
