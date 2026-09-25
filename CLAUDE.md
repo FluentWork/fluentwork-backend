@@ -27,7 +27,7 @@ before changing code.
 
 ## Repo-Specific Constraints
 
-1. **Landing gate:** `./scripts/dev-check.sh`, eight steps, first failure stops the run.
+1. **Landing gate:** `./scripts/dev-check.sh`, seven steps, first failure stops the run.
    The pre-commit hook is not installed by default (`core.hooksPath` is unset) — run the
    gate yourself.
 2. **Develop on `main`; do not open a PR unless asked.** One ticket per commit.
@@ -42,7 +42,7 @@ before changing code.
    compatible and must close variables as `${var}` before non-ASCII text.
 6. **Schemas:** change them in `fluentwork-infra`, then run
    `./scripts/sync-shared-schemas.sh`.
-7. **No code comments by default.** Reasoning belongs in the implementation note.
+7. **No code comments.** Reasoning goes in the commit body, not next to the code.
 
 ## High-Risk Areas
 
@@ -60,7 +60,8 @@ before changing code.
 1. Read the code first; `go.mod`, `cmd/` and `internal/` are authoritative.
 2. Prefer minimal diffs over broad rewrites.
 3. Update tests when behavior changes; a defect fix must leave a test that failed first.
-4. Add `docs/NN_<ticket>_实现说明.md` with the gate evidence and commit it with the code.
+4. Put the evidence in the commit body — which test reproduced the defect, its output
+   before the fix, the gate result. Do not create documents.
 5. Respect review gates and owner approval for high-risk paths.
 6. Push only when asked.
 

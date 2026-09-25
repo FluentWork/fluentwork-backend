@@ -91,7 +91,7 @@ script shebang resolves to it.
 ./scripts/dev-check.sh
 ```
 
-Eight steps, and **the first failure stops the run**:
+Seven steps, and **the first failure stops the run**:
 
 1. `gofumpt -l .`
 2. `goimports -l .`
@@ -100,8 +100,6 @@ Eight steps, and **the first failure stops the run**:
 5. `go build ./...`
 6. `scripts/check-env-loaders.sh` — asserts dotenv semantics
 7. `scripts/check-dev-service.sh` — asserts the dev-service supervisor (pid/process-group/port safety)
-8. `scripts/check-defect-discipline.sh` — asserts that implementation notes changed in the
-   working tree carry a 「测试」/「门禁」section
 
 `.githooks/pre-commit` chains `scripts/gstack-review-gate.sh` and then `dev-check.sh`,
 with `SKIP_DEV_CHECK=1` as the emergency bypass. **`core.hooksPath` is unset in a fresh
@@ -155,9 +153,9 @@ Change the schema in `fluentwork-infra` first, then sync outward.
    rebuilt into `bin/` by the dev scripts, so the root copies are stale duplicates.
 2. **`SETUP.md` documents a `.env.dev` that does not exist.** See Configuration above.
 3. **Gate scripts cite deleted documents.** `.golangci.yml` references `docs/99_`,
-   `check-env-loaders.sh` references `docs/106_`, `check-dev-service.sh` references
-   `docs/109_`, and `check-defect-discipline.sh` references `docs/36`. Those files are
-   gone, so the "why" behind each check now lives only in the scripts themselves.
+   `check-env-loaders.sh` references `docs/106_`, and `check-dev-service.sh` references
+   `docs/109_`. Those files are gone, so the "why" behind each check now lives only in
+   the scripts themselves.
 
 ## Related repositories
 

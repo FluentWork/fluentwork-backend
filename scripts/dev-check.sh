@@ -46,7 +46,4 @@ echo "== 环境加载器"
 echo "== 开发服务监管"
 "$ROOT/scripts/check-dev-service.sh"
 
-echo "== 缺陷修复纪律"
-"$ROOT/scripts/check-defect-discipline.sh"
-
 echo "All checks passed."

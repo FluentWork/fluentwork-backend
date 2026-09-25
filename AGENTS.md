@@ -24,9 +24,9 @@ specific to this repository.
 
 ## Local Rules
 
-1. **Landing gate.** `./scripts/dev-check.sh` — eight steps, and the first failure stops
+1. **Landing gate.** `./scripts/dev-check.sh` — seven steps, and the first failure stops
    the run: gofumpt → goimports → golangci-lint → `go test` → `go build` →
-   `check-env-loaders.sh` → `check-dev-service.sh` → `check-defect-discipline.sh`.
+   `check-env-loaders.sh` → `check-dev-service.sh`.
 2. **The gate does not run itself.** `.githooks/pre-commit` chains
    `scripts/gstack-review-gate.sh` then `dev-check.sh`, but `core.hooksPath` is unset in
    a fresh clone. Run `./scripts/setup-git-hooks.sh` once, and run `dev-check.sh`
@@ -34,10 +34,10 @@ specific to this repository.
 3. **Develop on `main`.** Do not open a PR unless explicitly asked. Commit after the gate
    passes; push only when asked. Emergency bypass is `SKIP_DEV_CHECK=1`.
 4. **One ticket per commit.** Keep each commit to a single topic.
-5. **Implementation notes.** After the gate passes, add `docs/NN_<ticket>_实现说明.md`
-   covering the principle, the approach, the root cause of any defect, why the new design
-   is right, and the test evidence — and commit it with the code. See the drift note
-   below: `docs/` does not currently exist.
+5. **No documents.** Do not create implementation notes, design docs, or any other
+   `docs/` artifact. Put the evidence — which test reproduced the defect, its output
+   before the fix, the gate result — in the **commit body** instead. Write a document
+   only when explicitly asked for one.
 6. **Import boundaries are enforced by lint, not by convention.** `.golangci.yml`
    `depguard` rules: `internal/voicegateway/**` may not import `internal/content/tts`,
    `internal/reviewgen`, `internal/eval`, or `internal/account`; nothing under
@@ -53,9 +53,10 @@ specific to this repository.
    with a garbled error. `check-dev-service.sh` enforces this statically.
 9. **Schemas are owned by `fluentwork-infra`.** Never hand-edit `schemas/`; change the
    schema in infra and run `./scripts/sync-shared-schemas.sh`.
-10. **No code comments by default.** Do not add header blocks, doc comments, or inline
-    rationale to new or changed code unless explicitly asked. Reasoning goes into the
-    implementation note. Leave existing comments alone.
+10. **No code comments.** Do not add header blocks, doc comments, or inline rationale to
+    new or changed code unless explicitly asked. There is no other home for that
+    reasoning either — if it needs recording, it goes in the commit body. Leave existing
+    comments alone.
 
 ## Required Behaviors
 
@@ -91,21 +92,15 @@ specific to this repository.
 
 These are measured, not suspected. Fix or work around them deliberately.
 
-1. **Gate step 8 cannot fail right now.** `check-defect-discipline.sh` scans `docs/` for
-   changed `*实现说明*.md` files, but this repository has no `docs/` directory. It
-   therefore reports "本次没有改动实现说明" and passes unconditionally — a green check
-   that is currently incapable of detecting anything. Restore `docs/` (or repoint the
-   script) before relying on it.
-2. **Build binaries are committed at the repository root.** `app-server`, `smoke-moat`,
+1. **Build binaries are committed at the repository root.** `app-server`, `smoke-moat`,
    `worker`, `corpus-seed` and `ark-endpoint-probe` are tracked, ~99 MB in total.
    `.gitignore` covers `bin/` but not these root paths.
-3. **`SETUP.md` documents a `.env.dev` that does not exist** and cannot be committed
+2. **`SETUP.md` documents a `.env.dev` that does not exist** and cannot be committed
    (`.gitignore` matches `.env.*`). `dev-local-start.sh` carries explicit defaults.
-4. **Gate scripts cite deleted documents** — `.golangci.yml` → `docs/99_`,
-   `check-env-loaders.sh` → `docs/106_`, `check-dev-service.sh` → `docs/109_`,
-   `check-defect-discipline.sh` → `docs/36`. The rationale for each check now lives only
-   in the script's own header comment.
-5. **Review-gate policy disagrees with itself.** `.cursor/rules/git-workflow.mdc` says
+3. **Gate scripts cite deleted documents** — `.golangci.yml` → `docs/99_`,
+   `check-env-loaders.sh` → `docs/106_`, `check-dev-service.sh` → `docs/109_`. The
+   rationale for each check now lives only in the script's own header comment.
+4. **Review-gate policy disagrees with itself.** `.cursor/rules/git-workflow.mdc` says
    not to require gstack review attestation; `.githooks/pre-commit` calls
    `scripts/gstack-review-gate.sh`, which blocks without `GSTACK_REVIEWED=1`; and
    `fluentwork-meta/agents/shared/review-gate.md` mandates the attestation for all three
@@ -119,7 +114,7 @@ These are measured, not suspected. Fix or work around them deliberately.
    be justified in the commit or PR body.
 2. `scripts/ocr-*.sh` (OpenCodeReview) are optional/manual only and are not part of the
    default gate.
-3. See drift note 5 above before treating this as settled.
+3. See drift note 4 above before treating this as settled.
 
 ## CI Boundary
 
