@@ -322,3 +322,122 @@ func TestSilenceDetector_Concurrent_Access(t *testing.T) {
 		t.Errorf("detector reports a rescue after a concurrent reset: should=%v level=%d", should, level)
 	}
 }
+
+// The whole point of the request: the user has already decided they are stuck,
+// so the threshold they can see the end of is the one thing it skips.
+func TestSilenceDetector_RequestNextIgnoresTheThresholds(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+
+	should, level := detector.RequestNext(start.Add(500 * time.Millisecond))
+	if !should || level != 1 {
+		t.Fatalf("request at 0.5s: should=%v level=%d, want true/1", should, level)
+	}
+}
+
+// A request that lands just before a threshold must not be answered twice: once
+// by the user asking and once by the automatic ladder a moment later.
+func TestSilenceDetector_RequestNextHoldsTheAutomaticLadderOffForOneSpacing(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+
+	// Late enough that level 2's own 6s threshold has already elapsed when the
+	// request lands, so only the hold can keep the automatic path quiet.
+	if should, level := detector.RequestNext(start.Add(5900 * time.Millisecond)); !should || level != 1 {
+		t.Fatalf("request at 5.9s: should=%v level=%d, want true/1", should, level)
+	}
+
+	if should, _ := detector.CheckSilence(start.Add(6 * time.Second)); should {
+		t.Error("the automatic ladder fired 0.1s after the request; the user asked for one hint, not two")
+	}
+	if should, _ := detector.CheckSilence(start.Add(8800 * time.Millisecond)); should {
+		t.Error("the automatic ladder fired before a full spacing had passed since the request")
+	}
+	should, level := detector.CheckSilence(start.Add(8900 * time.Millisecond))
+	if !should || level != 2 {
+		t.Fatalf("one spacing after the request: should=%v level=%d, want true/2", should, level)
+	}
+}
+
+// A fresh session has nothing to be rescued from, and a user mid-sentence must
+// not be talked over — the same two gates the automatic path has.
+func TestSilenceDetector_RequestNextIsRefusedWithoutAWindow(t *testing.T) {
+	detector := NewSilenceDetector()
+
+	if should, level := detector.RequestNext(time.Now()); should || level != 0 {
+		t.Fatalf("request with no window open: should=%v level=%d, want false/0", should, level)
+	}
+}
+
+func TestSilenceDetector_RequestNextIsRefusedWhileTheUserIsSpeaking(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+	detector.OnUserSpeechStart(start.Add(time.Second))
+
+	if should, level := detector.RequestNext(start.Add(4 * time.Second)); should || level != 0 {
+		t.Fatalf("request mid-utterance: should=%v level=%d, want false/0", should, level)
+	}
+}
+
+// Asking again after the ladder is spent re-serves the worked example rather
+// than going silent: the user asked, and a tap that produces nothing reads as a
+// broken button.
+func TestSilenceDetector_RequestNextCapsAtTheCompleteExample(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+
+	for want := 1; want <= 3; want++ {
+		should, level := detector.RequestNext(start.Add(time.Duration(want) * time.Millisecond))
+		if !should || level != want {
+			t.Fatalf("request #%d: should=%v level=%d, want true/%d", want, should, level, want)
+		}
+	}
+	should, level := detector.RequestNext(start.Add(4 * time.Millisecond))
+	if !should || level != 3 {
+		t.Fatalf("request past the last rung: should=%v level=%d, want true/3", should, level)
+	}
+}
+
+// The hold belongs to the ladder, and the ladder restarts when the user opens
+// their mouth. A request a moment before must not delay the new attempt's first
+// rung — otherwise a tap would punish the user for trying again.
+func TestSilenceDetector_UserSpeechStartClearsTheRequestHold(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+
+	if should, _ := detector.RequestNext(start.Add(2500 * time.Millisecond)); !should {
+		t.Fatal("setup: the request was refused")
+	}
+	detector.OnUserSpeechStart(start.Add(2600 * time.Millisecond))
+	detector.OnUserSpeechEnd(start.Add(2700*time.Millisecond), false)
+
+	should, level := detector.CheckSilence(start.Add(3 * time.Second))
+	if !should || level != 1 {
+		t.Fatalf("new attempt: should=%v level=%d, want true/1", should, level)
+	}
+}
+
+// The request must not move the window: elapsed is how long the floor has been
+// the user's, which the request does not change.
+func TestSilenceDetector_RequestNextDoesNotMoveTheWindow(t *testing.T) {
+	detector := NewSilenceDetector()
+	start := time.Now()
+	detector.OnAISpeechEnd(start)
+	detector.RequestNext(start.Add(time.Second))
+
+	windowStart, level, elapsed := detector.GetState(start.Add(5 * time.Second))
+	if !windowStart.Equal(start) {
+		t.Errorf("windowStart = %v, want %v", windowStart, start)
+	}
+	if level != 1 {
+		t.Errorf("level = %d, want 1", level)
+	}
+	if elapsed != 5*time.Second {
+		t.Errorf("elapsed = %v, want 5s", elapsed)
+	}
+}

@@ -16,6 +16,7 @@ const (
 	TypeUserSpeechStart        = "user.speech.start"
 	TypeUserSpeechEnd          = "user.speech.end"
 	TypeClientTurnAbort        = "client.turn.abort"
+	TypeClientRescueRequest    = "client.rescue.request"
 	TypeClientASRTranscription = "client.asr.transcription"
 	TypeAITextDelta            = "ai.text.delta"
 	TypeAIAudioChunk           = "ai.audio.chunk"
@@ -125,6 +126,19 @@ type ClientTurnAbort struct {
 	Type    string `json:"type"`
 	TurnID  string `json:"turn_id,omitempty"`
 	Outcome string `json:"outcome"`
+}
+
+// ClientRescueRequest is the client→gateway ask for one rung of the B8 rescue
+// ladder (C→S).
+//
+// It carries no level. The ladder's position is the gateway's, because a client
+// that could name one could ask for the worked example on its first tap, and
+// §5.4's ladder climbs one rung at a time. It shares the automatic ladder's
+// position for the same reason in reverse: a tap advances that ladder rather
+// than opening a second one, so a tap and the 3s trigger can never both answer
+// the same silence.
+type ClientRescueRequest struct {
+	Type string `json:"type"`
 }
 
 // ClientASRTranscription is a gateway→client frame emitted when the voice

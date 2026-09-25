@@ -10,10 +10,12 @@
     { "$ref": "#/$defs/userSpeechStart" },
     { "$ref": "#/$defs/userSpeechEnd" },
     { "$ref": "#/$defs/clientTurnAbort" },
+    { "$ref": "#/$defs/clientRescueRequest" },
     { "$ref": "#/$defs/aiTextDelta" },
     { "$ref": "#/$defs/aiAudioChunk" },
     { "$ref": "#/$defs/aiTTSStart" },
     { "$ref": "#/$defs/aiTTSEnd" },
+    { "$ref": "#/$defs/aiRescueLadder" },
     { "$ref": "#/$defs/aiTurnEnd" },
     { "$ref": "#/$defs/interrupt" },
     { "$ref": "#/$defs/feedbackBadge" },
@@ -85,6 +87,15 @@
         }
       }
     },
+    "clientRescueRequest": {
+      "description": "B8: the user asks for a rescue rung themselves instead of waiting for the silence detector. Carries no level on purpose — the ladder's position belongs to the gateway, and a client that could name one could ask for the worked example on its first tap. The rung that answers it shares the automatic ladder's position, so a tap advances that ladder rather than opening a second one.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "client.rescue.request" }
+      }
+    },
     "aiTextDelta": {
       "type": "object",
       "required": ["type", "text"],
@@ -137,6 +148,21 @@
         "completion_status": { "type": "string", "enum": ["ok", "interrupted", "error"] },
         "duration_ms": { "type": "integer", "minimum": 0 },
         "turn_ref": { "type": "integer", "minimum": 1, "description": "Optional. Closes the client's turn_ref -> turn_id mapping entry opened by the matching ai.tts.start, so the mapping does not grow for the life of the socket. Present exactly when the matching ai.tts.start carried it." }
+      }
+    },
+    "aiRescueLadder": {
+      "description": "B8: one rung of the rescue ladder, sent when the silence detector fires or when the user asked for it (client.rescue.request). Level is the ladder's position — 1 sentence skeleton, 2 Chinese intent hint, 3 complete example — and it only ever advances, because the PRD's ladder climbs one rung at a time. The rung is spoken: audio arrives on this frame's turn_id as an ai.tts.start / ai.tts.audio / ai.tts.end stream, so audio_url and duration_ms are reserved and always empty. The client is not required to display the text; the hint is delivered by voice so it does not take a UI element or leave the conversation flow.",
+      "type": "object",
+      "required": ["type", "turn_id", "level", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ai.rescue.ladder" },
+        "turn_id": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "text": { "type": "string" },
+        "audio_url": { "type": "string", "description": "Reserved. The spoken rung arrives as ai.tts.* on turn_id; this field is never set." },
+        "duration_ms": { "type": "integer", "minimum": 0, "description": "Reserved. The client gets the duration from ai.tts.end." },
+        "ts": { "type": "integer", "minimum": 0 }
       }
     },
     "aiTurnEnd": {

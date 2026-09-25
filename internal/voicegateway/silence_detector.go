@@ -3,6 +3,8 @@ package voicegateway
 import (
 	"sync"
 	"time"
+
+	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
 // Default rescue thresholds (B8 / PRD V1.6 §8.2): one rung of the ladder every
@@ -87,6 +89,9 @@ type SilenceDetector struct {
 	userSpeaking bool
 	// rescueLevel is the highest rung already fired in this window.
 	rescueLevel int
+	// autoHoldUntil is the earliest instant the automatic ladder may fire. Only
+	// a request moves it — see RequestNext.
+	autoHoldUntil time.Time
 }
 
 // NewSilenceDetector creates a detector with the PRD's 3s / 6s / 9s thresholds.
@@ -116,6 +121,7 @@ func (d *SilenceDetector) OnAISpeechEnd(now time.Time) {
 	d.windowStart = now
 	d.rescueLevel = 0
 	d.userSpeaking = false
+	d.autoHoldUntil = time.Time{}
 }
 
 // OnUserSpeechStart marks the user as speaking and resets the ladder.
@@ -128,6 +134,7 @@ func (d *SilenceDetector) OnUserSpeechStart(_ time.Time) {
 	defer d.mu.Unlock()
 	d.userSpeaking = true
 	d.rescueLevel = 0
+	d.autoHoldUntil = time.Time{}
 }
 
 // OnUserSpeechEnd closes the user's attempt.
@@ -147,6 +154,7 @@ func (d *SilenceDetector) OnUserSpeechEnd(_ time.Time, complete bool) {
 	if complete {
 		d.windowStart = time.Time{}
 		d.rescueLevel = 0
+		d.autoHoldUntil = time.Time{}
 	}
 }
 
@@ -167,6 +175,9 @@ func (d *SilenceDetector) CheckSilence(now time.Time) (shouldRescue bool, level 
 	defer d.mu.Unlock()
 
 	if d.windowStart.IsZero() || d.userSpeaking {
+		return false, 0
+	}
+	if now.Before(d.autoHoldUntil) {
 		return false, 0
 	}
 
@@ -194,6 +205,32 @@ func (d *SilenceDetector) Reset() {
 	d.windowStart = time.Time{}
 	d.userSpeaking = false
 	d.rescueLevel = 0
+	d.autoHoldUntil = time.Time{}
+}
+
+// RequestNext consumes the next rung on the user's own request.
+//
+// It ignores the thresholds: the user has already decided they are stuck, so
+// waiting out a timer is the one thing the request exists to skip. It does not
+// ignore the ladder — the rung it returns is the one the automatic path would
+// have reached next, so the two triggers share a position instead of racing for
+// it — and it then holds the automatic path off for one rung spacing, so a
+// request landing just before a threshold is not answered twice.
+func (d *SilenceDetector) RequestNext(now time.Time) (bool, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.windowStart.IsZero() || d.userSpeaking {
+		return false, 0
+	}
+
+	level := d.rescueLevel + 1
+	if level > voiceproto.RescueLevelComplete {
+		level = voiceproto.RescueLevelComplete
+	}
+	d.rescueLevel = level
+	d.autoHoldUntil = now.Add(d.thresholds.Level1)
+	return true, level
 }
 
 // GetState returns the current window for debugging and logging:

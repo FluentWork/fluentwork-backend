@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1051,4 +1052,132 @@ func TestHandler_Rescue_UserSpeakingInterruptsTheSpokenLadder(t *testing.T) {
 		}
 		return
 	}
+}
+
+// The user's own request skips the threshold but not the ladder: it is answered
+// immediately, with the rung the automatic path would have reached next.
+func TestHandler_Rescue_UserRequestAnswersWithoutWaitingForTheThreshold(t *testing.T) {
+	t.Parallel()
+
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, &rescueAudioSynthesizer{})
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
+
+	// The clock has not moved, so the automatic ladder is not due for another
+	// rescueTestLevel1. Anything that arrives now can only be the request.
+	rescueSendFrame(readCtx, t, conn, voiceproto.ClientRescueRequest{Type: voiceproto.TypeClientRescueRequest})
+
+	frame := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
+	if got := rescueLevelOf(t, frame); got != 1 {
+		t.Fatalf("level = %d, want 1 (%#v)", got, frame)
+	}
+	if got := frame["turn_id"]; got != "t-user-1" {
+		t.Errorf("turn_id = %v, want t-user-1", got)
+	}
+}
+
+// A request consumes a rung, so the automatic ladder must continue past it
+// rather than answer the same silence a second time.
+func TestHandler_Rescue_UserRequestAdvancesTheAutomaticLadderRatherThanOpeningASecond(t *testing.T) {
+	t.Parallel()
+
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, &rescueAudioSynthesizer{})
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
+	rescueSendFrame(readCtx, t, conn, voiceproto.ClientRescueRequest{Type: voiceproto.TypeClientRescueRequest})
+
+	first := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
+	if got := rescueLevelOf(t, first); got != 1 {
+		t.Fatalf("request answered with level %d, want 1", got)
+	}
+	start := rescueReadFrame(readCtx, t, conn)
+	rescueReadAudioStream(readCtx, t, conn, start)
+
+	// The automatic ladder's own level-2 threshold elapses. It must continue
+	// past the rung the request spent rather than answer the same silence again.
+	rig.clock.advance(rescueTestLevel2)
+	second := rescueWaitForType(readCtx, t, conn, voiceproto.TypeRescueLadder)
+	if got := rescueLevelOf(t, second); got != 2 {
+		t.Fatalf("level = %d, want 2 (%#v)", got, second)
+	}
+
+	// The generator is the outside view of "which rungs were asked for": a
+	// duplicate level 1 would show up here even if the frame looked right.
+	want := []conversation.RescueLevel{conversation.RescueSkeleton, conversation.RescueHint}
+	if got := rig.gen.levels(); !slices.Equal(got, want) {
+		t.Fatalf("generator levels = %v, want %v", got, want)
+	}
+}
+
+// The request is answered before the AI has handed the floor over, so there is
+// nothing to be rescued from. Refusing is silent on purpose: an error frame maps
+// to iOS .failed and would kill the session over a tap.
+func TestHandler_Rescue_UserRequestBeforeAnyAITurnIsRefusedSilently(t *testing.T) {
+	t.Parallel()
+
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, &rescueAudioSynthesizer{})
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rescueSendFrame(readCtx, t, conn, voiceproto.ClientRescueRequest{Type: voiceproto.TypeClientRescueRequest})
+
+	quietCtx, cancelQuiet := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancelQuiet()
+	for {
+		_, data, err := conn.Read(quietCtx)
+		if err != nil {
+			return
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		t.Fatalf("a request the gateway could not serve was answered with %#v", raw)
+	}
+}
+
+// With B8 unwired the frame must be inert: the gateway answers nothing, and the
+// session survives it exactly as it survives any other frame it does not know.
+func TestHandler_Rescue_UserRequestIsInertWhenRescueIsNotWired(t *testing.T) {
+	t.Parallel()
+
+	clock := newRescueTestClock()
+	h := NewHandler(
+		rescueTicketConsumer{},
+		rescueLifecycle{},
+		&rescueProvider{turn: rescueAITurn{ttsEnd: true, turnEnd: true}},
+		slog.New(slog.DiscardHandler),
+		Options{InsecureSkipOrigin: true, RescueTick: rescueTestTick},
+	)
+	h.now = clock.now
+
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	rig := &rescueRig{handler: h, clock: clock, gen: &rescueTextGenerator{}, server: srv}
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
+	rescueSendFrame(readCtx, t, conn, voiceproto.ClientRescueRequest{Type: voiceproto.TypeClientRescueRequest})
+
+	clock.advance(10 * time.Minute)
+
+	quietCtx, cancelQuiet := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancelQuiet()
+	rescueExpectNoType(quietCtx, t, conn, voiceproto.TypeRescueLadder)
 }

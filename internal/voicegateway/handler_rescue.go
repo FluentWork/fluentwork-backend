@@ -87,6 +87,19 @@ func (h *Handler) startRescueLoop(
 // returns. Checking afterwards would drop a rung every time a generation
 // overlapped a tick — and overlap is expected, since a slow model can take
 // longer than the 3s between rungs.
+const (
+	rescueTriggerSilence = "silence"
+	rescueTriggerRequest = "request"
+)
+
+func (h *Handler) rescueGoroutine(rt *sessionRuntime, run func()) {
+	rt.rescueWG.Add(1)
+	go func() {
+		defer rt.rescueWG.Done()
+		run()
+	}()
+}
+
 func (h *Handler) checkRescue(
 	ctx context.Context,
 	conn *websocket.Conn,
@@ -103,12 +116,36 @@ func (h *Handler) checkRescue(
 	}
 
 	rt.rescueInFlight.Store(true)
-	rt.rescueWG.Add(1)
-	go func() {
-		defer rt.rescueWG.Done()
+	h.rescueGoroutine(rt, func() {
 		defer rt.rescueInFlight.Store(false)
-		h.emitRescue(ctx, conn, rt, session, level)
-	}()
+		h.emitRescue(ctx, conn, rt, session, level, rescueTriggerSilence)
+	})
+}
+
+func (h *Handler) requestRescue(
+	ctx context.Context,
+	conn *websocket.Conn,
+	rt *sessionRuntime,
+	session ConsumedTicket,
+) {
+	if !rt.rescueEnabled() {
+		return
+	}
+	if !rt.started {
+		_ = rtSendError(ctx, conn, rt, "session_not_started", "send session.start first")
+		return
+	}
+	shouldRescue, level := rt.silenceDetector.RequestNext(rt.clock())
+	if !shouldRescue {
+		h.logger.Info("B8 rescue request ignored; the user does not have the floor",
+			"session_id", session.SessionID,
+			"stage", "b8_rescue",
+		)
+		return
+	}
+	h.rescueGoroutine(rt, func() {
+		h.emitRescue(ctx, conn, rt, session, level, rescueTriggerRequest)
+	})
 }
 
 // emitRescue generates one rung and writes it to the client.
@@ -122,6 +159,7 @@ func (h *Handler) emitRescue(
 	rt *sessionRuntime,
 	session ConsumedTicket,
 	level int,
+	trigger string,
 ) {
 	convCtx, turnID := rt.rescueSnapshot(session)
 
@@ -166,6 +204,7 @@ func (h *Handler) emitRescue(
 		"level", frame.Level,
 		"text_length", len(frame.Text),
 		"spoken", spoken,
+		"trigger", trigger,
 		"stage", "b8_rescue",
 	)
 }

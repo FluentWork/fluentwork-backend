@@ -37,6 +37,14 @@ func TestControlFrameRoundTrip(t *testing.T) {
 			CompletionStatus: "ok",
 		},
 		voiceproto.Interrupt{Type: voiceproto.TypeInterrupt},
+		voiceproto.ClientRescueRequest{Type: voiceproto.TypeClientRescueRequest},
+		voiceproto.RescueLadder{
+			Type:   voiceproto.TypeRescueLadder,
+			TurnID: "turn-9",
+			Level:  voiceproto.RescueLevelSkeleton,
+			Text:   "I think the main risk is...",
+			TS:     1_725_968_000_000,
+		},
 		voiceproto.SessionEnd{Type: voiceproto.TypeSessionEnd, Reason: "user"},
 		voiceproto.ErrorFrame{Type: voiceproto.TypeError, Code: "unauthenticated", Message: "bad ticket"},
 		voiceproto.Ping{Type: voiceproto.TypePing, TS: 1},
@@ -79,7 +87,7 @@ func TestSchemaFilePresent(t *testing.T) {
 	if !ok {
 		t.Fatal("schema missing $defs")
 	}
-	for _, name := range []string{"auth", "sessionReady", "sessionStart", "aiTurnEnd", "sessionEnd", "interrupt", "error", "ping", "pong", "feedbackBadge"} {
+	for _, name := range []string{"auth", "sessionReady", "sessionStart", "aiTurnEnd", "sessionEnd", "interrupt", "error", "ping", "pong", "feedbackBadge", "clientRescueRequest", "aiRescueLadder"} {
 		if _, ok := defs[name]; !ok {
 			t.Fatalf("schema missing $defs.%s", name)
 		}
@@ -349,6 +357,64 @@ func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
 	}
 	if _, ok := props["log_id"]; !ok {
 		t.Fatal("v2 aiTurnEnd schema missing log_id")
+	}
+}
+
+func TestSchemaV2DeclaresBothHalvesOfTheRescueExchange(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	oneOf, ok := doc["oneOf"].([]any)
+	if !ok {
+		t.Fatal("schema missing oneOf")
+	}
+	refs := map[string]bool{}
+	for _, item := range oneOf {
+		m, _ := item.(map[string]any)
+		ref, _ := m["$ref"].(string)
+		refs[ref] = true
+	}
+
+	cases := []struct {
+		def string
+		typ reflect.Type
+	}{
+		{"clientRescueRequest", reflect.TypeOf(voiceproto.ClientRescueRequest{})},
+		{"aiRescueLadder", reflect.TypeOf(voiceproto.RescueLadder{})},
+	}
+	for _, tc := range cases {
+		def, ok := defs[tc.def].(map[string]any)
+		if !ok {
+			t.Fatalf("schema missing $defs.%s", tc.def)
+		}
+		if !refs["#/$defs/"+tc.def] {
+			t.Fatalf("$defs.%s is not in oneOf, so the frame it describes is not part of the contract", tc.def)
+		}
+		if def["additionalProperties"] != false {
+			t.Fatalf("$defs.%s must set additionalProperties:false, otherwise an undeclared field is not a defect", tc.def)
+		}
+		props, ok := def["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("$defs.%s missing properties", tc.def)
+		}
+		for i := 0; i < tc.typ.NumField(); i++ {
+			tag := tc.typ.Field(i).Tag.Get("json")
+			name, _, _ := strings.Cut(tag, ",")
+			if name == "" || name == "-" {
+				continue
+			}
+			if _, ok := props[name]; !ok {
+				t.Fatalf("$defs.%s does not declare %q, which %s always emits; with additionalProperties:false every frame carrying it is invalid",
+					tc.def, name, tc.typ.Name())
+			}
+		}
 	}
 }
 
