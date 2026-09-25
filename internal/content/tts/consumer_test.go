@@ -93,7 +93,7 @@ func TestSynthesizeEndpointHasAConsumer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", slog.Default())
+	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", 0, slog.Default())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	audio, err := client.Synthesize(ctx, "先说结论，再说原因", "t_1")
@@ -125,7 +125,7 @@ func TestHTTPRescueSynthesizer_ReturnsPlayablePCM(t *testing.T) {
 	provider := &stubProvider{pcm: pcm}
 	server := synthesisServer(t, provider, "tok")
 
-	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", nil)
+	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", 0, nil)
 	audio, err := client.Synthesize(context.Background(), "先说结论，再说原因", "t1")
 	if err != nil {
 		t.Fatalf("Synthesize: %v", err)
@@ -169,7 +169,7 @@ func TestHTTPRescueSynthesizer_FailuresReturnErrors(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", nil)
+			client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "tok", "rescue_ladder", 0, nil)
 			_, err := client.Synthesize(context.Background(), "再说一遍", "t1")
 			if err == nil {
 				t.Fatal("expected an error")
@@ -181,7 +181,7 @@ func TestHTTPRescueSynthesizer_FailuresReturnErrors(t *testing.T) {
 	}
 
 	// An unconfigured synthesizer fails fast rather than calling anything.
-	if _, err := voicegateway.NewHTTPRescueSynthesizer("", "tok", "", nil).Synthesize(context.Background(), "x", "t"); err == nil {
+	if _, err := voicegateway.NewHTTPRescueSynthesizer("", "tok", "", 0, nil).Synthesize(context.Background(), "x", "t"); err == nil {
 		t.Fatal("an unconfigured synthesizer must error")
 	}
 }
@@ -189,7 +189,7 @@ func TestHTTPRescueSynthesizer_FailuresReturnErrors(t *testing.T) {
 // The bad-token path is the real middleware, not a fixture that happens to 401.
 func TestHTTPRescueSynthesizer_RejectsBadToken(t *testing.T) {
 	server := synthesisServer(t, &stubProvider{pcm: []byte{1, 2}}, "tok")
-	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "wrong", "rescue_ladder", nil)
+	client := voicegateway.NewHTTPRescueSynthesizer(server.URL, "wrong", "rescue_ladder", 0, nil)
 	if _, err := client.Synthesize(context.Background(), "x", "t"); err == nil {
 		t.Fatal("expected an error for a bad internal token")
 	}

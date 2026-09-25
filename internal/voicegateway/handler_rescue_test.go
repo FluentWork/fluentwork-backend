@@ -262,7 +262,7 @@ func newRescueRig(t *testing.T, bootstrap rescueBootstrap, synth *rescueAudioSyn
 	h.now = clock.now
 	h.SetRescueComponents(
 		NewSilenceDetectorWithThresholds(rescueTestThresholds()),
-		NewRescueOrchestrator(gen, synthesizer, slog.New(slog.DiscardHandler)),
+		NewRescueOrchestrator(gen, synthesizer, 0, slog.New(slog.DiscardHandler)),
 	)
 
 	mux := http.NewServeMux()

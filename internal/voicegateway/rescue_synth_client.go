@@ -30,6 +30,10 @@ type HTTPRescueSynthesizer struct {
 	VoiceID string
 	Client  *http.Client
 	Logger  *slog.Logger
+	// timeout is the per-request budget, applied in Synthesize only when the
+	// caller's context carries no deadline of its own. Zero means
+	// DefaultRescueSynthTimeout.
+	timeout time.Duration
 }
 
 // DefaultRescueSynthTimeout bounds one synthesis, and it is sized against the
@@ -42,12 +46,20 @@ type HTTPRescueSynthesizer struct {
 // therefore fits inside what is left with a little room to spare; exceeding it
 // costs the rung its voice and never its text, which is already on the wire by
 // the time this call is made.
+//
+// Configurable through VOICE_RESCUE_SYNTH_TIMEOUT. Config.Validate refuses a
+// value that does not fit inside the configured rung spacing, so this default is
+// only the answer for an unset environment.
 const DefaultRescueSynthTimeout = 1000 * time.Millisecond
 
-// NewHTTPRescueSynthesizer constructs the client.
-func NewHTTPRescueSynthesizer(baseURL, token, voiceID string, logger *slog.Logger) *HTTPRescueSynthesizer {
+// NewHTTPRescueSynthesizer constructs the client. A timeout of zero or less uses
+// DefaultRescueSynthTimeout.
+func NewHTTPRescueSynthesizer(baseURL, token, voiceID string, timeout time.Duration, logger *slog.Logger) *HTTPRescueSynthesizer {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if timeout <= 0 {
+		timeout = DefaultRescueSynthTimeout
 	}
 	return &HTTPRescueSynthesizer{
 		BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
@@ -55,6 +67,7 @@ func NewHTTPRescueSynthesizer(baseURL, token, voiceID string, logger *slog.Logge
 		VoiceID: strings.TrimSpace(voiceID),
 		Client:  &http.Client{},
 		Logger:  logger.With("component", "voicegateway.rescue_synth"),
+		timeout: timeout,
 	}
 }
 
@@ -101,8 +114,12 @@ func (s *HTTPRescueSynthesizer) Synthesize(ctx context.Context, text, _ string) 
 		client = &http.Client{}
 	}
 	if _, ok := ctx.Deadline(); !ok {
+		budget := s.timeout
+		if budget <= 0 {
+			budget = DefaultRescueSynthTimeout
+		}
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, DefaultRescueSynthTimeout)
+		ctx, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 		req = req.WithContext(ctx)
 	}

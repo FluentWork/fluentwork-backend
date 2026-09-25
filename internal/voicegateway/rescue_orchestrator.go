@@ -71,6 +71,10 @@ type RescueOrchestrator struct {
 	synth       RescueSynthesizer
 	logger      *slog.Logger
 	fallbackLib map[int][]string // Fallback text library when LLM fails
+	// rungBudget bounds text generation. It is the ladder's first rung spacing
+	// rather than a comfortable round number: a rescue that lands after the next
+	// one is due has already lost the race it was generated for.
+	rungBudget time.Duration
 }
 
 // RescueGenerator interface for generating rescue text (allows mocking in tests)
@@ -79,14 +83,19 @@ type RescueGenerator interface {
 }
 
 // NewRescueOrchestrator creates a new rescue orchestrator. synth may be nil,
-// which yields text-only ladders (see RescueSynthesizer).
+// which yields text-only ladders (see RescueSynthesizer). A rungBudget of zero
+// or less uses DefaultRescueLevel1After.
 func NewRescueOrchestrator(
 	rescueGen RescueGenerator,
 	synth RescueSynthesizer,
+	rungBudget time.Duration,
 	logger *slog.Logger,
 ) *RescueOrchestrator {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if rungBudget <= 0 {
+		rungBudget = DefaultRescueLevel1After
 	}
 
 	return &RescueOrchestrator{
@@ -94,6 +103,7 @@ func NewRescueOrchestrator(
 		synth:       synth,
 		logger:      logger.With("component", "rescue_orchestrator"),
 		fallbackLib: buildFallbackLibrary(),
+		rungBudget:  rungBudget,
 	}
 }
 
@@ -187,10 +197,15 @@ func (o *RescueOrchestrator) generateText(
 	}
 
 	// Bound the generation so a slow model cannot hold the ladder past the next
-	// rung's threshold. The budget is the rung spacing (3s) rather than a
-	// comfortable round number: a rescue that lands after the next one is due
-	// has already lost the race it was generated for.
-	genCtx, cancel := context.WithTimeout(ctx, DefaultRescueLevel1After)
+	// rung's threshold. The budget is the rung spacing rather than a comfortable
+	// round number: a rescue that lands after the next one is due has already
+	// lost the race it was generated for.
+	//
+	// It follows the configured spacing (VOICE_RESCUE_LEVEL1_AFTER) rather than
+	// the compiled-in default: shortening the rungs while leaving this at 3s
+	// would let a rung outlive the next one's due time, which is the failure this
+	// bound exists to prevent.
+	genCtx, cancel := context.WithTimeout(ctx, o.rungBudget)
 	defer cancel()
 
 	return o.rescueGen.GenerateRescue(genCtx, rescueLevel, convCtx)

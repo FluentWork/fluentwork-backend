@@ -84,6 +84,27 @@ type Config struct {
 	// dev-echo and DevEchoTTSMock is false. Empty means no audio fixture.
 	DevEchoFixturePath string
 	IdleTimeout        time.Duration
+	// Rescue ladder timing (B8). Each falls back to its compiled-in default
+	// when its variable is unset, so an environment that never sets them
+	// behaves exactly as it did before they were configurable.
+	//
+	// They are configurable because the defaults were measured on one machine
+	// on one day (see DefaultRescueSynthTimeout) while the ladder's latency is
+	// dominated by two app-server round trips; tuning them against real
+	// hardware should not need a rebuild. Validate refuses timings that break
+	// the ladder's own invariants rather than clamping them the way
+	// RescueThresholds.withDefaults does — an operator who asked for a ladder
+	// that climbs backwards should be told, not quietly handed a different one.
+	RescueLevel1After  time.Duration
+	RescueLevel2After  time.Duration
+	RescueLevel3After  time.Duration
+	RescueGenTimeout   time.Duration
+	RescueSynthTimeout time.Duration
+	// loadErr carries a parse failure out of LoadConfig, which has no error
+	// return of its own. Validate surfaces it first, so a malformed value fails
+	// startup naming the variable instead of being silently replaced by its
+	// default. A Config assembled by hand leaves it nil.
+	loadErr error
 }
 
 // LoadConfig reads voice-gateway configuration from the environment.
@@ -108,7 +129,7 @@ func LoadConfig() Config {
 	if token == "" && isDevelopmentEnv(appEnv) {
 		token = config.DevInternalAPIToken
 	}
-	return Config{
+	cfg := Config{
 		HTTPAddr:             envOr("VOICE_GATEWAY_HTTP_ADDR", defaultVoiceHTTPAddr),
 		AppEnv:               appEnv,
 		AppServerInternalURL: envOr("APP_SERVER_INTERNAL_URL", defaultAppServerURL),
@@ -140,6 +161,36 @@ func LoadConfig() Config {
 		),
 		IdleTimeout: durationOr("VOICE_GATEWAY_IDLE_TIMEOUT", defaultIdleTimeout),
 	}
+	cfg.loadErr = cfg.loadRescueTiming()
+	return cfg
+}
+
+// loadRescueTiming fills the B8 ladder's timing knobs.
+//
+// A value that is unset keeps its compiled-in default. A value that is *set but
+// unparseable* is reported as an error, not silently defaulted — see
+// durationStrict for why the ladder's spacing does not get durationOr's
+// silence.
+func (c *Config) loadRescueTiming() error {
+	knobs := []struct {
+		key      string
+		fallback time.Duration
+		dst      *time.Duration
+	}{
+		{"VOICE_RESCUE_LEVEL1_AFTER", DefaultRescueLevel1After, &c.RescueLevel1After},
+		{"VOICE_RESCUE_LEVEL2_AFTER", DefaultRescueLevel2After, &c.RescueLevel2After},
+		{"VOICE_RESCUE_LEVEL3_AFTER", DefaultRescueLevel3After, &c.RescueLevel3After},
+		{"VOICE_RESCUE_GEN_TIMEOUT", DefaultRescueGenTimeout, &c.RescueGenTimeout},
+		{"VOICE_RESCUE_SYNTH_TIMEOUT", DefaultRescueSynthTimeout, &c.RescueSynthTimeout},
+	}
+	for _, knob := range knobs {
+		value, err := durationStrict(knob.key, knob.fallback)
+		if err != nil {
+			return err
+		}
+		*knob.dst = value
+	}
+	return nil
 }
 
 // IsDevelopment reports whether the process is an explicitly configured local/test environment.
@@ -149,6 +200,12 @@ func (c Config) IsDevelopment() bool {
 
 // Validate checks required gateway settings.
 func (c Config) Validate() error {
+	// A value that failed to parse outranks every rule below: reporting "must be
+	// positive" about a number the operator never wrote would be worse than
+	// useless. See Config.loadErr.
+	if c.loadErr != nil {
+		return c.loadErr
+	}
 	if strings.TrimSpace(c.HTTPAddr) == "" {
 		return fmt.Errorf("VOICE_GATEWAY_HTTP_ADDR is required")
 	}
@@ -182,6 +239,66 @@ func (c Config) Validate() error {
 	if c.IdleTimeout <= 0 {
 		return fmt.Errorf("VOICE_GATEWAY_IDLE_TIMEOUT must be positive")
 	}
+	return c.validateRescueTiming()
+}
+
+// validateRescueTiming refuses ladder timings that break the relationships the
+// rescue code depends on.
+//
+// Each rule restates an invariant that a test already pins for the compiled-in
+// defaults (rescue_client_test.go, and TestHTTPRescueSynthesizer_
+// OwnBudgetIsInsideTheRungSpacing in internal/content/tts). Making the values
+// configurable must not become a way around them, and unlike
+// RescueThresholds.withDefaults this refuses rather than clamps: silently
+// reordering a ladder someone configured backwards hides the mistake until the
+// behaviour looks wrong for reasons nobody can see.
+//
+// A zero field is resolved to its default before the rules run, mirroring what
+// the components themselves do with an unfilled Config. That keeps a
+// hand-built Config validating against the timings it will actually run with,
+// while a *set* zero — which reaches here only through LoadConfig, and which
+// durationStrict has already refused — can never be quietly defaulted away.
+func (c Config) validateRescueTiming() error {
+	l1 := c.RescueLevel1After
+	if l1 <= 0 {
+		l1 = DefaultRescueLevel1After
+	}
+	l2 := c.RescueLevel2After
+	if l2 <= 0 {
+		l2 = DefaultRescueLevel2After
+	}
+	l3 := c.RescueLevel3After
+	if l3 <= 0 {
+		l3 = DefaultRescueLevel3After
+	}
+	synthTimeout := c.RescueSynthTimeout
+	if synthTimeout <= 0 {
+		synthTimeout = DefaultRescueSynthTimeout
+	}
+
+	if l2 < l1 {
+		return fmt.Errorf("VOICE_RESCUE_LEVEL2_AFTER (%s) must be at least VOICE_RESCUE_LEVEL1_AFTER (%s)", l2, l1)
+	}
+	if l3 < l2 {
+		return fmt.Errorf("VOICE_RESCUE_LEVEL3_AFTER (%s) must be at least VOICE_RESCUE_LEVEL2_AFTER (%s)", l3, l2)
+	}
+	// The synthesizer's own timeout is the *effective* bound on the rung's
+	// audio: the orchestrator hands Synthesize the outer context, which carries
+	// no deadline, so the client's timeout is what actually applies (see
+	// HTTPRescueSynthesizer.Synthesize). Audio that outlives the rung spacing
+	// lands after the next rung is due — the failure this bound exists to stop.
+	if synthTimeout >= l1 {
+		return fmt.Errorf("VOICE_RESCUE_SYNTH_TIMEOUT (%s) must stay under VOICE_RESCUE_LEVEL1_AFTER (%s)", synthTimeout, l1)
+	}
+
+	// RescueGenTimeout is deliberately exempt from the same rule, because it is
+	// not an effective bound: generateText wraps every call in a context
+	// bounded by the rung budget, so generation is capped at
+	// min(RescueGenTimeout, Level1) and the context wins whenever it is the
+	// smaller. Refusing RescueGenTimeout >= Level1 would make shortening the
+	// rung spacing alone impossible — 2s rungs would demand a sub-2s generator
+	// timeout that changes nothing. Its malformed-value handling is unaffected:
+	// loadRescueTiming still parses it, so a bad value fails startup.
 	return nil
 }
 
@@ -223,6 +340,34 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// durationStrict is durationOr except that a value which is set and does not
+// parse becomes an error instead of a silent fallback.
+//
+// durationOr's silence is defensible where the fallback is also a defensible
+// answer. It is not defensible for the ladder's spacing: an operator who writes
+// VOICE_RESCUE_LEVEL1_AFTER=5 meaning five seconds, and gets three, has no way
+// to find out — the same class of lie as a pricing file that fails to parse and
+// leaves yesterday's rates in place (see ARK_PRICING_FILE in CLAUDE.md).
+func durationStrict(key string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q is not a duration (want a Go duration such as 3s or 2500ms)", key, raw)
+	}
+	// A non-positive value is refused here rather than in Validate because this
+	// is the only place that knows the variable was *set*. Downstream, zero is
+	// indistinguishable from "field never filled" — which has a legitimate
+	// meaning (a hand-built Config, resolved to the defaults) and must not be
+	// conflated with an operator asking for a zero-second rung.
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s=%q must be positive", key, raw)
+	}
+	return parsed, nil
 }
 
 func durationOr(key string, fallback time.Duration) time.Duration {

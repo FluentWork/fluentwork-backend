@@ -32,17 +32,28 @@ type HTTPRescueGenerator struct {
 	Logger  *slog.Logger
 }
 
-// NewHTTPRescueGenerator constructs the client. A nil http.Client gets a
-// timeout just inside the ladder budget: the gateway gives generation 3s
-// (DefaultRescueLevel1After), so waiting longer only delays the fallback.
-func NewHTTPRescueGenerator(baseURL, token string, logger *slog.Logger) *HTTPRescueGenerator {
+// DefaultRescueGenTimeout bounds one generation when no budget is named. It is
+// sized just inside the ladder spacing: the gateway gives generation
+// DefaultRescueLevel1After (3s), so waiting longer only delays the fallback.
+//
+// Configurable through VOICE_RESCUE_GEN_TIMEOUT. Config.Validate refuses a value
+// that does not fit inside the configured spacing, so this default is only the
+// answer for an unset environment — it is not a promise about what runs.
+const DefaultRescueGenTimeout = 2500 * time.Millisecond
+
+// NewHTTPRescueGenerator constructs the client. A timeout of zero or less uses
+// DefaultRescueGenTimeout.
+func NewHTTPRescueGenerator(baseURL, token string, timeout time.Duration, logger *slog.Logger) *HTTPRescueGenerator {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if timeout <= 0 {
+		timeout = DefaultRescueGenTimeout
 	}
 	return &HTTPRescueGenerator{
 		BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		Token:   strings.TrimSpace(token),
-		Client:  &http.Client{Timeout: 2500 * time.Millisecond},
+		Client:  &http.Client{Timeout: timeout},
 		Logger:  logger.With("component", "voicegateway.rescue_client"),
 	}
 }
@@ -101,7 +112,9 @@ func (g *HTTPRescueGenerator) GenerateRescue(
 
 	client := g.Client
 	if client == nil {
-		client = &http.Client{Timeout: 2500 * time.Millisecond}
+		// A literally-constructed generator: give it the same budget the
+		// constructor would have, rather than an unbounded wait.
+		client = &http.Client{Timeout: DefaultRescueGenTimeout}
 	}
 	res, err := client.Do(req)
 	if err != nil {

@@ -62,7 +62,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 	}
 	synth := &fakeSynthesizer{}
 
-	orch := NewRescueOrchestrator(mockGen, synth, nil)
+	orch := NewRescueOrchestrator(mockGen, synth, 0, nil)
 
 	convCtx := conversation.ConversationContext{
 		LastAIMessage:   "What's the biggest risk?",
@@ -123,7 +123,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level2(t *testing.T) {
 		},
 	}
 
-	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
+	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, 0, nil)
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_456", conversation.ConversationContext{
 		LastAIMessage: "Why do you prefer this approach?",
@@ -151,7 +151,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level3(t *testing.T) {
 		},
 	}
 
-	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
+	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, 0, nil)
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 3, "t_789", conversation.ConversationContext{
 		LastAIMessage: "How should we handle the deployment?",
@@ -170,7 +170,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level3(t *testing.T) {
 }
 
 func TestRescueOrchestrator_InvalidLevel(t *testing.T) {
-	orch := NewRescueOrchestrator(&mockRescueGenerator{}, &fakeSynthesizer{}, nil)
+	orch := NewRescueOrchestrator(&mockRescueGenerator{}, &fakeSynthesizer{}, 0, nil)
 
 	for _, level := range []int{-1, 0, 4, 99} {
 		if _, err := orch.GenerateAndSynthesize(context.Background(), level, "t_invalid", conversation.ConversationContext{}); err == nil {
@@ -186,7 +186,7 @@ func TestRescueOrchestrator_FallbackOnGenerationError(t *testing.T) {
 		},
 	}
 
-	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, nil)
+	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, 0, nil)
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_fallback", conversation.ConversationContext{})
 	if err != nil {
@@ -202,7 +202,7 @@ func TestRescueOrchestrator_FallbackOnGenerationError(t *testing.T) {
 }
 
 func TestRescueOrchestrator_GetFallback(t *testing.T) {
-	orch := NewRescueOrchestrator(&mockRescueGenerator{}, &fakeSynthesizer{}, nil)
+	orch := NewRescueOrchestrator(&mockRescueGenerator{}, &fakeSynthesizer{}, 0, nil)
 
 	tests := []struct {
 		level    int
@@ -229,7 +229,7 @@ func TestRescueOrchestrator_NilSynthesizerEmitsTextOnlyLadder(t *testing.T) {
 		generateFunc: func(_ context.Context, _ conversation.RescueLevel, _ conversation.ConversationContext) (string, error) {
 			return "The key point is...", nil
 		},
-	}, nil, nil)
+	}, nil, 0, nil)
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_textonly", conversation.ConversationContext{})
 	if err != nil {
@@ -256,7 +256,7 @@ func TestRescueOrchestrator_SynthesisFailureStillEmitsLadder(t *testing.T) {
 		generateFunc: func(_ context.Context, _ conversation.RescueLevel, _ conversation.ConversationContext) (string, error) {
 			return "先说结论", nil
 		},
-	}, synth, nil)
+	}, synth, 0, nil)
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_synthfail", conversation.ConversationContext{})
 	if err != nil {
@@ -290,7 +290,7 @@ func TestRescueOrchestrator_GenerationDeadlineIsInsideRungSpacing(t *testing.T) 
 			}
 			return "I think...", nil
 		},
-	}, &fakeSynthesizer{}, nil)
+	}, &fakeSynthesizer{}, 0, nil)
 
 	if _, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_deadline", conversation.ConversationContext{}); err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)

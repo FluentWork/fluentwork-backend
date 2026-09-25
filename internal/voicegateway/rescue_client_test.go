@@ -69,7 +69,7 @@ func TestHTTPRescueGenerator_SendsTheRungAndReturnsTheText(t *testing.T) {
 		inner.ServeHTTP(w, r)
 	})
 
-	gen := NewHTTPRescueGenerator(server.URL, "tok", nil)
+	gen := NewHTTPRescueGenerator(server.URL, "tok", 0, nil)
 	text, err := gen.GenerateRescue(context.Background(), conversation.RescueHint, conversation.ConversationContext{
 		LastAIMessage:   "What is blocking the release?",
 		ScenarioContext: "standup",
@@ -129,7 +129,7 @@ func TestHTTPRescueGenerator_FailuresReturnErrors(t *testing.T) {
 			}))
 			defer server.Close()
 
-			gen := NewHTTPRescueGenerator(server.URL, "tok", nil)
+			gen := NewHTTPRescueGenerator(server.URL, "tok", 0, nil)
 			_, err := gen.GenerateRescue(context.Background(), conversation.RescueSkeleton,
 				conversation.ConversationContext{SessionID: "s1"})
 			if err == nil {
@@ -142,7 +142,7 @@ func TestHTTPRescueGenerator_FailuresReturnErrors(t *testing.T) {
 	}
 
 	// An unconfigured client fails fast rather than calling anything.
-	if _, err := NewHTTPRescueGenerator("", "tok", nil).GenerateRescue(
+	if _, err := NewHTTPRescueGenerator("", "tok", 0, nil).GenerateRescue(
 		context.Background(), conversation.RescueSkeleton, conversation.ConversationContext{}); err == nil {
 		t.Fatal("an unconfigured client must error")
 	}
@@ -151,7 +151,7 @@ func TestHTTPRescueGenerator_FailuresReturnErrors(t *testing.T) {
 // The client's own timeout sits inside the ladder budget, so a slow app-server
 // hands control back to the fallback before the next rung is due.
 func TestHTTPRescueGenerator_TimeoutFitsTheLadderBudget(t *testing.T) {
-	gen := NewHTTPRescueGenerator("http://127.0.0.1:1", "tok", nil)
+	gen := NewHTTPRescueGenerator("http://127.0.0.1:1", "tok", 0, nil)
 	if gen.Client.Timeout >= DefaultRescueLevel1After {
 		t.Fatalf("client timeout %s must stay under the %s ladder budget", gen.Client.Timeout, DefaultRescueLevel1After)
 	}

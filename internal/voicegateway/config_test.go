@@ -31,6 +31,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("VOLC_POC_API_KEY", "")
 	t.Setenv("VOLC_SPEECH_API_KEY", "")
 	t.Setenv("VOLC_SPEECH_API_KEY_DEV", "")
+	t.Setenv("VOICE_RESCUE_LEVEL1_AFTER", "")
+	t.Setenv("VOICE_RESCUE_LEVEL2_AFTER", "")
+	t.Setenv("VOICE_RESCUE_LEVEL3_AFTER", "")
+	t.Setenv("VOICE_RESCUE_GEN_TIMEOUT", "")
+	t.Setenv("VOICE_RESCUE_SYNTH_TIMEOUT", "")
 
 	cfg := voicegateway.LoadConfig()
 	if cfg.HTTPAddr != ":8081" {
@@ -56,6 +61,20 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.DevEchoFixturePath != "" {
 		t.Fatalf("DevEchoFixturePath = %q, want empty", cfg.DevEchoFixturePath)
+	}
+	// An environment that never sets the ladder timings must behave exactly as
+	// it did before they were configurable, so the defaults are not "roughly
+	// 3s" — they are those constants.
+	if cfg.RescueLevel1After != voicegateway.DefaultRescueLevel1After ||
+		cfg.RescueLevel2After != voicegateway.DefaultRescueLevel2After ||
+		cfg.RescueLevel3After != voicegateway.DefaultRescueLevel3After {
+		t.Fatalf("rescue rung spacing = %s / %s / %s, want the compiled-in defaults",
+			cfg.RescueLevel1After, cfg.RescueLevel2After, cfg.RescueLevel3After)
+	}
+	if cfg.RescueGenTimeout != voicegateway.DefaultRescueGenTimeout ||
+		cfg.RescueSynthTimeout != voicegateway.DefaultRescueSynthTimeout {
+		t.Fatalf("rescue budgets = %s / %s, want the compiled-in defaults",
+			cfg.RescueGenTimeout, cfg.RescueSynthTimeout)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v", err)
@@ -119,6 +138,11 @@ func TestLoadConfigPicksVolcSpeechDefaults(t *testing.T) {
 		"VOLC_POC_ENDPOINT",
 		"VOLC_DUPLEX_MODEL",
 		"VOLC_DUPLEX_VOICE",
+		"VOICE_RESCUE_LEVEL1_AFTER",
+		"VOICE_RESCUE_LEVEL2_AFTER",
+		"VOICE_RESCUE_LEVEL3_AFTER",
+		"VOICE_RESCUE_GEN_TIMEOUT",
+		"VOICE_RESCUE_SYNTH_TIMEOUT",
 	} {
 		t.Setenv(k, "")
 	}
@@ -206,6 +230,11 @@ func TestLoadConfigPicksVolcDuplexFromVolcLocal(t *testing.T) {
 		"VOLC_POC_ENDPOINT",
 		"VOLC_DUPLEX_MODEL",
 		"VOLC_DUPLEX_VOICE",
+		"VOICE_RESCUE_LEVEL1_AFTER",
+		"VOICE_RESCUE_LEVEL2_AFTER",
+		"VOICE_RESCUE_LEVEL3_AFTER",
+		"VOICE_RESCUE_GEN_TIMEOUT",
+		"VOICE_RESCUE_SYNTH_TIMEOUT",
 	} {
 		orig, had := os.LookupEnv(k)
 		_ = os.Unsetenv(k)
