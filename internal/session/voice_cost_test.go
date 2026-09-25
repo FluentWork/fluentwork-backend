@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -73,6 +74,55 @@ func TestBuildVoiceCostLogClampsNegativeMilliseconds(t *testing.T) {
 	}
 	if log.AudioSec != 3 {
 		t.Fatalf("audio_sec = %d, want 3 (the negative side must not subtract)", log.AudioSec)
+	}
+}
+
+// The row has to survive the trip through the *store*, not just the trip
+// through buildVoiceCostLog. EndSession writes it into costLogs — a map
+// NewMemoryStore forgot to initialise, so ending a session from a provider that
+// reports usage (volc-duplex) panicked with "assignment to entry in nil map".
+//
+// The failure was near-invisible: the panic lands after the session is marked
+// ended, so the gateway's retry short-circuits on Status == StatusEnded and the
+// caller sees success. The row is simply never written — a silent hole in the
+// cost ledger rather than a visible error.
+func TestEndSessionRecordsVoiceCostLog(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore()
+	now := time.Date(2026, 9, 24, 7, 34, 0, 0, time.UTC)
+	if err := store.CreateSession(context.Background(), Session{
+		ID:        "s-voice",
+		UserID:    "u-voice",
+		Status:    StatusCreated,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	costLog := buildVoiceCostLog(
+		Session{ID: "s-voice", UserID: "u-voice"},
+		&VoiceUsageItem{UplinkMS: 4_000, DownlinkMS: 6_000, Model: "1.2.6.1"},
+		func() string { return "cost-voice-1" },
+		now,
+	)
+	if costLog == nil {
+		t.Fatal("precondition: usage was reported, so a row must be built")
+	}
+
+	if _, _, _, err := store.EndSession(context.Background(), "s-voice", 10, nil, nil, now, costLog); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+
+	stored, ok := store.costLogs[costLog.ID]
+	if !ok {
+		t.Fatal("EndSession dropped the voice cost log")
+	}
+	if stored.AudioSec != 10 {
+		t.Fatalf("audio_sec = %d, want 10", stored.AudioSec)
+	}
+	if stored.TaskType != aicost.TaskTypeVoiceDuplex {
+		t.Fatalf("task_type = %q, want %q", stored.TaskType, aicost.TaskTypeVoiceDuplex)
 	}
 }
 

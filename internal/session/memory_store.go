@@ -33,6 +33,7 @@ func NewMemoryStore() *MemoryStore {
 		tickets:      make(map[string]Ticket),
 		utterances:   make(map[string][]Utterance),
 		jobs:         make(map[string]Job),
+		costLogs:     make(map[string]aicost.Log),
 		rescueEvents: make(map[string][]RescueEvent),
 	}
 }
@@ -451,9 +452,11 @@ func (s *MemoryStore) MarkSessionReviewedWithCost(_ context.Context, sessionID s
 		session.UpdatedAt = at
 		s.sessions[sessionID] = session
 
-		if s.costLogs == nil {
-			s.costLogs = make(map[string]aicost.Log)
-		}
+		// No nil check here. costLogs is built by NewMemoryStore, and this guard
+		// used to stand in for that — which is how EndSession, written later
+		// against the same map, came to panic with "assignment to entry in nil
+		// map" the first time a provider reported voice usage. One invariant,
+		// one home.
 		if _, exists := s.costLogs[costLog.ID]; exists {
 			// Duplicate cost id: do not double-record, keep the existing one.
 			return cloneSession(session), nil
