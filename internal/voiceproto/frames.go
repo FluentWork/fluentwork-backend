@@ -226,6 +226,14 @@ func (l AudioFrameLayout) HeaderBytes() int {
 	return 4
 }
 
+// String names this layout the way the frozen schema does.
+func (l AudioFrameLayout) String() string {
+	if l == AudioFrameLayoutH8 {
+		return "h8"
+	}
+	return "h4"
+}
+
 // AudioFrameLayoutFor selects the layout a turn's binary frames use.
 func AudioFrameLayoutFor(turnRef *uint32) AudioFrameLayout {
 	if turnRef == nil {

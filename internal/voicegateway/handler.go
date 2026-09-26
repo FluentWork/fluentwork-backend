@@ -402,6 +402,7 @@ type sessionRuntime struct {
 	// warn reports through the handler's deduplicating warn path. It is carried
 	// as a function because those same hooks do not have the *Handler either.
 	warn func(key, msg string, args ...any)
+	info func(msg string, args ...any)
 	// turn is this session's current conversational turn: its identity and the
 	// legal ordering of its events. See turn.go for what it replaced.
 	turn *Turn
@@ -477,6 +478,7 @@ func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn
 	// held — and rescue bookkeeping has no business inside a lock that bounds
 	// the wire.
 	rt.noteProviderOutbound(outbound)
+	rt.noteDownlinkLayout(outbound)
 
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
@@ -496,11 +498,35 @@ func (rt *sessionRuntime) sendWithoutRescueState(ctx context.Context, conn *webs
 	if !writableOutbound(outbound) {
 		return nil
 	}
+	rt.noteDownlinkLayout(outbound)
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rt.resolveWriteTimeout())
 	defer cancel()
 	return writeProviderOutbound(ctx, conn, outbound)
+}
+
+func (rt *sessionRuntime) noteDownlinkLayout(outbound []ProviderOutbound) {
+	if rt.info == nil {
+		return
+	}
+	for _, item := range outbound {
+		start, ok := item.Control.(voiceproto.AITTSStart)
+		if !ok || start.Type != voiceproto.TypeAITTSStart {
+			continue
+		}
+		var turnRef any
+		if start.TurnRef != nil {
+			turnRef = *start.TurnRef
+		}
+		rt.info("ai.tts.start selected the downlink audio layout",
+			"session_id", rt.sessionID,
+			"turn_id", start.TurnID,
+			"turn_ref", turnRef,
+			"layout", voiceproto.AudioFrameLayoutFor(start.TurnRef).String(),
+			"stage", "orchestration",
+		)
+	}
 }
 
 func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session ConsumedTicket) (loopErr error) {
@@ -516,6 +542,7 @@ func (h *Handler) loop(ctx context.Context, conn *websocket.Conn, session Consum
 		now:                h.now,
 	}
 	rt.warn = func(key, msg string, args ...any) { h.logWarn(rt, key, msg, args...) }
+	rt.info = h.logger.Info
 	defer func() {
 		rt.close(ctx)
 		h.persistOnExit(ctx, rt, session, loopErr)
