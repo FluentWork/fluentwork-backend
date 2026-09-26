@@ -119,6 +119,10 @@ type rescueProviderSession struct {
 	mu      sync.Mutex
 	turn    rescueAITurn
 	replied bool
+	holdEnd chan struct{}
+	endWait chan struct{}
+	endOnce sync.Once
+	onAudio bool
 }
 
 // Start announces the session opening.
@@ -143,16 +147,28 @@ func (s *rescueProviderSession) Start(_ context.Context, _ voiceproto.SessionSta
 // This is what opens the silence window in production: the AI takes the floor,
 // finishes, and the user is the one who owes the next move. The turn is named
 // after the client's, which is what the provider does.
-func (s *rescueProviderSession) HandleClientControl(_ context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
+func (s *rescueProviderSession) HandleClientControl(ctx context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
 	if frameType != voiceproto.TypeUserSpeechEnd {
 		return nil, nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.replied {
+		s.mu.Unlock()
 		return nil, nil
 	}
 	s.replied = true
+	s.mu.Unlock()
+
+	if s.holdEnd != nil {
+		if s.endWait != nil {
+			s.endOnce.Do(func() { close(s.endWait) })
+		}
+		select {
+		case <-s.holdEnd:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 
 	var end voiceproto.UserSpeechEnd
 	_ = json.Unmarshal(data, &end)
@@ -181,17 +197,30 @@ func (s *rescueProviderSession) HandleClientControl(_ context.Context, frameType
 }
 
 func (s *rescueProviderSession) HandleClientAudio(context.Context, []byte) ([]ProviderOutbound, error) {
-	return nil, nil
+	if !s.onAudio {
+		return nil, nil
+	}
+	return []ProviderOutbound{
+		{Control: voiceproto.NewAITextDelta("what would you say next?", "turn-1", 1)},
+	}, nil
 }
 func (s *rescueProviderSession) SnapshotUtterances() []EndUtterance { return nil }
 func (s *rescueProviderSession) Close(context.Context) error        { return nil }
 
 type rescueProvider struct {
-	turn rescueAITurn
+	turn    rescueAITurn
+	holdEnd chan struct{}
+	endWait chan struct{}
+	onAudio bool
 }
 
 func (p *rescueProvider) Open(context.Context, ConsumedTicket, *SeqAllocator, *TurnRefAllocator) (VoiceProviderSession, error) {
-	return &rescueProviderSession{turn: p.turn}, nil
+	return &rescueProviderSession{
+		turn:    p.turn,
+		holdEnd: p.holdEnd,
+		endWait: p.endWait,
+		onAudio: p.onAudio,
+	}, nil
 }
 
 // rescueTextGenerator answers each rung with a recognisable string, so a test
@@ -287,7 +316,7 @@ type rescueRig struct {
 
 // newRescueRig builds a gateway with B8 wired. synth may be nil, which is the
 // configuration production runs today (no audio path yet).
-func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer) *rescueRig {
+func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer, tune ...func(*rescueProvider)) *rescueRig {
 	t.Helper()
 
 	clock := newRescueTestClock()
@@ -298,10 +327,15 @@ func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer
 		synthesizer = synth
 	}
 
+	provider := &rescueProvider{turn: turn}
+	for _, apply := range tune {
+		apply(provider)
+	}
+
 	h := NewHandler(
 		rescueTicketConsumer{},
 		rescueLifecycle{},
-		&rescueProvider{turn: turn},
+		provider,
 		slog.New(slog.DiscardHandler),
 		Options{InsecureSkipOrigin: true, RescueTick: rescueTestTick},
 	)
@@ -1180,4 +1214,67 @@ func TestHandler_Rescue_UserRequestIsInertWhenRescueIsNotWired(t *testing.T) {
 	quietCtx, cancelQuiet := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelQuiet()
 	rescueExpectNoType(quietCtx, t, conn, voiceproto.TypeRescueLadder)
+}
+
+func TestHandler_Rescue_BargeInWhileTheReplyIsStillComingDoesNotArmTheLadder(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		onAudio bool
+	}{
+		{"the reply is still generating", false},
+		{"the reply has started speaking", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			hold := make(chan struct{})
+			waiting := make(chan struct{})
+			rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, nil,
+				func(p *rescueProvider) {
+					p.holdEnd = hold
+					p.endWait = waiting
+					p.onAudio = tc.onAudio
+				})
+			conn, _ := rig.connect(t)
+
+			readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+			defer cancel()
+
+			rescueSendFrame(readCtx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
+			rescueSendFrame(readCtx, t, conn, voiceproto.UserSpeechEnd{
+				Type:   voiceproto.TypeUserSpeechEnd,
+				Text:   "I would start with the migration window.",
+				TurnID: "turn-1",
+			})
+
+			select {
+			case <-waiting:
+			case <-readCtx.Done():
+				t.Fatal("the provider never began its reply")
+			}
+
+			if tc.onAudio {
+				if err := conn.Write(readCtx, websocket.MessageBinary, []byte{0, 0, 0, 1, 0x11}); err != nil {
+					t.Fatalf("write audio frame: %v", err)
+				}
+				rescueWaitForType(readCtx, t, conn, voiceproto.TypeAITextDelta)
+			}
+
+			rescueSendFrame(readCtx, t, conn, voiceproto.Interrupt{Type: voiceproto.TypeInterrupt})
+			rescueSendFrame(readCtx, t, conn, voiceproto.UserSpeechStart{Type: voiceproto.TypeUserSpeechStart})
+			rescueSendFrame(readCtx, t, conn, voiceproto.Ping{Type: voiceproto.TypePing})
+			rescueWaitForType(readCtx, t, conn, voiceproto.TypePong)
+
+			close(hold)
+			rescueWaitForType(readCtx, t, conn, voiceproto.TypeAITurnEnd)
+
+			rig.clock.advance(rescueTestLevel3)
+
+			quietCtx, cancelQuiet := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancelQuiet()
+			rescueExpectNoType(quietCtx, t, conn, voiceproto.TypeRescueLadder)
+		})
+	}
 }

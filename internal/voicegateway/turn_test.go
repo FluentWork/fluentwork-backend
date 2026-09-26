@@ -136,13 +136,6 @@ func TestTurn_IllegalEventsAreCountedNotAbsorbed(t *testing.T) {
 			turn.ApplyStart()
 			return turn
 		}, EvAIFirstOutput},
-		{"a second start while the AI is speaking", func() *Turn {
-			turn := NewTurn("s1")
-			turn.ApplyStart()
-			turn.ApplySpeechEnd("t1")
-			turn.Apply(EvAIFirstOutput)
-			return turn
-		}, EvUserSpeechStart},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,6 +149,45 @@ func TestTurn_IllegalEventsAreCountedNotAbsorbed(t *testing.T) {
 			}
 			if n := turn.Rejected()[tc.ev]; n != 1 {
 				t.Fatalf("rejected count for %s = %d, want 1", tc.ev, n)
+			}
+		})
+	}
+}
+
+// Barge-in is the user taking the floor back while the AI still owes them a
+// reply. The client sends `interrupt` and then `user.speech.start`, and that
+// start lands while the turn is either still generating or already speaking —
+// so both are legal, and neither is a violation to count.
+func TestTurn_BargeInIsLegalWhereverTheAIReplyStands(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func() *Turn
+	}{
+		{"the AI is still generating", func() *Turn {
+			turn := NewTurn("s1")
+			turn.ApplyStart()
+			turn.ApplySpeechEnd("turn-1")
+			return turn
+		}},
+		{"the AI is speaking", func() *Turn {
+			turn := NewTurn("s1")
+			turn.ApplyStart()
+			turn.ApplySpeechEnd("turn-1")
+			turn.Apply(EvAIFirstOutput)
+			return turn
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			turn := tc.setup()
+			before := turn.State()
+			if !turn.Apply(EvUserSpeechStart) {
+				t.Fatalf("barge-in was refused from %s", before)
+			}
+			if got := turn.State(); got != TurnListening {
+				t.Fatalf("state = %s, want listening", got)
+			}
+			if n := turn.Rejected()[EvUserSpeechStart]; n != 0 {
+				t.Fatalf("barge-in counted as a violation %d times, want 0", n)
 			}
 		})
 	}

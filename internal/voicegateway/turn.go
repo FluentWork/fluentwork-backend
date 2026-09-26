@@ -119,13 +119,12 @@ var turnTransitions = map[TurnState]map[TurnEvent]TurnState{
 		EvAIEnd: TurnClosed,
 		// An abort can land after the end frame: the user hit stop while the
 		// gateway was already waiting. The turn is over either way.
-		EvTurnAbort: TurnClosed,
+		EvTurnAbort:       TurnClosed,
+		EvUserSpeechStart: TurnListening,
 	},
 	TurnSpeaking: {
-		EvAIEnd: TurnClosed,
-		// Nothing else. In particular a second user.speech.start does not
-		// arrive mid-reply — the client stops capture when the AI takes the
-		// floor — so seeing one is worth counting.
+		EvAIEnd:           TurnClosed,
+		EvUserSpeechStart: TurnListening,
 	},
 	TurnClosed: {
 		// The next utterance.
