@@ -890,8 +890,18 @@ func (h *Handler) persistOnExit(
 		"reason", reason,
 		"utterance_count", len(rt.snapshotUtterances()),
 		"unknown_frame_count", rt.unknownFrameCount,
+		"turn_rejected", turnRejectionCounts(rt.turn),
 		"stage", "orchestration",
 	)
+}
+
+func turnRejectionCounts(t *Turn) map[string]int {
+	rejected := t.Rejected()
+	out := make(map[string]int, len(rejected))
+	for ev, n := range rejected {
+		out[ev.String()] = n
+	}
+	return out
 }
 
 func (rt *sessionRuntime) close(ctx context.Context) {

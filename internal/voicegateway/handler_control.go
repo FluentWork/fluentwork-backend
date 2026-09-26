@@ -461,6 +461,7 @@ func (h *Handler) controlSessionEnd(
 		"duration_sec", durationSec,
 		"utterance_count", len(rt.snapshotUtterances()),
 		"unknown_frame_count", rt.unknownFrameCount,
+		"turn_rejected", turnRejectionCounts(rt.turn),
 		"stage", "orchestration",
 	)
 	_ = rt.sendJSON(ctx, conn, map[string]any{

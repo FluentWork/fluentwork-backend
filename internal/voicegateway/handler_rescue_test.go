@@ -311,6 +311,7 @@ type rescueRig struct {
 	clock   *rescueTestClock
 	gen     *rescueTextGenerator
 	synth   *rescueAudioSynthesizer
+	logs    *recordingLogHandler
 	server  *httptest.Server
 }
 
@@ -321,6 +322,7 @@ func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer
 
 	clock := newRescueTestClock()
 	gen := &rescueTextGenerator{}
+	logs := &recordingLogHandler{}
 
 	var synthesizer RescueSynthesizer
 	if synth != nil {
@@ -336,7 +338,7 @@ func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer
 		rescueTicketConsumer{},
 		rescueLifecycle{},
 		provider,
-		slog.New(slog.DiscardHandler),
+		slog.New(logs),
 		Options{InsecureSkipOrigin: true, RescueTick: rescueTestTick},
 	)
 	h.now = clock.now
@@ -350,7 +352,7 @@ func newRescueRig(t *testing.T, turn rescueAITurn, synth *rescueAudioSynthesizer
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	return &rescueRig{handler: h, clock: clock, gen: gen, synth: synth, server: srv}
+	return &rescueRig{handler: h, clock: clock, gen: gen, synth: synth, logs: logs, server: srv}
 }
 
 // connect completes the handshake and session.start, returning the connection

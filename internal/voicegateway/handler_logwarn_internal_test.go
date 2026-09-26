@@ -43,6 +43,30 @@ func (h *recordingLogHandler) warnMessages(substr string) []string {
 	return out
 }
 
+func (h *recordingLogHandler) infoAttr(msg, key string) (slog.Value, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.Level != slog.LevelInfo || r.Message != msg {
+			continue
+		}
+		var found slog.Value
+		hit := false
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == key {
+				found = a.Value
+				hit = true
+				return false
+			}
+			return true
+		})
+		if hit {
+			return found, true
+		}
+	}
+	return slog.Value{}, false
+}
+
 // TestLogWarn_SameKeyElevenTimesEmitsTwoLines is the i20 §2.4 unit proof:
 // 11 calls with the same key inside the 5s window must produce the first
 // full WARN plus one "(deduplicated)" summary at count 10 — not 11 lines.
