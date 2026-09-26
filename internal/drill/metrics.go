@@ -2,6 +2,7 @@ package drill
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,7 +63,7 @@ func PrometheusMetrics() string {
 	for k := range transitions {
 		keys = append(keys, k)
 	}
-	// stable-ish: unsorted ok for tests Contains
+	sort.Strings(keys)
 	for _, key := range keys {
 		parts := strings.SplitN(key, "->", 2)
 		from, to := "unknown", "unknown"

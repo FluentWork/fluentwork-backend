@@ -2,6 +2,7 @@ package account
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,8 +44,13 @@ func PrivacyPrometheusMetrics() string {
 		b.WriteString("tombstone_inserted_total{entity_type=\"none\"} 0\n")
 		return b.String()
 	}
-	for entity, n := range tombstonesByType {
-		fmt.Fprintf(&b, "tombstone_inserted_total{entity_type=%q} %d\n", entity, n)
+	entityTypes := make([]string, 0, len(tombstonesByType))
+	for entityType := range tombstonesByType {
+		entityTypes = append(entityTypes, entityType)
+	}
+	sort.Strings(entityTypes)
+	for _, entityType := range entityTypes {
+		fmt.Fprintf(&b, "tombstone_inserted_total{entity_type=%q} %d\n", entityType, tombstonesByType[entityType])
 	}
 	return b.String()
 }

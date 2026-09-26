@@ -2,6 +2,7 @@ package tts
 
 import (
 	"fmt"
+	"sort"
 	"sync/atomic"
 )
 
@@ -89,8 +90,13 @@ func PrometheusMetrics() string {
 
 	result += "# HELP tts_route_hits_total TTS requests routed to a matching voice_id provider.\n" +
 		"# TYPE tts_route_hits_total counter\n"
-	for voiceID, counter := range processMetrics.routeHits {
-		result += fmt.Sprintf("tts_route_hits_total{voice_id=%q} %d\n", voiceID, counter.Load())
+	voiceIDs := make([]string, 0, len(processMetrics.routeHits))
+	for voiceID := range processMetrics.routeHits {
+		voiceIDs = append(voiceIDs, voiceID)
+	}
+	sort.Strings(voiceIDs)
+	for _, voiceID := range voiceIDs {
+		result += fmt.Sprintf("tts_route_hits_total{voice_id=%q} %d\n", voiceID, processMetrics.routeHits[voiceID].Load())
 	}
 
 	result += fmt.Sprintf(

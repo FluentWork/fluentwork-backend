@@ -2,6 +2,7 @@ package materials
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,13 +43,18 @@ func PrometheusMetrics() string {
 		b.WriteString("refine_status_transition_total{from=\"none\",to=\"none\"} 0\n")
 		return b.String()
 	}
-	for key, n := range transitions {
+	keys := make([]string, 0, len(transitions))
+	for key := range transitions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
 		parts := strings.SplitN(key, "->", 2)
 		from, to := "unknown", "unknown"
 		if len(parts) == 2 {
 			from, to = parts[0], parts[1]
 		}
-		fmt.Fprintf(&b, "refine_status_transition_total{from=%q,to=%q} %d\n", from, to, n)
+		fmt.Fprintf(&b, "refine_status_transition_total{from=%q,to=%q} %d\n", from, to, transitions[key])
 	}
 	return b.String()
 }

@@ -66,8 +66,13 @@ func PrometheusMetrics() string {
 	if len(skips) == 0 {
 		b.WriteString("topic_card_gen_skipped_total{reason=\"none\"} 0\n")
 	} else {
-		for reason, n := range skips {
-			fmt.Fprintf(&b, "topic_card_gen_skipped_total{reason=%q} %d\n", reason, n)
+		reasons := make([]string, 0, len(skips))
+		for reason := range skips {
+			reasons = append(reasons, reason)
+		}
+		sort.Strings(reasons)
+		for _, reason := range reasons {
+			fmt.Fprintf(&b, "topic_card_gen_skipped_total{reason=%q} %d\n", reason, skips[reason])
 		}
 	}
 	skipMu.Unlock()
