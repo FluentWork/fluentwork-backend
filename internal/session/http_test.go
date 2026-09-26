@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -377,12 +378,20 @@ func TestOpenAPIDiscoveryEndpoints(t *testing.T) {
 	if root.Code != http.StatusOK {
 		t.Fatalf("root status = %d body = %s", root.Code, root.Body.String())
 	}
-	var discovery map[string]any
+	var discovery struct {
+		APIPrefix string              `json:"api_prefix"`
+		Endpoints map[string][]string `json:"endpoints"`
+	}
 	if err := json.Unmarshal(root.Body.Bytes(), &discovery); err != nil {
 		t.Fatalf("decode discovery: %v", err)
 	}
-	if discovery["openapi"] != "/openapi.yaml" || discovery["api_prefix"] != "/api/v1" {
-		t.Fatalf("unexpected discovery: %+v", discovery)
+	if discovery.APIPrefix != "/api/v1" {
+		t.Fatalf("unexpected api_prefix: %+v", discovery)
+	}
+	// Discovery derives its route list from the router, so asking it where the
+	// spec is means asking whether the spec's own route is among them.
+	if !slices.Contains(discovery.Endpoints["server"], "GET /openapi.yaml") {
+		t.Fatalf("discovery does not advertise the spec: %+v", discovery)
 	}
 
 	spec := httptest.NewRecorder()

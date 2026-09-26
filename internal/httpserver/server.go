@@ -5,6 +5,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,7 +24,6 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpjson"
 	"github.com/FluentWork/fluentwork-backend/internal/materials"
-	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
 	"github.com/FluentWork/fluentwork-backend/internal/topic"
@@ -86,7 +87,7 @@ func New(
 	engine.GET("/healthz", liveness)
 	engine.GET("/readyz", readiness(ready))
 	engine.GET("/metrics", serveMetrics)
-	engine.GET("/", discovery)
+	engine.GET("/", discovery(engine))
 	engine.GET("/openapi.yaml", serveOpenAPI)
 	engine.GET("/openapi/v1.yaml", serveOpenAPI)
 	apiGroup := engine.Group("/api/v1")
@@ -159,28 +160,58 @@ func readiness(ready func(context.Context) error) gin.HandlerFunc {
 	}
 }
 
-func discovery(c *gin.Context) {
-	httpjson.OK(c, gin.H{
-		"service":     "app-server",
-		"api_prefix":  "/api/v1",
-		"openapi":     "/openapi.yaml",
-		"healthz":     "/healthz",
-		"readyz":      "/readyz",
-		"metrics":     "/metrics",
-		"tts":         "/internal/v1/tts/synthesize",
-		"hits":        "/internal/v1/voicegateway/hits",
-		"history":     "/api/v1/sessions",
-		"privacy":     "/api/v1/account/data",
-		"materials":   "/api/v1/materials",
-		"topic_cards": "/api/v1/topic-cards",
-	})
+// apiPrefix is the mount point of the versioned public API.
+const apiPrefix = "/api/v1"
+
+// internalPrefix is the mount point of the token-protected API.
+const internalPrefix = "/internal"
+
+// discovery reports what this server serves. The route list is read from the
+// router instead of being written out by hand: the hand-written copy that used
+// to live here had drifted to six entries while thirty routes were mounted, and
+// it published the internal surface on an endpoint that asks for no token.
+func discovery(engine *gin.Engine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		httpjson.OK(c, gin.H{
+			"service":    "app-server",
+			"api_prefix": apiPrefix,
+			"endpoints":  publicEndpoints(engine),
+		})
+	}
+}
+
+// publicEndpoints groups the router's public routes by the first segment of
+// their path under apiPrefix; the routes the server serves itself make up the
+// "server" group.
+func publicEndpoints(engine *gin.Engine) map[string][]string {
+	grouped := make(map[string][]string)
+	for _, route := range engine.Routes() {
+		if strings.HasPrefix(route.Path, internalPrefix) {
+			continue
+		}
+		group := endpointGroup(route.Path)
+		grouped[group] = append(grouped[group], route.Method+" "+route.Path)
+	}
+	for group := range grouped {
+		sort.Strings(grouped[group])
+	}
+	return grouped
+}
+
+func endpointGroup(path string) string {
+	trimmed, ok := strings.CutPrefix(path, apiPrefix+"/")
+	if !ok {
+		return "server"
+	}
+	if segment, _, found := strings.Cut(trimmed, "/"); found {
+		return segment
+	}
+	return trimmed
 }
 
 func serveMetrics(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(
-		tts.PrometheusMetrics()+corpus.PrometheusMetrics()+drill.PrometheusMetrics()+account.PrivacyPrometheusMetrics()+review.PrometheusMetrics()+materials.PrometheusMetrics()+topic.PrometheusMetrics(),
-	))
+	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(renderMetrics()))
 }
 
 func serveOpenAPI(c *gin.Context) {
