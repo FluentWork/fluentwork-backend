@@ -3,6 +3,8 @@ package voicegateway
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/coder/websocket"
@@ -10,27 +12,39 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
-// Control frames: the C→S half of the protocol. One handler per frame type, and
-// a table saying what happens when the provider call behind it fails.
+// Control frames: the C→S half of the protocol. One handler per frame type, a
+// table saying which handler owns which type, and a table saying what happens
+// when the provider call behind the frame fails.
 //
-// The table exists because that decision used to be made inside each branch, and
-// only one of the four was ever written down as a decision. The set is the thing
-// worth seeing: "which frames fail silently, and why" is a question about the
-// product, and it was answerable only by reading every branch (docs/94_ F6).
+// Ownership used to be discovered rather than declared: every handler was
+// offered every frame and each one re-decoded the bytes to ask "is this mine?",
+// so a single control frame was parsed up to nine times and a new frame class
+// meant editing eight functions. The two tables are the thing worth seeing:
+// which frames the gateway accepts, and which of those fail silently — and why
+// (the second used to be answerable only by reading every branch, docs/94_ F6).
+// The first used to be answerable only by reading all eight handlers.
 
-// controlOutcome is what a control frame's handler produced.
+// controlFrame is one text frame from the client, with its type already decoded
+// by the dispatcher.
 //
-// The three cases are distinct and the distinction matters: "I handled it" and
-// "this frame is not mine" both end the dispatch, but only the second should
-// fall through to the unknown-frame path.
-type controlOutcome int
+// The type travels with the bytes instead of being re-derived: a handler that
+// needs it — to key the provider failure policy, or to tell the two ends of an
+// utterance apart — would otherwise parse the same bytes a second time, and a
+// second parse can disagree with the one that routed the frame here.
+type controlFrame struct {
+	typeName string
+	data     []byte
+}
 
-const (
-	// controlHandled: this handler owns the frame type, whatever it did with it.
-	controlHandled controlOutcome = iota
-	// controlNotMine: not this handler's frame type.
-	controlNotMine
-)
+// controlHandler is one row of the dispatch: a method on *Handler that owns a
+// frame type. It is only ever called for the types it is registered for, so
+// there is no "not mine" answer left to give.
+//
+// The receiver is the first parameter because the table is built from method
+// expressions — `(*Handler).controlKeepalive`, not `h.controlKeepalive` — which
+// is what lets the table be a package-level variable rather than per-connection
+// state.
+type controlHandler func(*Handler, context.Context, *websocket.Conn, ConsumedTicket, *sessionRuntime, controlFrame) error
 
 // providerErrorStrategy is what to tell the client when forwarding a frame to
 // the provider fails.
@@ -109,7 +123,56 @@ func providerErrorCode(frameType string) string {
 	return strategy.code
 }
 
+// controlDispatch maps every frame type a client may send onto the handler that
+// owns it.
+//
+// A type with no row here is not an error: it falls to unknownFrame, which
+// counts it and lets the session live (see that function for why answering an
+// unknown frame kills sessions on older clients).
+//
+// Two rows pointing at controlUserSpeech is deliberate — the two ends of an
+// utterance are one conversation, and the handler tells them apart by the type
+// it was handed.
+var controlDispatch = map[string]controlHandler{
+	voiceproto.TypePing:                (*Handler).controlKeepalive,
+	voiceproto.TypeSessionStart:        (*Handler).controlSessionStart,
+	voiceproto.TypeUserSpeechStart:     (*Handler).controlUserSpeech,
+	voiceproto.TypeUserSpeechEnd:       (*Handler).controlUserSpeech,
+	voiceproto.TypeClientTurnAbort:     (*Handler).controlTurnAbort,
+	voiceproto.TypeClientRescueRequest: (*Handler).controlRescue,
+	voiceproto.TypeInterrupt:           (*Handler).controlInterrupt,
+	voiceproto.TypeSessionEnd:          (*Handler).controlSessionEnd,
+	voiceproto.TypeAuth:                (*Handler).controlAuth,
+}
+
+// ControlRoutes returns the dispatch table as frame type → handler name.
+//
+// Exported so a test can ask whether the table and the client's surface are the
+// same set — "which frames does this gateway accept?" is a question about the
+// product, and it should not need eight functions read top to bottom to answer.
+// The table's interior stays unexported.
+func ControlRoutes() map[string]string {
+	out := make(map[string]string, len(controlDispatch))
+	for frameType, handle := range controlDispatch {
+		out[frameType] = handlerName(handle)
+	}
+	return out
+}
+
+// handlerName is the short Go name of a dispatch row — "controlKeepalive", not
+// the fully qualified symbol a method expression reports.
+func handlerName(handle controlHandler) string {
+	full := runtime.FuncForPC(reflect.ValueOf(handle).Pointer()).Name()
+	if i := strings.LastIndex(full, "."); i >= 0 {
+		return full[i+1:]
+	}
+	return full
+}
+
 // HandleControl dispatches one text frame from the client loop.
+//
+// The frame type is read here and nowhere else: ownership is a lookup on it, so
+// a handler never has to ask again whether the frame is its own.
 func (h *Handler) HandleControl(
 	ctx context.Context,
 	conn *websocket.Conn,
@@ -121,24 +184,11 @@ func (h *Handler) HandleControl(
 	if err != nil {
 		return h.invalidFrame(ctx, conn, err.Error())
 	}
-	handlers := []func(context.Context, *websocket.Conn, ConsumedTicket, []byte, *sessionRuntime) (controlOutcome, error){
-		h.controlKeepalive,
-		h.controlSessionStart,
-		h.controlUserSpeech,
-		h.controlTurnAbort,
-		h.controlRescue,
-		h.controlInterrupt,
-		h.controlSessionEnd,
-		h.controlAuth,
+	handle, owned := controlDispatch[frameType]
+	if !owned {
+		return h.unknownFrame(ctx, conn, session, rt, frameType)
 	}
-	for _, handle := range handlers {
-		outcome, err := handle(ctx, conn, session, data, rt)
-		if err == nil && outcome == controlNotMine {
-			continue
-		}
-		return err
-	}
-	return h.unknownFrame(ctx, conn, session, rt, frameType)
+	return handle(h, ctx, conn, session, rt, controlFrame{typeName: frameType, data: data})
 }
 
 // invalidFrame answers a frame the gateway could not parse or accept.
@@ -199,22 +249,18 @@ func (h *Handler) controlKeepalive(
 	ctx context.Context,
 	conn *websocket.Conn,
 	_ ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypePing {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	var ping voiceproto.Ping
-	if err := json.Unmarshal(data, &ping); err != nil {
-		return controlHandled, h.invalidFrame(ctx, conn, err.Error())
+	if err := json.Unmarshal(frame.data, &ping); err != nil {
+		return h.invalidFrame(ctx, conn, err.Error())
 	}
 	ts := ping.TS
 	if ts == 0 {
 		ts = h.now().UnixMilli()
 	}
-	return controlHandled, rt.sendJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
+	return rt.sendJSON(ctx, conn, voiceproto.Pong{Type: voiceproto.TypePong, TS: ts})
 }
 
 // controlSessionStart opens the session and the provider, once.
@@ -222,20 +268,16 @@ func (h *Handler) controlSessionStart(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeSessionStart {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	var start voiceproto.SessionStart
-	if err := json.Unmarshal(data, &start); err != nil {
-		return controlHandled, h.invalidFrame(ctx, conn, err.Error())
+	if err := json.Unmarshal(frame.data, &start); err != nil {
+		return h.invalidFrame(ctx, conn, err.Error())
 	}
 	if !rt.started {
 		if err := h.openSession(ctx, conn, session, rt); err != nil {
-			return controlHandled, err
+			return err
 		}
 	}
 	h.logger.Info("session.start accepted",
@@ -277,9 +319,9 @@ func (h *Handler) controlSessionStart(
 	outbound, err := rt.provider.Start(ctx, start, rt.session)
 	if err != nil {
 		h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
-		return controlHandled, rtSendError(ctx, conn, rt, "provider_start_failed", err.Error())
+		return rtSendError(ctx, conn, rt, "provider_start_failed", err.Error())
 	}
-	return controlHandled, rt.sendOutbound(ctx, conn, outbound)
+	return rt.sendOutbound(ctx, conn, outbound)
 }
 
 // openSession activates the session in app-server and opens a provider.
@@ -310,20 +352,14 @@ func (h *Handler) controlUserSpeech(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil {
-		return controlNotMine, nil
-	}
-	switch frameType {
-	case voiceproto.TypeUserSpeechStart, voiceproto.TypeUserSpeechEnd:
-	default:
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
+	// Local alias: this handler is registered for both ends of an utterance and
+	// tells them apart repeatedly.
+	frameType := frame.typeName
 	if !rt.started {
-		return controlHandled, rtSendError(ctx, conn, rt, "session_not_started", "send session.start first")
+		return rtSendError(ctx, conn, rt, "session_not_started", "send session.start first")
 	}
 	h.logger.Info("voice user speech frame",
 		"session_id", session.SessionID,
@@ -348,10 +384,10 @@ func (h *Handler) controlUserSpeech(
 		rt.noteUserSpeechStart()
 	}
 	if frameType == voiceproto.TypeUserSpeechEnd {
-		h.noteUserSpeechEnd(ctx, conn, rt, data)
-		return controlHandled, h.startCollectTurn(ctx, conn, rt, session, data)
+		h.noteUserSpeechEnd(ctx, conn, rt, frame.data)
+		return h.startCollectTurn(ctx, conn, rt, session, frame.data)
 	}
-	return controlHandled, h.forwardToProvider(ctx, conn, session, rt, frameType, data)
+	return h.forwardToProvider(ctx, conn, session, rt, frameType, frame.data)
 }
 
 // controlTurnAbort lets a client abandon a recording without ending it.
@@ -363,19 +399,15 @@ func (h *Handler) controlTurnAbort(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeClientTurnAbort {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	var abort voiceproto.ClientTurnAbort
-	if err := json.Unmarshal(data, &abort); err != nil {
-		return controlHandled, h.invalidFrame(ctx, conn, err.Error())
+	if err := json.Unmarshal(frame.data, &abort); err != nil {
+		return h.invalidFrame(ctx, conn, err.Error())
 	}
 	if !voiceproto.ValidClientTurnAbortOutcome(abort.Outcome) {
-		return controlHandled, h.invalidFrame(ctx, conn,
+		return h.invalidFrame(ctx, conn,
 			"client.turn.abort.outcome must be timeout, user_abandoned, or error")
 	}
 	h.logger.Info("client.turn.abort accepted",
@@ -385,13 +417,13 @@ func (h *Handler) controlTurnAbort(
 		"stage", "asr",
 	)
 	if !started(rt) {
-		return controlHandled, nil
+		return nil
 	}
 	// B8: an abandoned recording is an unfinished utterance, so the ladder stays
 	// armed (docs/78 §5.3 case 2) — but the user has stopped talking, so rescue
 	// must stop being suspended.
 	rt.noteTurnAbort()
-	return controlHandled, h.forwardToProvider(ctx, conn, session, rt, frameType, data)
+	return h.forwardToProvider(ctx, conn, session, rt, frame.typeName, frame.data)
 }
 
 // controlRescue handles the user asking for a rung of the B8 ladder.
@@ -402,19 +434,15 @@ func (h *Handler) controlRescue(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeClientRescueRequest {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	var request voiceproto.ClientRescueRequest
-	if err := json.Unmarshal(data, &request); err != nil {
-		return controlHandled, h.invalidFrame(ctx, conn, err.Error())
+	if err := json.Unmarshal(frame.data, &request); err != nil {
+		return h.invalidFrame(ctx, conn, err.Error())
 	}
 	h.requestRescue(ctx, conn, rt, session)
-	return controlHandled, nil
+	return nil
 }
 
 // controlInterrupt handles the client cutting the assistant off.
@@ -422,18 +450,14 @@ func (h *Handler) controlInterrupt(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeInterrupt {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	h.logger.Info("interrupt received", "session_id", session.SessionID, "stage", "orchestration")
 	if !started(rt) {
-		return controlHandled, nil
+		return nil
 	}
-	return controlHandled, h.forwardToProvider(ctx, conn, session, rt, frameType, data)
+	return h.forwardToProvider(ctx, conn, session, rt, frame.typeName, frame.data)
 }
 
 // controlSessionEnd persists the session and closes the connection.
@@ -441,16 +465,12 @@ func (h *Handler) controlSessionEnd(
 	ctx context.Context,
 	conn *websocket.Conn,
 	session ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeSessionEnd {
-		return controlNotMine, nil
-	}
+	frame controlFrame,
+) error {
 	var end voiceproto.SessionEnd
-	if err := json.Unmarshal(data, &end); err != nil {
-		h.logger.Warn("session.end frame decode failed", "err", err, "raw", string(data))
+	if err := json.Unmarshal(frame.data, &end); err != nil {
+		h.logger.Warn("session.end frame decode failed", "err", err, "raw", string(frame.data))
 	}
 	reason := strings.TrimSpace(end.Reason)
 	if reason == "" {
@@ -460,7 +480,7 @@ func (h *Handler) controlSessionEnd(
 	durationSec, err := h.persistSession(ctx, rt, session, reason)
 	if err != nil {
 		h.logger.Warn("session end persist failed", "session_id", session.SessionID, "err", err)
-		return controlHandled, rtSendError(ctx, conn, rt, "end_failed", err.Error())
+		return rtSendError(ctx, conn, rt, "end_failed", err.Error())
 	}
 	rt.ended = true
 	h.logger.Info("session.end persisted",
@@ -476,7 +496,7 @@ func (h *Handler) controlSessionEnd(
 		"reason": "ack",
 	})
 	_ = conn.Close(websocket.StatusNormalClosure, "session ended")
-	return controlHandled, errSessionEnded
+	return errSessionEnded
 }
 
 // controlAuth refuses a second auth. The handshake already consumed one.
@@ -484,14 +504,10 @@ func (h *Handler) controlAuth(
 	ctx context.Context,
 	conn *websocket.Conn,
 	_ ConsumedTicket,
-	data []byte,
 	rt *sessionRuntime,
-) (controlOutcome, error) {
-	frameType, err := voiceproto.DecodeType(data)
-	if err != nil || frameType != voiceproto.TypeAuth {
-		return controlNotMine, nil
-	}
-	return controlHandled, rtSendError(ctx, conn, rt, "already_authenticated", "auth already completed")
+	_ controlFrame,
+) error {
+	return rtSendError(ctx, conn, rt, "already_authenticated", "auth already completed")
 }
 
 // unknownFrame ignores a frame type no handler claimed.
