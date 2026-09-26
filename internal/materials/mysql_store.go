@@ -17,7 +17,7 @@ func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
-const materialColumns = `id, user_id, kind, content, refine_status, block_count, error_code, deleted_at, created_at, updated_at`
+const materialColumns = `id, user_id, kind, content, refine_status, block_count, error_code, deleted_at, created_at, updated_at, attempts, locked_at`
 
 // Ping verifies connectivity.
 func (s *MySQLStore) Ping(ctx context.Context) error {
@@ -39,12 +39,14 @@ func (s *MySQLStore) GetMaterial(ctx context.Context, _, materialID string) (Mat
 	return scanMaterial(s.db.QueryRowContext(ctx, `SELECT `+materialColumns+` FROM materials WHERE id = ?`, materialID))
 }
 
-// MarkProcessing is queued → processing.
+// MarkProcessing is queued → processing, and starts the reclaim lease.
 func (s *MySQLStore) MarkProcessing(ctx context.Context, materialID string, at time.Time) error {
+	ts := at.UTC()
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE materials SET refine_status = ?, updated_at = ?
+		UPDATE materials
+		SET refine_status = ?, attempts = attempts + 1, locked_at = ?, updated_at = ?
 		WHERE id = ? AND refine_status = ?
-	`, StatusProcessing, at.UTC(), materialID, StatusQueued)
+	`, StatusProcessing, ts, ts, materialID, StatusQueued)
 	if err != nil {
 		return err
 	}
@@ -65,7 +67,8 @@ func (s *MySQLStore) MarkProcessing(ctx context.Context, materialID string, at t
 // MarkRefined is processing → ready.
 func (s *MySQLStore) MarkRefined(ctx context.Context, materialID string, blockCount int, errorCode string, at time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE materials SET refine_status = ?, block_count = ?, error_code = ?, updated_at = ?
+		UPDATE materials
+		SET refine_status = ?, block_count = ?, error_code = ?, locked_at = NULL, updated_at = ?
 		WHERE id = ? AND refine_status = ?
 	`, StatusReady, blockCount, nullString(errorCode), at.UTC(), materialID, StatusProcessing)
 	if err != nil {
@@ -84,7 +87,8 @@ func (s *MySQLStore) MarkRefined(ctx context.Context, materialID string, blockCo
 // MarkRefineFailed is processing → failed.
 func (s *MySQLStore) MarkRefineFailed(ctx context.Context, materialID, errorCode string, at time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE materials SET refine_status = ?, error_code = ?, updated_at = ?
+		UPDATE materials
+		SET refine_status = ?, error_code = ?, locked_at = NULL, updated_at = ?
 		WHERE id = ? AND refine_status = ?
 	`, StatusFailed, nullString(errorCode), at.UTC(), materialID, StatusProcessing)
 	if err != nil {
@@ -98,6 +102,73 @@ func (s *MySQLStore) MarkRefineFailed(ctx context.Context, materialID, errorCode
 		return nil
 	}
 	return ErrConflict
+}
+
+// ReclaimExpired requeues processing rows whose lease expired, and fails the
+// ones that already used up their attempts.
+func (s *MySQLStore) ReclaimExpired(ctx context.Context, at time.Time) (ReclaimResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ReclaimResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	ts := at.UTC()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, attempts FROM materials
+		WHERE refine_status = ? AND locked_at IS NOT NULL AND locked_at <= ? AND deleted_at IS NULL
+		ORDER BY locked_at ASC, id ASC
+		FOR UPDATE
+	`, StatusProcessing, ts.Add(-DefaultRefineLease))
+	if err != nil {
+		return ReclaimResult{}, err
+	}
+	type stuck struct {
+		id       string
+		attempts int
+	}
+	var found []stuck
+	for rows.Next() {
+		var it stuck
+		if err := rows.Scan(&it.id, &it.attempts); err != nil {
+			_ = rows.Close()
+			return ReclaimResult{}, err
+		}
+		found = append(found, it)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return ReclaimResult{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return ReclaimResult{}, err
+	}
+
+	var out ReclaimResult
+	for _, it := range found {
+		status := StatusQueued
+		errorCode := ""
+		if it.attempts >= MaxRefineAttempts {
+			status = StatusFailed
+			errorCode = ErrorLeaseExpired
+		} else {
+			out.Requeued = append(out.Requeued, it.id)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE materials
+			SET refine_status = ?, error_code = ?, locked_at = NULL, updated_at = ?
+			WHERE id = ? AND refine_status = ?
+		`, status, nullString(errorCode), ts, it.id, StatusProcessing); err != nil {
+			return ReclaimResult{}, err
+		}
+		if status == StatusFailed {
+			out.Expired++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ReclaimResult{}, err
+	}
+	return out, nil
 }
 
 // SoftDeleteAllForUser sets deleted_at.
@@ -129,7 +200,8 @@ func scanMaterial(row *sql.Row) (Material, error) {
 	var m Material
 	var errCode sql.NullString
 	var deleted sql.NullTime
-	err := row.Scan(&m.ID, &m.UserID, &m.Kind, &m.Content, &m.RefineStatus, &m.BlockCount, &errCode, &deleted, &m.CreatedAt, &m.UpdatedAt)
+	var lockedAt sql.NullTime
+	err := row.Scan(&m.ID, &m.UserID, &m.Kind, &m.Content, &m.RefineStatus, &m.BlockCount, &errCode, &deleted, &m.CreatedAt, &m.UpdatedAt, &m.attempts, &lockedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Material{}, ErrNotFound
 	}
@@ -142,6 +214,10 @@ func scanMaterial(row *sql.Row) (Material, error) {
 	if deleted.Valid {
 		t := deleted.Time.UTC()
 		m.DeletedAt = &t
+	}
+	if lockedAt.Valid {
+		t := lockedAt.Time.UTC()
+		m.lockedAt = &t
 	}
 	return m, nil
 }

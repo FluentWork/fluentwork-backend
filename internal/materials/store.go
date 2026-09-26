@@ -28,6 +28,7 @@ type Store interface {
 	MarkProcessing(ctx context.Context, materialID string, at time.Time) error
 	MarkRefined(ctx context.Context, materialID string, blockCount int, errorCode string, at time.Time) error
 	MarkRefineFailed(ctx context.Context, materialID, errorCode string, at time.Time) error
+	ReclaimExpired(ctx context.Context, at time.Time) (ReclaimResult, error)
 	SoftDeleteAllForUser(ctx context.Context, userID string, at time.Time) (int, error)
 	RestoreDeletedForUser(ctx context.Context, userID string) (int, error)
 }

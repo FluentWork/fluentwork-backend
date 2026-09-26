@@ -33,7 +33,25 @@ const (
 	ErrorDB = "db_error"
 	// ErrorNoChunks is set on ready with zero usable blocks.
 	ErrorNoChunks = "no_chunks_extracted"
+	// ErrorLeaseExpired is set when a refine was reclaimed until attempts ran out.
+	ErrorLeaseExpired = "lease_expired"
+
+	// DefaultRefineLease is how long a claimed refine may stay in processing
+	// before another pass may reclaim it (crash / hung refine recovery).
+	DefaultRefineLease = 2 * time.Minute
+	// MaxRefineAttempts is the initial try plus one retry.
+	MaxRefineAttempts = 2
+	// ReclaimInterval is how often the sweeper looks for expired refine leases.
+	ReclaimInterval = 30 * time.Second
 )
+
+// ReclaimResult reports what one lease sweep did.
+type ReclaimResult struct {
+	// Requeued holds the ids put back to queued for another attempt.
+	Requeued []string
+	// Expired counts the rows that ran out of attempts and were failed.
+	Expired int
+}
 
 // Material is one user-submitted source for phrase-block refine.
 type Material struct {
@@ -47,6 +65,9 @@ type Material struct {
 	DeletedAt    *time.Time `json:"-"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+
+	attempts int
+	lockedAt *time.Time
 }
 
 // CreateRequest is POST /materials.

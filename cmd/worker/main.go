@@ -14,6 +14,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+	"github.com/FluentWork/fluentwork-backend/internal/materials"
 	"github.com/FluentWork/fluentwork-backend/internal/orchestrator"
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
@@ -93,6 +94,19 @@ func run() error {
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}, topic.PracticeSignals{Blocks: corpusStore, Sessions: store}), store, logger)
 
+	materialStore, materialCloser, err := materials.OpenStore(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := materialCloser(); closeErr != nil {
+			logger.Error("closing materials store", "err", closeErr)
+		}
+	}()
+	materialSvc := materials.NewService(materialStore, corpusStore, &materials.OrchestratorAdapter{
+		Client: orchestrator.NewClient(cfg, costWriter),
+	}, logger)
+
 	workerID := envOr("WORKER_ID", "worker-1")
 	pollEvery := durationOr("WORKER_POLL_INTERVAL", 500*time.Millisecond)
 	reviewEnabled := reviewGenerator.Enabled()
@@ -124,6 +138,7 @@ func run() error {
 			continue
 		}
 		topicSched.RunIfDue(ctx, time.Now())
+		materialSvc.SweepIfDue(ctx, time.Now())
 
 		timer := time.NewTimer(pollEvery)
 		select {

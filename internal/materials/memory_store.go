@@ -3,6 +3,7 @@ package materials
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -43,7 +44,7 @@ func (s *MemoryStore) GetMaterial(_ context.Context, _, materialID string) (Mate
 	return cloneMaterial(m), nil
 }
 
-// MarkProcessing moves queued → processing.
+// MarkProcessing moves queued → processing, and starts the reclaim lease.
 func (s *MemoryStore) MarkProcessing(_ context.Context, materialID string, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -54,8 +55,11 @@ func (s *MemoryStore) MarkProcessing(_ context.Context, materialID string, at ti
 	if m.RefineStatus != StatusQueued {
 		return ErrConflict
 	}
+	ts := at.UTC()
 	m.RefineStatus = StatusProcessing
-	m.UpdatedAt = at
+	m.attempts++
+	m.lockedAt = &ts
+	m.UpdatedAt = ts
 	s.materials[materialID] = m
 	return nil
 }
@@ -74,6 +78,7 @@ func (s *MemoryStore) MarkRefined(_ context.Context, materialID string, blockCou
 	m.RefineStatus = StatusReady
 	m.BlockCount = blockCount
 	m.ErrorCode = errorCode
+	m.lockedAt = nil
 	m.UpdatedAt = at
 	s.materials[materialID] = m
 	return nil
@@ -92,9 +97,41 @@ func (s *MemoryStore) MarkRefineFailed(_ context.Context, materialID, errorCode 
 	}
 	m.RefineStatus = StatusFailed
 	m.ErrorCode = errorCode
+	m.lockedAt = nil
 	m.UpdatedAt = at
 	s.materials[materialID] = m
 	return nil
+}
+
+// ReclaimExpired requeues processing rows whose lease expired, and fails the
+// ones that already used up their attempts.
+func (s *MemoryStore) ReclaimExpired(_ context.Context, at time.Time) (ReclaimResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ts := at.UTC()
+	cutoff := ts.Add(-DefaultRefineLease)
+	var out ReclaimResult
+	for id, m := range s.materials {
+		if m.RefineStatus != StatusProcessing || m.lockedAt == nil || m.DeletedAt != nil {
+			continue
+		}
+		if m.lockedAt.After(cutoff) {
+			continue
+		}
+		if m.attempts >= MaxRefineAttempts {
+			m.RefineStatus = StatusFailed
+			m.ErrorCode = ErrorLeaseExpired
+			out.Expired++
+		} else {
+			m.RefineStatus = StatusQueued
+			out.Requeued = append(out.Requeued, id)
+		}
+		m.lockedAt = nil
+		m.UpdatedAt = ts
+		s.materials[id] = m
+	}
+	sort.Strings(out.Requeued)
+	return out, nil
 }
 
 // SoftDeleteAllForUser sets deleted_at.
@@ -136,6 +173,10 @@ func cloneMaterial(m Material) Material {
 	if m.DeletedAt != nil {
 		t := *m.DeletedAt
 		out.DeletedAt = &t
+	}
+	if m.lockedAt != nil {
+		t := *m.lockedAt
+		out.lockedAt = &t
 	}
 	return out
 }

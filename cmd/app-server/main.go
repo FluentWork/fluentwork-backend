@@ -304,6 +304,7 @@ func run() error {
 					continue
 				}
 				topicSched.RunIfDue(ctx, time.Now())
+				materialSvc.SweepIfDue(ctx, time.Now())
 				timer := time.NewTimer(pollEvery)
 				select {
 				case <-ctx.Done():

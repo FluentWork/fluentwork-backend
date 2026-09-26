@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,9 @@ type Service struct {
 	logger *slog.Logger
 	now    func() time.Time
 	newID  func() string
+
+	sweepMu   sync.Mutex
+	lastSweep time.Time
 }
 
 // NewService constructs B21 materials service.
@@ -78,13 +82,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 		return CreateResponse{}, err
 	}
 	id := m.ID
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-		defer cancel()
-		if err := s.Refine(bg, id); err != nil && s.logger != nil {
-			s.logger.Warn("material refine", "material_id", id, "err", err)
-		}
-	}()
+	go s.refineAsync(id)
 	return CreateResponse{MaterialID: m.ID, RefineStatus: StatusQueued}, nil
 }
 

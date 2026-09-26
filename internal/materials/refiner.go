@@ -13,7 +13,10 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 )
 
-const refineTimeout = 30 * time.Second
+const (
+	refineTimeout    = 30 * time.Second
+	refineJobTimeout = 40 * time.Second
+)
 
 // Completer is the B16-shaped LLM seam (same as drill/review).
 type Completer interface {
@@ -93,6 +96,54 @@ func (s *Service) fail(ctx context.Context, materialID, code string) error {
 	}
 	incTransition(StatusProcessing, StatusFailed)
 	return nil
+}
+
+func (s *Service) refineAsync(materialID string) {
+	bg, cancel := context.WithTimeout(context.Background(), refineJobTimeout)
+	defer cancel()
+	if err := s.Refine(bg, materialID); err != nil && s.logger != nil {
+		s.logger.Warn("material refine", "material_id", materialID, "err", err)
+	}
+}
+
+// ReclaimExpired gives abandoned refines another attempt, and returns how many
+// it put back. A row that used up its attempts becomes failed instead.
+func (s *Service) ReclaimExpired(ctx context.Context) (int, error) {
+	result, err := s.store.ReclaimExpired(ctx, s.now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	for range result.Requeued {
+		incTransition(StatusProcessing, StatusQueued)
+	}
+	if result.Expired > 0 {
+		incTransition(StatusProcessing, StatusFailed)
+	}
+	if len(result.Requeued) > 0 && s.logger != nil {
+		s.logger.Warn("material refine reclaimed",
+			"requeued", len(result.Requeued),
+			"expired", result.Expired,
+		)
+	}
+	for _, id := range result.Requeued {
+		go s.refineAsync(id)
+	}
+	return len(result.Requeued), nil
+}
+
+// SweepIfDue runs ReclaimExpired at most once per ReclaimInterval.
+func (s *Service) SweepIfDue(ctx context.Context, now time.Time) {
+	utc := now.UTC()
+	s.sweepMu.Lock()
+	if !s.lastSweep.IsZero() && utc.Sub(s.lastSweep) < ReclaimInterval {
+		s.sweepMu.Unlock()
+		return
+	}
+	s.lastSweep = utc
+	s.sweepMu.Unlock()
+	if _, err := s.ReclaimExpired(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("material refine sweep", "err", err)
+	}
 }
 
 func parseRefineJSON(raw string) (RefineResult, bool) {
