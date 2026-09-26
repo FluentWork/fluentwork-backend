@@ -38,8 +38,6 @@ func TestHandler_SessionEndLogsTheTurnRejectionCounts(t *testing.T) {
 	}
 }
 
-// A client that vanishes without a session.end reaches a different persist call
-// than the one above. Both of them carry the counts, so both are checked.
 func TestHandler_SessionExitLogsTheTurnRejectionCounts(t *testing.T) {
 	t.Parallel()
 
