@@ -39,12 +39,13 @@ type Store interface {
 	GetTicketByHash(ctx context.Context, hash string) (Ticket, error)
 	ConsumeTicket(ctx context.Context, hash string, at time.Time) (Ticket, error)
 	MarkSessionActive(ctx context.Context, sessionID string, at time.Time) (Session, error)
-	// EndSession ends the session and replaces its utterances. When costLog is
+	// EndSession closes the session with terminalStatus (StatusEnded, or
+	// StatusAbandoned for PRD B6) and replaces its utterances. When costLog is
 	// non-nil it also writes that ai_cost_logs row **in the same transaction**,
 	// so a session can never end with its usage recorded but its transcript
 	// missing (or the reverse). nil means the provider reported no usage and no
 	// row is owed — distinct from a row of zeroes.
-	EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error)
+	EndSession(ctx context.Context, sessionID string, terminalStatus string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error)
 	ListUtterances(ctx context.Context, sessionID string) ([]Utterance, error)
 	// ListRescueEvents returns the session's B8 ladders ordered by seq. They are
 	// refine's second input (PRD §5.4.4), read when the review job runs.

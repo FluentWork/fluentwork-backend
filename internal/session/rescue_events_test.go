@@ -156,7 +156,7 @@ func TestBuildReviewArtifacts_PassesRescueEventsToGenerator(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	session := Session{ID: created.SessionID, UserID: "u1", SceneType: "standup"}
-	if _, _, _, err := store.EndSession(context.Background(), session.ID, 12, []Utterance{
+	if _, _, _, err := store.EndSession(context.Background(), session.ID, StatusEnded, 12, []Utterance{
 		{ID: "u-1", Seq: 1, Speaker: SpeakerUser, Text: "hello"},
 	}, []RescueEvent{
 		{

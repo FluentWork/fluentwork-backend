@@ -110,7 +110,7 @@ func TestEndSessionRecordsVoiceCostLog(t *testing.T) {
 		t.Fatal("precondition: usage was reported, so a row must be built")
 	}
 
-	if _, _, _, err := store.EndSession(context.Background(), "s-voice", 10, nil, nil, now, costLog); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), "s-voice", StatusEnded, 10, nil, nil, now, costLog); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 

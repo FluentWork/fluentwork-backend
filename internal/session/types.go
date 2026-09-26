@@ -18,6 +18,14 @@ const (
 	StatusReviewed  = "reviewed"
 )
 
+func isTerminalStatus(status string) bool {
+	return status == StatusEnded || status == StatusAbandoned
+}
+
+// ReasonAbandoned is the EndRequest.Reason that closes a session without a
+// review: the learner walked away mid-practice (PRD B6).
+const ReasonAbandoned = "abandoned"
+
 // DefaultSceneType is used when the client omits scene_type.
 const DefaultSceneType = "demo"
 
@@ -198,9 +206,10 @@ type EndResponse struct {
 	DurationSec    int    `json:"duration_sec"`
 	UtteranceCount int    `json:"utterance_count"`
 	AlreadyEnded   bool   `json:"already_ended,omitempty"`
-	// ReviewSkipped says no review will ever exist because nobody spoke in this
-	// session (P0-3 方案 A). The client can hide the session instead of showing
-	// a stub review, and the gateway learns its work is done.
+	// ReviewSkipped says no review will ever exist for this session, so the
+	// client should hide it rather than show a stub review and the gateway
+	// learns its work is done. Two cases reach it: nobody spoke (P0-3 方案 A),
+	// and the learner abandoned the session (PRD B6).
 	ReviewSkipped bool `json:"review_skipped,omitempty"`
 }
 

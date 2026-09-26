@@ -521,7 +521,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, StatusEnded, 18, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[{},{},{}],"generator":"ark-review-refine-v1","status":"ready","duration_sec":18}`)
@@ -573,7 +573,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayloadWithoutGenerator(t *testing.T)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, 18, nil, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := store.EndSession(context.Background(), created.SessionID, StatusEnded, 18, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	legacy := []byte(`{"goal_achievement":{"met":true,"note":"ok"},"issues":[],"suggestions":[],"comparisons":[],"status":"ready","duration_sec":18}`)
@@ -870,7 +870,7 @@ func createEndedSession(t *testing.T, svc *Service) CreateResponse {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, _, _, err := svc.store.EndSession(context.Background(), created.SessionID, 30, nil, nil, time.Now().UTC(), nil); err != nil {
+	if _, _, _, err := svc.store.EndSession(context.Background(), created.SessionID, StatusEnded, 30, nil, nil, time.Now().UTC(), nil); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 	return created

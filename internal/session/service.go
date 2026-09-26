@@ -332,6 +332,24 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 		return EndResponse{}, err
 	}
 	now := s.now().UTC()
+	terminalStatus := StatusEnded
+	if strings.TrimSpace(req.Reason) == ReasonAbandoned {
+		terminalStatus = StatusAbandoned
+	}
+	if existing.Status == StatusAbandoned {
+		saved, listErr := s.store.ListUtterances(ctx, sessionID)
+		if listErr != nil {
+			return EndResponse{}, listErr
+		}
+		return EndResponse{
+			SessionID:      existing.ID,
+			Status:         existing.Status,
+			DurationSec:    existing.DurationSec,
+			UtteranceCount: len(saved),
+			AlreadyEnded:   true,
+			ReviewSkipped:  true,
+		}, nil
+	}
 	if existing.Status == StatusReviewed {
 		saved, listErr := s.store.ListUtterances(ctx, sessionID)
 		if listErr != nil {
@@ -385,7 +403,7 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 	}
 	rescueEvents := s.normalizeEndRescueEvents(existing, req.RescueEvents, now)
 	session, saved, alreadyEnded, err := s.store.EndSession(
-		ctx, sessionID, req.DurationSec, utterances, rescueEvents, now,
+		ctx, sessionID, terminalStatus, req.DurationSec, utterances, rescueEvents, now,
 		buildVoiceCostLog(existing, req.VoiceUsage, s.newID, now),
 	)
 	if err != nil {
@@ -401,11 +419,22 @@ func (s *Service) End(ctx context.Context, req EndRequest) (EndResponse, error) 
 	s.logger.Info("practice session ended",
 		"session_id", session.ID,
 		"user_id", session.UserID,
+		"status", session.Status,
 		"duration_sec", session.DurationSec,
 		"utterance_count", len(saved),
 		"already_ended", alreadyEnded,
 		"reason", strings.TrimSpace(req.Reason),
 	)
+	if terminalStatus == StatusAbandoned {
+		return EndResponse{
+			SessionID:      session.ID,
+			Status:         session.Status,
+			DurationSec:    session.DurationSec,
+			UtteranceCount: len(saved),
+			AlreadyEnded:   alreadyEnded,
+			ReviewSkipped:  true,
+		}, nil
+	}
 	// A session nobody spoke in has nothing to review: no job, no eval, no stub.
 	// It used to enter the pipeline, get correctly rejected as empty, and leave a
 	// stub review behind — junk rows and a wasted model call per abandoned tap.

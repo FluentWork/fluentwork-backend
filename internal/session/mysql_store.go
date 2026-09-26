@@ -239,7 +239,7 @@ func (s *MySQLStore) MarkSessionActive(ctx context.Context, sessionID string, at
 }
 
 // EndSession marks a session ended and writes utterances in one transaction.
-func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
+func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, terminalStatus string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, nil, false, err
@@ -250,7 +250,7 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 	if err != nil {
 		return Session{}, nil, false, err
 	}
-	if session.Status == StatusEnded {
+	if isTerminalStatus(session.Status) {
 		existing, listErr := listUtterancesTx(ctx, tx, sessionID)
 		if listErr != nil {
 			return Session{}, nil, false, listErr
@@ -270,7 +270,7 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 		UPDATE practice_sessions
 		SET status = ?, duration_sec = ?, updated_at = ?
 		WHERE id = ?
-	`, StatusEnded, durationSec, at, sessionID); err != nil {
+	`, terminalStatus, durationSec, at, sessionID); err != nil {
 		return Session{}, nil, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM utterances WHERE session_id = ?`, sessionID); err != nil {
@@ -299,7 +299,7 @@ func (s *MySQLStore) EndSession(ctx context.Context, sessionID string, durationS
 			return Session{}, nil, false, err
 		}
 	}
-	session.Status = StatusEnded
+	session.Status = terminalStatus
 	session.DurationSec = durationSec
 	session.UpdatedAt = at
 	saved := make([]Utterance, 0, len(utterances))

@@ -201,16 +201,16 @@ func (s *MemoryStore) MarkSessionActive(_ context.Context, sessionID string, at 
 	}
 }
 
-// EndSession marks a session ended and replaces its utterances atomically.
-// If already ended, returns the existing rows with alreadyEnded=true.
-func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
+// EndSession marks a session terminal and replaces its utterances atomically.
+// If already terminal, returns the existing rows with alreadyEnded=true.
+func (s *MemoryStore) EndSession(_ context.Context, sessionID string, terminalStatus string, durationSec int, utterances []Utterance, rescueEvents []RescueEvent, at time.Time, costLog *aicost.Log) (Session, []Utterance, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]
 	if !ok {
 		return Session{}, nil, false, ErrNotFound
 	}
-	if session.Status == StatusEnded {
+	if isTerminalStatus(session.Status) {
 		existing := cloneUtterances(s.utterances[sessionID])
 		return cloneSession(session), existing, true, nil
 	}
@@ -220,7 +220,7 @@ func (s *MemoryStore) EndSession(_ context.Context, sessionID string, durationSe
 	if durationSec < 0 {
 		durationSec = 0
 	}
-	session.Status = StatusEnded
+	session.Status = terminalStatus
 	session.DurationSec = durationSec
 	session.UpdatedAt = at
 	s.sessions[sessionID] = session
