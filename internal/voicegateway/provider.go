@@ -52,6 +52,14 @@ type ContinuationTurn struct {
 	Text    string
 }
 
+// SessionContext is the server-resolved context a provider opens with. Both
+// fields ride beside `SessionStart` rather than inside it for the reason
+// ContinuationTurn gives: the frame is a field the client could try to write.
+type SessionContext struct {
+	Continuation []ContinuationTurn
+	Material     string
+}
+
 // VoiceProviderSession owns one gateway session's upstream voice interaction.
 //
 // B14 contract: HandleClientControl may return outbounds with ServerASRText
@@ -61,7 +69,7 @@ type ContinuationTurn struct {
 // relay-only transports) leave ServerASRText empty and the gateway falls
 // back to whatever the client supplied on user.speech.end.
 type VoiceProviderSession interface {
-	Start(ctx context.Context, start voiceproto.SessionStart, continuation []ContinuationTurn) ([]ProviderOutbound, error)
+	Start(ctx context.Context, start voiceproto.SessionStart, session SessionContext) ([]ProviderOutbound, error)
 	HandleClientControl(ctx context.Context, frameType string, raw []byte) ([]ProviderOutbound, error)
 	HandleClientAudio(ctx context.Context, payload []byte) ([]ProviderOutbound, error)
 	SnapshotUtterances() []EndUtterance
@@ -123,7 +131,7 @@ type mockVoiceProviderSession struct {
 // — see Turn.NoteAIEnd.
 const bootstrapTurnID = "bootstrap"
 
-func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []ContinuationTurn) ([]ProviderOutbound, error) {
+func (s *mockVoiceProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ SessionContext) ([]ProviderOutbound, error) {
 	const stub = "ready"
 	s.utterances = append(s.utterances, EndUtterance{
 		Seq:     s.nextSeq,

@@ -152,7 +152,7 @@ type devEchoSession struct {
 
 // Start emits a placeholder AI greeting so iOS sees a normal session
 // boot sequence (mirrors MockVoiceProvider.Start).
-func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []ContinuationTurn) ([]ProviderOutbound, error) {
+func (s *devEchoSession) Start(_ context.Context, _ voiceproto.SessionStart, _ SessionContext) ([]ProviderOutbound, error) {
 	const stub = "ready"
 	return []ProviderOutbound{
 		{

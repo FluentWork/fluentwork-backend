@@ -466,12 +466,12 @@ func (s *volcDuplexProviderSession) frameAudio(pcm []byte, flush bool) [][]byte 
 	return frames
 }
 
-func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart, continuation []ContinuationTurn) ([]ProviderOutbound, error) {
+func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.SessionStart, sessionCtx SessionContext) ([]ProviderOutbound, error) {
 	if s.session != nil {
 		return nil, nil
 	}
 
-	if instructions := instructionsForSessionStart(start, continuation); instructions != "" {
+	if instructions := instructionsForSessionStart(start, sessionCtx); instructions != "" {
 		s.cfg.Instructions = instructions
 	}
 	session, err := voiceduplex.OpenDuplex(ctx, s.cfg)
@@ -1125,16 +1125,16 @@ func (s *volcDuplexProviderSession) VoiceUsage() VoiceUsage {
 
 var _ VoiceUsageReporter = (*volcDuplexProviderSession)(nil)
 
-func instructionsForSessionStart(start voiceproto.SessionStart, continuation []ContinuationTurn) string {
+func instructionsForSessionStart(start voiceproto.SessionStart, session SessionContext) string {
 	var parts []string
 	parts = append(parts, "你是 FluentWork 英语口语练习助手。用简短中文或英文回应用户。")
 	if scene := strings.TrimSpace(start.SceneType); scene != "" {
 		parts = append(parts, "当前练习场景："+scene+"。")
 	}
-	if material := strings.TrimSpace(start.MaterialID); material != "" {
-		parts = append(parts, "素材编号："+material+"。")
+	if material := strings.TrimSpace(session.Material); material != "" {
+		parts = append(parts, "用户的练习素材，请围绕它展开对话：\n"+material)
 	}
-	if block := continuationBlock(continuation); block != "" {
+	if block := continuationBlock(session.Continuation); block != "" {
 		parts = append(parts, block)
 	}
 	return strings.Join(parts, " ")

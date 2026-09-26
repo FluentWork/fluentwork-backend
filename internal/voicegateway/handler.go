@@ -317,10 +317,11 @@ type sessionRuntime struct {
 	// context the same way. See `77_` P0-9 for the same family of loss on the
 	// vendor side.
 	lastStart *voiceproto.SessionStart
-	// continuation is the resolved tail of the session this one continues, if
-	// any. Resolved once, at session.start, and replayed on reopen for the
-	// same reason as lastStart.
-	continuation []ContinuationTurn
+	// session is the context app-server resolved at activation — the tail of
+	// the session this one continues, and the practice material's text.
+	// Resolved once, at session.start, and replayed on reopen for the same
+	// reason as lastStart.
+	session SessionContext
 	// B15: warn deduplication state — prevents 80+ identical WARN lines
 	// when the audio forward path fails repeatedly (e.g., provider timeout).
 	warnDedup struct {
@@ -618,7 +619,7 @@ func (h *Handler) handleAudio(
 				if rt.lastStart != nil {
 					reopenStart = *rt.lastStart
 				}
-				if _, startErr := reopened.Start(ctx, reopenStart, rt.continuation); startErr == nil {
+				if _, startErr := reopened.Start(ctx, reopenStart, rt.session); startErr == nil {
 					rt.provider = reopened
 					attachOutboundEmitter(ctx, conn, rt, reopened)
 					h.logger.Info("provider reopened after audio forward failure; retrying chunk",

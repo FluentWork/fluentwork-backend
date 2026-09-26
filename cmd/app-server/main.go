@@ -210,6 +210,7 @@ func run() error {
 		Client: orchestrator.NewClient(cfg, costWriter),
 	}, logger)
 	materialHandler := materials.NewHandler(materialSvc, accountHandler)
+	sessionSvc.SetMaterialSource(materials.SessionMaterialSource{Service: materialSvc})
 
 	topicStore, topicCloser, err := topic.OpenStore(cfg, logger)
 	if err != nil {

@@ -24,7 +24,7 @@ type blockingCollectSession struct {
 	endOnce    sync.Once
 }
 
-func (s *blockingCollectSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *blockingCollectSession) Start(_ context.Context, _ voiceproto.SessionStart, _ voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: voiceproto.NewAITextDelta("ready", "bootstrap", time.Now().UnixMilli())},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd, TurnID: "bootstrap", Outcome: "ok"}},

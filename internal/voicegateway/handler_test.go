@@ -51,11 +51,14 @@ type stubLifecycle struct {
 	continuationCalls   int
 	continuationAsked   [2]string
 	continuationLimitIn int
+	// materialContext is what Activate hands back; empty is the answer a
+	// session with no material gets.
+	materialContext string
 }
 
-func (s *stubLifecycle) Activate(_ context.Context, _ string) error {
+func (s *stubLifecycle) Activate(_ context.Context, _ string) (voicegateway.ActivateResult, error) {
 	s.activateCalls++
-	return s.activateErr
+	return voicegateway.ActivateResult{MaterialContext: s.materialContext}, s.activateErr
 }
 
 func (s *stubLifecycle) End(_ context.Context, req voicegateway.EndSessionRequest) error {
@@ -105,14 +108,16 @@ type stubProviderSession struct {
 	// rather than a single value is that the reopen has to carry the same
 	// context as the original.
 	continuation  [][]voicegateway.ContinuationTurn
+	materials     []string
 	startFrames   []voiceproto.SessionStart
 	serverASRText string // B14: server-side ASR text for badge detection
 }
 
-func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionStart, continuation []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionStart, session voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	s.startCalls++
 	s.startFrames = append(s.startFrames, start)
-	s.continuation = append(s.continuation, continuation)
+	s.continuation = append(s.continuation, session.Continuation)
+	s.materials = append(s.materials, session.Material)
 	if s.startErr != nil {
 		return nil, s.startErr
 	}

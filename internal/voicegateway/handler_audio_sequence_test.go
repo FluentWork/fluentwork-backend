@@ -59,7 +59,7 @@ type sequencedSession struct {
 	audioSeq *voicegateway.SeqAllocator
 }
 
-func (s *sequencedSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *sequencedSession) Start(_ context.Context, _ voiceproto.SessionStart, _ voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},

@@ -20,9 +20,10 @@ import (
 // back. It exists to exercise the handler's reopen budget without a live Volc
 // socket.
 type scriptedProvider struct {
-	mu    sync.Mutex
-	fail  bool
-	opens int
+	mu        sync.Mutex
+	fail      bool
+	opens     int
+	materials []string
 }
 
 func (p *scriptedProvider) setFail(v bool) {
@@ -37,6 +38,12 @@ func (p *scriptedProvider) openCount() int {
 	return p.opens
 }
 
+func (p *scriptedProvider) materialsSeen() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.materials...)
+}
+
 func (p *scriptedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator, _ *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -47,7 +54,10 @@ func (p *scriptedProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket
 
 type scriptedSession struct{ provider *scriptedProvider }
 
-func (s *scriptedSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *scriptedSession) Start(_ context.Context, _ voiceproto.SessionStart, session voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
+	s.provider.mu.Lock()
+	s.provider.materials = append(s.provider.materials, session.Material)
+	s.provider.mu.Unlock()
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},
@@ -139,5 +149,50 @@ func TestHandler_ReopenBudgetRefillsPerTurn(t *testing.T) {
 
 	if got := provider.openCount(); got != 3 {
 		t.Fatalf("provider opens = %d, want 3 (initial + one reopen per turn)", got)
+	}
+}
+
+// A reopen opens the *same* session: it shares the socket, the scene and the
+// transcript. The material is replayed for the same reason rt.lastStart is — a
+// reopened session that has forgotten what the practice is about is a
+// different session that happens to share a socket.
+func TestHandler_ReopenCarriesTheMaterialContext(t *testing.T) {
+	t.Parallel()
+
+	const material = "The deploy is blocked on the migration."
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out:    voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
+	}
+	provider := &scriptedProvider{}
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{materialContext: material}, provider, nil,
+		voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn := dialVoice(ctx, t, srv)
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+
+	authAndStart(ctx, t, conn)
+
+	provider.setFail(true)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte{1, 2, 3, 4}); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	assertSessionAlive(ctx, t, conn, "after the upstream failure")
+
+	got := provider.materialsSeen()
+	if len(got) != 2 {
+		t.Fatalf("Start called %d times, want 2 (initial + reopen)", len(got))
+	}
+	for i, seen := range got {
+		if seen != material {
+			t.Fatalf("Start #%d material = %q, want %q", i+1, seen, material)
+		}
 	}
 }

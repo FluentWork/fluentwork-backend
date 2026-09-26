@@ -222,6 +222,10 @@ type ActivateRequest struct {
 type ActivateResponse struct {
 	SessionID string `json:"session_id"`
 	Status    string `json:"status"`
+	// MaterialContext is the practice material's text. Resolved here because
+	// only app-server knows which material a session belongs to, and the
+	// client's session.start frame carries nothing the client could not write.
+	MaterialContext string `json:"material_context,omitempty"`
 }
 
 // ContinuationContextRequest is the body of

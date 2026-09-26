@@ -285,7 +285,7 @@ func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
 	}
 	defer func() { _ = sess.Close(context.Background()) }()
 
-	out, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart}, nil)
+	out, err := sess.Start(ctx, voiceproto.SessionStart{Type: voiceproto.TypeSessionStart}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -331,12 +331,44 @@ func TestInstructionsForSessionStartIncludesContext(t *testing.T) {
 	t.Parallel()
 
 	text := instructionsForSessionStart(voiceproto.SessionStart{
-		Type:       voiceproto.TypeSessionStart,
-		SceneType:  "daily-read",
-		MaterialID: "m-42",
-	}, nil)
-	if !strings.Contains(text, "daily-read") || !strings.Contains(text, "m-42") {
+		Type:      voiceproto.TypeSessionStart,
+		SceneType: "daily-read",
+	}, SessionContext{Material: "The deploy is blocked on the migration."})
+	if !strings.Contains(text, "daily-read") || !strings.Contains(text, "The deploy is blocked") {
 		t.Fatalf("unexpected instructions: %q", text)
+	}
+}
+
+// The material reaches the model as its *text*. The frame's material_id is a
+// client-writable field and says nothing a model can use, so it must not be
+// what the prompt carries.
+func TestInstructionsCarryTheMaterialTextNotTheFrameMaterialID(t *testing.T) {
+	t.Parallel()
+
+	text := instructionsForSessionStart(voiceproto.SessionStart{
+		Type:       voiceproto.TypeSessionStart,
+		MaterialID: "m-42",
+	}, SessionContext{Material: "The deploy is blocked on the migration."})
+	if !strings.Contains(text, "The deploy is blocked on the migration.") {
+		t.Fatalf("instructions missing the material text:\n%s", text)
+	}
+	if strings.Contains(text, "素材编号") || strings.Contains(text, "m-42") {
+		t.Fatalf("instructions still carry the material id:\n%s", text)
+	}
+}
+
+// No material means no material block — not an empty preamble about a material
+// the model cannot see.
+func TestInstructionsOmitTheMaterialBlockWithoutMaterial(t *testing.T) {
+	t.Parallel()
+
+	for _, ctx := range []SessionContext{{}, {Material: "   "}} {
+		text := instructionsForSessionStart(voiceproto.SessionStart{
+			Type: voiceproto.TypeSessionStart,
+		}, ctx)
+		if strings.Contains(text, "练习素材") {
+			t.Fatalf("empty material produced a block: %q", text)
+		}
 	}
 }
 
@@ -348,10 +380,10 @@ func TestInstructionsCarryThePreviousTranscript(t *testing.T) {
 
 	text := instructionsForSessionStart(voiceproto.SessionStart{
 		Type: voiceproto.TypeSessionStart,
-	}, []ContinuationTurn{
+	}, SessionContext{Continuation: []ContinuationTurn{
 		{Seq: 1, Speaker: "user", Text: "how do I say 限流?"},
 		{Seq: 2, Speaker: "ai", Text: "Rate limiting."},
-	})
+	}})
 
 	for _, want := range []string{"上一场练习", "user: how do I say 限流?", "ai: Rate limiting."} {
 		if !strings.Contains(text, want) {
@@ -375,7 +407,7 @@ func TestInstructionsOmitTheBlockWhenThereIsNothingToContinueFrom(t *testing.T) 
 	for _, turns := range [][]ContinuationTurn{nil, {}} {
 		text := instructionsForSessionStart(voiceproto.SessionStart{
 			Type: voiceproto.TypeSessionStart,
-		}, turns)
+		}, SessionContext{Continuation: turns})
 		if strings.Contains(text, "上一场练习") {
 			t.Fatalf("empty continuation produced a block: %q", text)
 		}

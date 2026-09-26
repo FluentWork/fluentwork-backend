@@ -251,7 +251,7 @@ func (h *Handler) controlSessionStart(
 	// exists to avoid.
 	rt.noteScenario(start.SceneType, start.MaterialID)
 	// Resolved once, before the first Start, so the reopened path replays the
-	// same context (see rt.continuation). A refusal is not fatal: the session
+	// same context (see rt.session). A refusal is not fatal: the session
 	// opens without the tail, which is what it would have done before this
 	// existed. Failing the whole session because a nice-to-have lookup missed
 	// would trade a small loss for a total one.
@@ -265,7 +265,7 @@ func (h *Handler) controlSessionStart(
 				"err", ctxErr,
 			)
 		default:
-			rt.continuation = turns
+			rt.session.Continuation = turns
 			h.logger.Info("continuation context resolved",
 				"session_id", session.SessionID,
 				"continue_from_session_id", previous,
@@ -274,7 +274,7 @@ func (h *Handler) controlSessionStart(
 			)
 		}
 	}
-	outbound, err := rt.provider.Start(ctx, start, rt.continuation)
+	outbound, err := rt.provider.Start(ctx, start, rt.session)
 	if err != nil {
 		h.logger.Warn("provider start failed", "session_id", session.SessionID, "err", err)
 		return controlHandled, rtSendError(ctx, conn, rt, "provider_start_failed", err.Error())
@@ -285,10 +285,12 @@ func (h *Handler) controlSessionStart(
 // openSession activates the session in app-server and opens a provider.
 func (h *Handler) openSession(ctx context.Context, conn *websocket.Conn, session ConsumedTicket, rt *sessionRuntime) error {
 	if h.lifecycle != nil {
-		if err := h.lifecycle.Activate(ctx, session.SessionID); err != nil {
+		result, err := h.lifecycle.Activate(ctx, session.SessionID)
+		if err != nil {
 			h.logger.Warn("session activate failed", "session_id", session.SessionID, "err", err)
 			return rtSendError(ctx, conn, rt, "activate_failed", err.Error())
 		}
+		rt.session.Material = result.MaterialContext
 	}
 	provider, err := h.provider.Open(ctx, session, rt.audioSeq, rt.turnRefs)
 	if err != nil {

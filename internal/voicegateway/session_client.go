@@ -14,10 +14,17 @@ import (
 	"github.com/FluentWork/fluentwork-backend/pkg/logx"
 )
 
+// ActivateResult is what app-server resolves at activation and the gateway
+// cannot: the practice material's text. It rides beside `SessionStart` for the
+// same reason `ContinuationTurn` does — see provider.go.
+type ActivateResult struct {
+	MaterialContext string
+}
+
 // SessionLifecycle notifies app-server of session.start / session.end, and
 // resolves the one thing the gateway needs to *read* back.
 type SessionLifecycle interface {
-	Activate(ctx context.Context, sessionID string) error
+	Activate(ctx context.Context, sessionID string) (ActivateResult, error)
 	End(ctx context.Context, req EndSessionRequest) error
 	// ContinuationContext returns the tail of an earlier session's transcript,
 	// or an empty slice when there is nothing to continue from.
@@ -82,6 +89,10 @@ type HTTPSessionClient struct {
 
 type activateBody struct {
 	SessionID string `json:"session_id"`
+}
+
+type activateResponse struct {
+	MaterialContext string `json:"material_context"`
 }
 
 type endBody struct {
@@ -156,9 +167,13 @@ func (c *HTTPSessionClient) ContinuationContext(
 	return out, nil
 }
 
-// Activate marks the practice session active.
-func (c *HTTPSessionClient) Activate(ctx context.Context, sessionID string) error {
-	return c.post(ctx, "/internal/v1/sessions/activate", activateBody{SessionID: sessionID})
+// Activate marks the practice session active and returns its material context.
+func (c *HTTPSessionClient) Activate(ctx context.Context, sessionID string) (ActivateResult, error) {
+	var resp activateResponse
+	if err := c.postInto(ctx, "/internal/v1/sessions/activate", activateBody{SessionID: sessionID}, &resp); err != nil {
+		return ActivateResult{}, err
+	}
+	return ActivateResult(resp), nil
 }
 
 // End persists session end + utterances.

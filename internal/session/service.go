@@ -35,6 +35,7 @@ type Service struct {
 	reviewGen   ReviewGenerator
 	eval        EvalProcessor
 	provisioner CorpusProvisioner
+	materials   MaterialSource
 	now         func() time.Time
 	newID       func() string
 }
@@ -60,6 +61,14 @@ type EvalProcessor interface {
 type ReviewGenerator interface {
 	Generate(ctx context.Context, req reviewgen.Request) (reviewgen.Result, error)
 }
+
+// MaterialSource reads the practice material a session was created from.
+type MaterialSource interface {
+	MaterialText(ctx context.Context, userID, materialID string) (string, error)
+}
+
+// materialContextMaxRunes bounds the material text handed to the provider.
+const materialContextMaxRunes = 2000
 
 // NewService constructs the session service.
 func NewService(store Store, cfg config.Config, logger *slog.Logger) *Service {
@@ -89,6 +98,11 @@ func (s *Service) SetCorpusProvisioner(p CorpusProvisioner) {
 // SetEvalProcessor attaches B18 per-utterance eval.
 func (s *Service) SetEvalProcessor(eval EvalProcessor) {
 	s.eval = eval
+}
+
+// SetMaterialSource attaches the material reader used at session activation.
+func (s *Service) SetMaterialSource(src MaterialSource) {
+	s.materials = src
 }
 
 // Reassigner adapts Store to account.Reassigner for guest merge.
@@ -221,7 +235,36 @@ func (s *Service) Activate(ctx context.Context, sessionID string) (ActivateRespo
 			return ActivateResponse{}, err
 		}
 	}
-	return ActivateResponse{SessionID: session.ID, Status: session.Status}, nil
+	return ActivateResponse{
+		SessionID:       session.ID,
+		Status:          session.Status,
+		MaterialContext: s.materialContext(ctx, session),
+	}, nil
+}
+
+// materialContext resolves the session's material text. A lookup failure opens
+// the session without it rather than failing the session.
+func (s *Service) materialContext(ctx context.Context, session Session) string {
+	if s.materials == nil {
+		return ""
+	}
+	materialID := ""
+	if session.MaterialID != nil {
+		materialID = strings.TrimSpace(*session.MaterialID)
+	}
+	if materialID == "" {
+		return ""
+	}
+	text, err := s.materials.MaterialText(ctx, session.UserID, materialID)
+	if err != nil {
+		s.logger.Warn("material context unavailable; opening without it",
+			"session_id", session.ID,
+			"material_id", materialID,
+			"err", err,
+		)
+		return ""
+	}
+	return capRunes(strings.TrimSpace(text), materialContextMaxRunes)
 }
 
 // continuationDefaultLimit and continuationMaxLimit bound the tail the gateway

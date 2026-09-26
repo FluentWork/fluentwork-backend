@@ -27,7 +27,7 @@ func (refusingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voic
 
 type refusingSession struct{}
 
-func (refusingSession) Start(context.Context, voiceproto.SessionStart, []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (refusingSession) Start(context.Context, voiceproto.SessionStart, voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},
@@ -195,7 +195,7 @@ func (p spyingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voic
 
 type spyingSession struct{ spy *frameSpy }
 
-func (s spyingSession) Start(context.Context, voiceproto.SessionStart, []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s spyingSession) Start(context.Context, voiceproto.SessionStart, voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},

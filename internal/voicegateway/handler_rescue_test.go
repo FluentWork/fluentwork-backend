@@ -84,7 +84,10 @@ func (rescueTicketConsumer) Consume(_ context.Context, raw string) (ConsumedTick
 // gateway sends the client, not about what it persists.
 type rescueLifecycle struct{}
 
-func (rescueLifecycle) Activate(context.Context, string) error { return nil }
+func (rescueLifecycle) Activate(context.Context, string) (ActivateResult, error) {
+	return ActivateResult{}, nil
+}
+
 func (rescueLifecycle) End(context.Context, EndSessionRequest) error {
 	return nil
 }
@@ -132,7 +135,7 @@ type rescueProviderSession struct {
 // text delta. It is the same frame in all three providers, and the outcome is
 // "ok" — which is exactly why the outcome guard cannot be what keeps it from
 // arming the ladder.
-func (s *rescueProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []ContinuationTurn) ([]ProviderOutbound, error) {
+func (s *rescueProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ SessionContext) ([]ProviderOutbound, error) {
 	return []ProviderOutbound{{
 		Control: voiceproto.AITurnEnd{
 			Type:    voiceproto.TypeAITurnEnd,

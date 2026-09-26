@@ -266,7 +266,10 @@ func (c *integrationConsumer) Consume(_ context.Context, raw string) (voicegatew
 
 type integrationLifecycle struct{}
 
-func (*integrationLifecycle) Activate(_ context.Context, _ string) error { return nil }
+func (*integrationLifecycle) Activate(_ context.Context, _ string) (voicegateway.ActivateResult, error) {
+	return voicegateway.ActivateResult{}, nil
+}
+
 func (*integrationLifecycle) End(_ context.Context, _ voicegateway.EndSessionRequest) error {
 	return nil
 }
@@ -288,7 +291,7 @@ type integrationProviderSession struct {
 	serverASRText string
 }
 
-func (s *integrationProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *integrationProviderSession) Start(_ context.Context, _ voiceproto.SessionStart, _ voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{
 			"type": voiceproto.TypeAITextDelta,

@@ -28,11 +28,11 @@ func newSignalingLifecycle() *signalingLifecycle {
 	return &signalingLifecycle{ended: make(chan voicegateway.EndSessionRequest, 4)}
 }
 
-func (s *signalingLifecycle) Activate(_ context.Context, _ string) error {
+func (s *signalingLifecycle) Activate(_ context.Context, _ string) (voicegateway.ActivateResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.activateN++
-	return nil
+	return voicegateway.ActivateResult{}, nil
 }
 
 func (s *signalingLifecycle) ContinuationContext(_ context.Context, _, _ string, _ int) ([]voicegateway.ContinuationTurn, error) {
@@ -58,7 +58,7 @@ func (s *signalingLifecycle) calls() int {
 // they survive that exit.
 type failingAudioSession struct{}
 
-func (s *failingAudioSession) Start(_ context.Context, _ voiceproto.SessionStart, _ []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+func (s *failingAudioSession) Start(_ context.Context, _ voiceproto.SessionStart, _ voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
 	return []voicegateway.ProviderOutbound{
 		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
 		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},
