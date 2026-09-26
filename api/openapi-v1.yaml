@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.8
+  version: 0.3.9
   description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, B21 materials, and B23 topic cards.
 servers:
   - url: /api/v1
@@ -25,6 +25,34 @@ paths:
       responses:
         "200":
           description: Token pair for the device identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/refresh:
+    post:
+      summary: Exchange a refresh token for a fresh token pair, rotating the credential
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Fresh token pair for the same identity
           content:
             application/json:
               schema:

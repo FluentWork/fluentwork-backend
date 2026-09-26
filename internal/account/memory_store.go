@@ -140,6 +140,17 @@ func (s *MemoryStore) ReplaceRefreshToken(_ context.Context, token RefreshToken)
 	return nil
 }
 
+// GetRefreshToken returns the stored credential matching a token hash.
+func (s *MemoryStore) GetRefreshToken(_ context.Context, hash string) (RefreshToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token, ok := s.tokens[hash]
+	if !ok {
+		return RefreshToken{}, ErrNotFound
+	}
+	return token, nil
+}
+
 // DeleteRefreshTokensForUser removes refresh tokens for one user.
 func (s *MemoryStore) DeleteRefreshTokensForUser(_ context.Context, userID string) error {
 	s.mu.Lock()

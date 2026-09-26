@@ -73,6 +73,11 @@ type GuestRequest struct {
 	DeviceID string `json:"device_id"`
 }
 
+// RefreshRequest is the body of POST /auth/refresh.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 // MergeRequest is the body of POST /account/merge.
 type MergeRequest struct {
 	DeviceID string `json:"device_id"`

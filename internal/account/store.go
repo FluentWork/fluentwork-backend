@@ -29,6 +29,7 @@ type Store interface {
 	MarkMerged(ctx context.Context, guestID, targetID, deviceID string, at time.Time) error
 	FindGuestMergedInto(ctx context.Context, targetID string) (User, error)
 	ReplaceRefreshToken(ctx context.Context, token RefreshToken) error
+	GetRefreshToken(ctx context.Context, hash string) (RefreshToken, error)
 	DeleteRefreshTokensForUser(ctx context.Context, userID string) error
 	MarkDeleted(ctx context.Context, userID string, at, tombstoneAt time.Time) error
 	ClearDeleted(ctx context.Context, userID string) error

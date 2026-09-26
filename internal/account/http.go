@@ -29,6 +29,7 @@ func NewHandler(svc *Service) *Handler {
 // RegisterRoutes mounts B1 account routes under /api/v1.
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/auth/guest", h.PostGuest)
+	rg.POST("/auth/refresh", h.PostRefresh)
 	rg.POST("/account/merge", h.RequireRegistered(), h.PostMerge)
 	if h != nil && h.privacy != nil {
 		rg.DELETE("/account/data", h.RequireAuth(), h.DeleteData)
@@ -82,6 +83,21 @@ func (h *Handler) PostGuest(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.IssueGuest(c.Request.Context(), req.DeviceID)
+	if err != nil {
+		httpjson.Error(c, err)
+		return
+	}
+	httpjson.OK(c, result)
+}
+
+// PostRefresh handles POST /auth/refresh.
+func (h *Handler) PostRefresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpjson.Error(c, apierr.InvalidArgument("invalid json body"))
+		return
+	}
+	result, err := h.svc.Refresh(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		httpjson.Error(c, err)
 		return

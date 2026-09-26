@@ -109,6 +109,16 @@ func (s *MySQLStore) FindGuestMergedInto(ctx context.Context, targetID string) (
 	`, targetID, UserStatusMerged))
 }
 
+// GetRefreshToken returns the stored credential matching a token hash.
+func (s *MySQLStore) GetRefreshToken(ctx context.Context, hash string) (RefreshToken, error) {
+	return scanRefreshToken(s.db.QueryRowContext(ctx, `
+		SELECT id, user_id, refresh_token_hash, expires_at, created_at
+		FROM auth_tokens
+		WHERE refresh_token_hash = ?
+		LIMIT 1
+	`, hash))
+}
+
 // ReplaceRefreshToken drops existing refresh tokens for the user and stores one.
 func (s *MySQLStore) ReplaceRefreshToken(ctx context.Context, token RefreshToken) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -202,6 +212,18 @@ func (s *MySQLStore) InsertAudit(ctx context.Context, row AuditLog) error {
 
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+func scanRefreshToken(row rowScanner) (RefreshToken, error) {
+	var token RefreshToken
+	err := row.Scan(&token.ID, &token.UserID, &token.Hash, &token.ExpiresAt, &token.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RefreshToken{}, ErrNotFound
+	}
+	if err != nil {
+		return RefreshToken{}, err
+	}
+	return token, nil
 }
 
 func scanUser(row rowScanner) (User, error) {

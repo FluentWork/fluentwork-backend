@@ -201,6 +201,43 @@ func (s *Service) IssueSession(ctx context.Context, user User) (TokenResponse, e
 	return s.issueSession(ctx, user)
 }
 
+// Refresh exchanges a valid refresh token for a new token pair and rotates the credential.
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenResponse, error) {
+	raw := strings.TrimSpace(refreshToken)
+	if raw == "" {
+		return TokenResponse{}, apierr.InvalidArgument("refresh_token is required")
+	}
+	stored, err := s.store.GetRefreshToken(ctx, hashToken(raw))
+	if errors.Is(err, ErrNotFound) {
+		s.logger.Warn("🔑 Unknown refresh token")
+		return TokenResponse{}, apierr.Unauthenticated("invalid refresh token")
+	}
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	if !stored.ExpiresAt.After(s.now()) {
+		s.logger.Warn("🔑 Expired refresh token", "user_id", stored.UserID)
+		return TokenResponse{}, apierr.Unauthenticated("refresh token expired")
+	}
+	user, err := s.store.GetUser(ctx, stored.UserID)
+	if errors.Is(err, ErrNotFound) {
+		s.logger.Warn("🔑 Refresh token points at a missing user", "user_id", stored.UserID)
+		return TokenResponse{}, apierr.Unauthenticated("invalid refresh token")
+	}
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	if user.Status != UserStatusActive {
+		return TokenResponse{}, apierr.Unauthenticated("account is not active")
+	}
+	tokens, err := s.issueSession(ctx, user)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	s.logger.Info("🔑 Session refreshed", "user_id", user.ID, "is_guest", user.IsGuest)
+	return tokens, nil
+}
+
 func (s *Service) createGuest(ctx context.Context, deviceID string) (User, error) {
 	now := s.now()
 	user := User{
