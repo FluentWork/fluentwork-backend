@@ -690,11 +690,13 @@ func (h *Handler) startCollectTurn(
 				"type", voiceproto.TypeUserSpeechEnd,
 				"err", err,
 			)
-			_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
-				Type:    voiceproto.TypeError,
-				Code:    "provider_control_failed",
-				Message: err.Error(),
-			})
+			if code := providerErrorCode(voiceproto.TypeUserSpeechEnd); code != "" {
+				_ = rt.sendJSON(ctx, conn, voiceproto.ErrorFrame{
+					Type:    voiceproto.TypeError,
+					Code:    code,
+					Message: err.Error(),
+				})
+			}
 			return
 		}
 		if err := rt.sendOutbound(ctx, conn, outbound); err != nil {

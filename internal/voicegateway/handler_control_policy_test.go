@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,5 +162,162 @@ func TestControlPolicy_EveryForwardedFrameStatesItsFailurePolicy(t *testing.T) {
 	}
 	if abort.SilentBecause == "" {
 		t.Fatal("the abort is silent without saying why; the reason is the whole point")
+	}
+}
+
+type frameSpy struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (s *frameSpy) record(frameType string) {
+	s.mu.Lock()
+	s.seen = append(s.seen, frameType)
+	s.mu.Unlock()
+}
+
+func (s *frameSpy) saw(frameType string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, seen := range s.seen {
+		if seen == frameType {
+			return true
+		}
+	}
+	return false
+}
+
+type spyingProvider struct{ spy *frameSpy }
+
+func (p spyingProvider) Open(context.Context, voicegateway.ConsumedTicket, *voicegateway.SeqAllocator, *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
+	return spyingSession(p), nil
+}
+
+type spyingSession struct{ spy *frameSpy }
+
+func (s spyingSession) Start(context.Context, voiceproto.SessionStart, []voicegateway.ContinuationTurn) ([]voicegateway.ProviderOutbound, error) {
+	return []voicegateway.ProviderOutbound{
+		{Control: map[string]any{"type": voiceproto.TypeAITextDelta, "text": "ready"}},
+		{Control: voiceproto.AITurnEnd{Type: voiceproto.TypeAITurnEnd}},
+	}, nil
+}
+
+func (s spyingSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
+	s.spy.record(frameType)
+	return nil, nil
+}
+
+func (s spyingSession) HandleClientAudio(context.Context, []byte) ([]voicegateway.ProviderOutbound, error) {
+	return nil, nil
+}
+
+func (s spyingSession) SnapshotUtterances() []voicegateway.EndUtterance { return nil }
+func (s spyingSession) Close(context.Context) error                     { return nil }
+
+func spyingRig(t *testing.T, spy *frameSpy) *websocket.Conn {
+	t.Helper()
+	consumer := &stubConsumer{
+		ticket: "good-ticket",
+		out:    voicegateway.ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"},
+	}
+	h := voicegateway.NewHandler(consumer, &stubLifecycle{}, spyingProvider{spy: spy}, nil,
+		voicegateway.Options{InsecureSkipOrigin: true})
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	conn := dialVoice(ctx, t, srv)
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
+	authAndStart(ctx, t, conn)
+	return conn
+}
+
+func clientFrame(frameType string) []byte {
+	switch frameType {
+	case voiceproto.TypeUserSpeechStart:
+		return voiceproto.MustMarshal(voiceproto.UserSpeechStart{Type: frameType})
+	case voiceproto.TypeUserSpeechEnd:
+		return voiceproto.MustMarshal(voiceproto.UserSpeechEnd{
+			Type: frameType, Text: "I would start with the migration window.", TurnID: "turn-1",
+		})
+	case voiceproto.TypeClientTurnAbort:
+		return voiceproto.MustMarshal(voiceproto.ClientTurnAbort{
+			Type: frameType, TurnID: "turn-1", Outcome: voiceproto.ClientTurnAbortTimeout,
+		})
+	case voiceproto.TypeInterrupt:
+		return voiceproto.MustMarshal(voiceproto.Interrupt{Type: frameType})
+	default:
+		return voiceproto.MustMarshal(map[string]any{"type": frameType})
+	}
+}
+
+func TestControlPolicy_EveryPolicyRowIsAFrameTheGatewayForwards(t *testing.T) {
+	t.Parallel()
+
+	policies := voicegateway.ProviderErrorPolicies()
+	if len(policies) == 0 {
+		t.Fatal("the policy table is empty; there is nothing to check against")
+	}
+
+	for frameType := range policies {
+		t.Run(frameType, func(t *testing.T) {
+			t.Parallel()
+
+			spy := &frameSpy{}
+			conn := spyingRig(t, spy)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := conn.Write(ctx, websocket.MessageText, clientFrame(frameType)); err != nil {
+				t.Fatalf("write %s: %v", frameType, err)
+			}
+
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if spy.saw(frameType) {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%s has a failure policy but never reaches the provider, so the policy is dead", frameType)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+}
+
+func TestControlPolicy_SpeechEndFailureCodeComesFromTheTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	policy, known := voicegateway.ProviderErrorPolicies()[voiceproto.TypeUserSpeechEnd]
+	if !known {
+		t.Fatalf("%s reaches the provider but the table states no policy for it", voiceproto.TypeUserSpeechEnd)
+	}
+	if policy.Code == "" {
+		t.Fatalf("%s announces nothing in the table, so a failed collect turn would reach the client as silence", voiceproto.TypeUserSpeechEnd)
+	}
+
+	conn := refusingRig(t)
+	if err := conn.Write(ctx, websocket.MessageText, clientFrame(voiceproto.TypeUserSpeechEnd)); err != nil {
+		t.Fatalf("write speech end: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		frame, ok := nextFrame(ctx, conn, time.Until(deadline))
+		if !ok {
+			t.Fatalf("the speech-end failure was silent; the table says %s announces %q", voiceproto.TypeUserSpeechEnd, policy.Code)
+		}
+		if frame["type"] != voiceproto.TypeError {
+			continue
+		}
+		if frame["code"] != policy.Code {
+			t.Fatalf("code = %v, want %v, which is what the table states for %s", frame["code"], policy.Code, voiceproto.TypeUserSpeechEnd)
+		}
+		return
 	}
 }

@@ -97,6 +97,18 @@ func ProviderErrorPolicies() map[string]ProviderErrorPolicy {
 	return out
 }
 
+func providerErrorCode(frameType string) string {
+	strategy, known := providerErrorStrategies[frameType]
+	if !known {
+		// A frame that reaches the provider without a policy is a bug in
+		// this package, not a client problem: it means a handler was added
+		// without saying how its failures are reported. Announcing is the
+		// safe default — silence would hide it.
+		return "provider_control_failed"
+	}
+	return strategy.code
+}
+
 // HandleControl dispatches one text frame from the client loop.
 func (h *Handler) HandleControl(
 	ctx context.Context,
@@ -169,18 +181,10 @@ func (h *Handler) forwardToProvider(
 			"type", frameType,
 			"err", err,
 		)
-		strategy, known := providerErrorStrategies[frameType]
-		if !known {
-			// A frame that reaches the provider without a policy is a bug in
-			// this package, not a client problem: it means a handler was added
-			// without saying how its failures are reported. Announcing is the
-			// safe default — silence would hide it.
-			return rtSendError(ctx, conn, rt, "provider_control_failed", err.Error())
+		if code := providerErrorCode(frameType); code != "" {
+			return rtSendError(ctx, conn, rt, code, err.Error())
 		}
-		if strategy.code == "" {
-			return nil
-		}
-		return rtSendError(ctx, conn, rt, strategy.code, err.Error())
+		return nil
 	}
 	return rt.sendOutbound(ctx, conn, outbound)
 }
