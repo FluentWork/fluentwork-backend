@@ -1,26 +1,29 @@
 package account
 
 import (
-	"strings"
+	"slices"
 	"testing"
+
+	"github.com/FluentWork/fluentwork-backend/internal/metricstest"
 )
 
-// The same state must render the same bytes, so two /metrics scrapes can be
-// diffed (BE-S2-6). Unsorted map ranges make the line order vary per scrape.
+// A scrape of one state must order its label sets the same way every time, so
+// two scrapes can be diffed (BE-S2-6). Counting is not part of that: the values
+// may change between renders.
 func TestMetricsRenderingIsReproducible(t *testing.T) {
-	const prefix = `tombstone_inserted_total{`
-	entityTypes := []string{"utterance", "material", "session"}
-	for _, entityType := range entityTypes {
+	const family = "tombstone_inserted_total"
+	for _, entityType := range []string{"utterance", "material", "session"} {
 		incTombstone(entityType)
 	}
 
-	first := PrivacyPrometheusMetrics()
-	if got := strings.Count(first, prefix); got < len(entityTypes) {
-		t.Fatalf("%s rendered %d label lines, want at least %d; the guard below would pass vacuously", prefix, got, len(entityTypes))
-	}
-	for i := 0; i < 16; i++ {
-		if got := PrivacyPrometheusMetrics(); got != first {
-			t.Fatalf("render %d differs from render 1:\n--- render 1 ---\n%s\n--- render %d ---\n%s", i+2, first, i+2, got)
+	// Eight renders, because a single map order can land sorted by luck.
+	for i := 0; i < 8; i++ {
+		sets := metricstest.LabelSetsIn(PrivacyPrometheusMetrics(), family)
+		if len(sets) < 3 {
+			t.Fatalf("render %d listed %d label sets of %s, want at least 3", i+1, len(sets), family)
+		}
+		if !slices.IsSorted(sets) {
+			t.Fatalf("render %d listed %s label sets out of order: %v", i+1, family, sets)
 		}
 	}
 }

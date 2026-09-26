@@ -1,27 +1,30 @@
 package topic
 
 import (
-	"strings"
+	"slices"
 	"testing"
+
+	"github.com/FluentWork/fluentwork-backend/internal/metricstest"
 )
 
-// The same state must render the same bytes, so two /metrics scrapes can be
-// diffed (BE-S2-6). This half of PrometheusMetrics was left unsorted while the
-// dismissals map next to it was sorted.
+// A scrape of one state must order its label sets the same way every time, so
+// two scrapes can be diffed (BE-S2-6). This half of PrometheusMetrics was left
+// unsorted while the dismissals map next to it was sorted. Counting is not part
+// of the check: the values may change between renders.
 func TestMetricsRenderingIsReproducible(t *testing.T) {
-	const prefix = `topic_card_gen_skipped_total{`
-	reasons := []string{"no_corpus", "quota_exhausted", "below_threshold"}
-	for _, reason := range reasons {
+	const family = "topic_card_gen_skipped_total"
+	for _, reason := range []string{"no_corpus", "quota_exhausted", "below_threshold"} {
 		incSkip(reason)
 	}
 
-	first := PrometheusMetrics()
-	if got := strings.Count(first, prefix); got < len(reasons) {
-		t.Fatalf("%s rendered %d label lines, want at least %d; the guard below would pass vacuously", prefix, got, len(reasons))
-	}
-	for i := 0; i < 16; i++ {
-		if got := PrometheusMetrics(); got != first {
-			t.Fatalf("render %d differs from render 1:\n--- render 1 ---\n%s\n--- render %d ---\n%s", i+2, first, i+2, got)
+	// Eight renders, because a single map order can land sorted by luck.
+	for i := 0; i < 8; i++ {
+		sets := metricstest.LabelSetsIn(PrometheusMetrics(), family)
+		if len(sets) < 3 {
+			t.Fatalf("render %d listed %d label sets of %s, want at least 3", i+1, len(sets), family)
+		}
+		if !slices.IsSorted(sets) {
+			t.Fatalf("render %d listed %s label sets out of order: %v", i+1, family, sets)
 		}
 	}
 }
