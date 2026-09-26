@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -65,8 +66,8 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	if content == "" {
 		return CreateResponse{}, apierr.InvalidArgument("content is required")
 	}
-	if len(content) > MaxContentLen {
-		return CreateResponse{}, apierr.InvalidArgument("content exceeds 5000 bytes")
+	if utf8.RuneCountInString(content) > MaxContentLen {
+		return CreateResponse{}, apierr.InvalidArgument("content exceeds 5000 characters")
 	}
 	now := s.now().UTC()
 	m := Material{

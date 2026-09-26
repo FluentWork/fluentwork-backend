@@ -22,7 +22,8 @@ const (
 
 	// URLPlaceholder is stored instead of fetching remote HTML.
 	URLPlaceholder = "[URL content placeholder]"
-	// MaxContentLen is the POST /materials content byte cap.
+	// MaxContentLen is the POST /materials content cap, counted in characters
+	// (runes) so a multibyte script is not cut short against the product limit.
 	MaxContentLen = 5000
 
 	// ErrorLLMTimeout is set when Completer fails or times out.
