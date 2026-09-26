@@ -54,11 +54,14 @@ type stubLifecycle struct {
 	// materialContext is what Activate hands back; empty is the answer a
 	// session with no material gets.
 	materialContext string
+	// turnLimit is what Activate hands back for PRD B1; 0 is a session with no
+	// length contract.
+	turnLimit int
 }
 
 func (s *stubLifecycle) Activate(_ context.Context, _ string) (voicegateway.ActivateResult, error) {
 	s.activateCalls++
-	return voicegateway.ActivateResult{MaterialContext: s.materialContext}, s.activateErr
+	return voicegateway.ActivateResult{MaterialContext: s.materialContext, TurnLimit: s.turnLimit}, s.activateErr
 }
 
 func (s *stubLifecycle) End(_ context.Context, req voicegateway.EndSessionRequest) error {
@@ -111,6 +114,12 @@ type stubProviderSession struct {
 	materials     []string
 	startFrames   []voiceproto.SessionStart
 	serverASRText string // B14: server-side ASR text for badge detection
+	// queuedInstructions is every PRD B1 mid-session instruction the gateway
+	// handed this session, in order.
+	queuedInstructions []string
+	// turnEndOnSpeechEnd makes this session answer each user.speech.end with an
+	// ai.turn.end, which is the frame the gateway stamps session_complete onto.
+	turnEndOnSpeechEnd bool
 }
 
 func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionStart, session voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
@@ -134,6 +143,10 @@ func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionS
 	}, nil
 }
 
+func (s *stubProviderSession) QueueSessionInstruction(instruction string) {
+	s.queuedInstructions = append(s.queuedInstructions, instruction)
+}
+
 func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
 	s.controlTypes = append(s.controlTypes, frameType)
 	if s.serverASRText != "" {
@@ -145,6 +158,16 @@ func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType s
 					TurnID: "stub-turn-1",
 				},
 				ServerASRText: s.serverASRText, // B14: for badge detection
+			},
+		}, s.controlErr
+	}
+	if s.turnEndOnSpeechEnd && frameType == voiceproto.TypeUserSpeechEnd {
+		return []voicegateway.ProviderOutbound{
+			{
+				Control: voiceproto.AITurnEnd{
+					Type:   voiceproto.TypeAITurnEnd,
+					TurnID: "stub-turn-1",
+				},
 			},
 		}, s.controlErr
 	}

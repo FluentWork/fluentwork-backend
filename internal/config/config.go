@@ -108,6 +108,9 @@ type Config struct {
 	// TopicMinBlocks is H1's 语料库阈值: below it a learner gets no topic cards,
 	// because there is nothing of their own to ground one on (PRD §7.8).
 	TopicMinBlocks int
+	// MiniSessionTurnLimit caps a mini session's user turns (PRD B1); 0 means
+	// unset, and session.Service normalizes it to that package's default.
+	MiniSessionTurnLimit int
 }
 
 // Load reads configuration from environment variables.
@@ -150,6 +153,8 @@ func Load() Config {
 		DrillJudgeTimeout:  durationOr("DRILL_JUDGE_TIMEOUT", defaultDrillJudgeTimeout),
 
 		TopicMinBlocks: intOr("TOPIC_MIN_BLOCKS", defaultTopicMinBlocks),
+
+		MiniSessionTurnLimit: intOr("MINI_SESSION_TURN_LIMIT", 0),
 	}
 }
 
@@ -244,6 +249,8 @@ func (c Config) validateDrillSchedule() error {
 		return fmt.Errorf("DRILL_DAILY_NEW_BLOCK_LIMIT must not be negative")
 	case c.TopicMinBlocks < 0:
 		return fmt.Errorf("TOPIC_MIN_BLOCKS must not be negative")
+	case c.MiniSessionTurnLimit < 0:
+		return fmt.Errorf("MINI_SESSION_TURN_LIMIT must not be negative")
 	case c.DrillOverdueWindow < 0:
 		return fmt.Errorf("DRILL_OVERDUE_WINDOW must not be negative")
 	case c.DrillJudgeTimeout < 0:

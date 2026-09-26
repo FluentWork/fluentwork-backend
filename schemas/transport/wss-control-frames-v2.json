@@ -173,7 +173,8 @@
         "type": { "const": "ai.turn.end" },
         "turn_id": { "type": "string" },
         "outcome": { "type": "string", "enum": ["ok", "partial", "timeout", "error"] },
-        "log_id": { "type": "string" }
+        "log_id": { "type": "string" },
+        "session_complete": { "type": "boolean" }
       }
     },
     "interrupt": {

@@ -299,6 +299,8 @@ type AITurnEnd struct {
 	// B15-I3: vendor log_id from Volcengine handshake (X-Tt-Logid) for cross-layer trace.
 	// Allows iOS tracker events to be correlated with vendor-side diagnostic logs.
 	LogID string `json:"log_id,omitempty"`
+	// PRD B1: this session has reached the length its contract allows.
+	SessionComplete bool `json:"session_complete,omitempty"`
 }
 
 // Interrupt asks the gateway/vendor path to stop AI audio.

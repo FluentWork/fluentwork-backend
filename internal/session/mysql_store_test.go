@@ -43,7 +43,7 @@ func newMySQLStoreMock(t *testing.T) (*MySQLStore, sqlmock.Sqlmock, func()) {
 
 // sessionColumns is exported for matching (the production constant lives in
 // mysql_store.go as an unexported string).
-var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at, deleted_at")
+var sessionColumnsRE = regexp.QuoteMeta("id, user_id, material_id, scene_type, session_length, status, duration_sec, review_json, created_at, updated_at, deleted_at")
 
 // aicostUserIDArg mirrors aicost.nullableString for the user_id column: nil
 // pointer → nil driver arg, otherwise the trimmed string. The production path
@@ -62,30 +62,30 @@ func aicostUserIDArg(value *string) any {
 // UPDATE, not via the SELECT.
 func endedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "user_id", "material_id", "scene_type",
+		"id", "user_id", "material_id", "scene_type", "session_length",
 		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
-		id, userID, nil, "standup",
+		id, userID, nil, "standup", SessionLengthStandard,
 		StatusEnded, 30, []byte{}, at, at, nil,
 	)
 }
 
 func reviewedSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "user_id", "material_id", "scene_type",
+		"id", "user_id", "material_id", "scene_type", "session_length",
 		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
-		id, userID, nil, "standup",
+		id, userID, nil, "standup", SessionLengthStandard,
 		StatusReviewed, 30, []byte(`{"status":"ready"}`), at, at, nil,
 	)
 }
 
 func conflictSessionRows(id, userID string, at time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "user_id", "material_id", "scene_type",
+		"id", "user_id", "material_id", "scene_type", "session_length",
 		"status", "duration_sec", "review_json", "created_at", "updated_at", "deleted_at",
 	}).AddRow(
-		id, userID, nil, "standup",
+		id, userID, nil, "standup", SessionLengthStandard,
 		StatusCreated, 0, []byte{}, at, at, nil,
 	)
 }

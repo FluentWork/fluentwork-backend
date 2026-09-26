@@ -291,6 +291,7 @@ func (h *Handler) openSession(ctx context.Context, conn *websocket.Conn, session
 			return rtSendError(ctx, conn, rt, "activate_failed", err.Error())
 		}
 		rt.session.Material = result.MaterialContext
+		rt.session.TurnLimit = result.TurnLimit
 	}
 	provider, err := h.provider.Open(ctx, session, rt.audioSeq, rt.turnRefs)
 	if err != nil {

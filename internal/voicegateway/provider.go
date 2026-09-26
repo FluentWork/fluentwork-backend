@@ -58,6 +58,15 @@ type ContinuationTurn struct {
 type SessionContext struct {
 	Continuation []ContinuationTurn
 	Material     string
+	// TurnLimit is the session's length contract, resolved at activation
+	// (PRD B1); 0 means no limit.
+	TurnLimit int
+}
+
+// SessionInstructionInjector is a VoiceProviderSession that accepts a
+// mid-session instruction for its next commit boundary (B14 V2 session.update).
+type SessionInstructionInjector interface {
+	QueueSessionInstruction(instruction string)
 }
 
 // VoiceProviderSession owns one gateway session's upstream voice interaction.

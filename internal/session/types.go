@@ -29,6 +29,16 @@ const ReasonAbandoned = "abandoned"
 // DefaultSceneType is used when the client omits scene_type.
 const DefaultSceneType = "demo"
 
+// Session lengths (PRD B1): standard has no turn contract, mini has one.
+const (
+	SessionLengthStandard = "standard"
+	SessionLengthMini     = "mini"
+)
+
+// DefaultMiniSessionTurnLimit is the PRD's upper bound for a mini session
+// (3-5 回合), and the only place that number is written down.
+const DefaultMiniSessionTurnLimit = 5
+
 // Job types and statuses for the async review outbox (B5).
 const (
 	JobTypeSessionFinished = "session.finished"
@@ -52,15 +62,16 @@ const DefaultJobTimeout = 60 * time.Second
 
 // Session is the practice_sessions aggregate.
 type Session struct {
-	ID          string
-	UserID      string
-	MaterialID  *string
-	SceneType   string
-	Status      string
-	DurationSec int
-	ReviewJSON  []byte
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID            string
+	UserID        string
+	MaterialID    *string
+	SceneType     string
+	SessionLength string
+	Status        string
+	DurationSec   int
+	ReviewJSON    []byte
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 	// DeletedAt is A4 soft-delete. MySQL scanSession does not load this column.
 	DeletedAt *time.Time
 }
@@ -226,6 +237,9 @@ type ActivateResponse struct {
 	// only app-server knows which material a session belongs to, and the
 	// client's session.start frame carries nothing the client could not write.
 	MaterialContext string `json:"material_context,omitempty"`
+	// TurnLimit is how many user turns this session may run, resolved from
+	// session_length; absent (0) means no length contract.
+	TurnLimit int `json:"turn_limit,omitempty"`
 }
 
 // ContinuationContextRequest is the body of
@@ -265,6 +279,8 @@ type ContinuationUtterance struct {
 type CreateRequest struct {
 	MaterialID *string `json:"material_id"`
 	SceneType  string  `json:"scene_type"`
+	// SessionLength is standard (default) or mini (PRD B1).
+	SessionLength string `json:"session_length"`
 }
 
 // CreateResponse is returned by POST /sessions.

@@ -131,17 +131,22 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 	if err != nil {
 		return CreateResponse{}, err
 	}
+	sessionLength, err := normalizeSessionLength(req.SessionLength)
+	if err != nil {
+		return CreateResponse{}, err
+	}
 
 	now := s.now().UTC()
 	session := Session{
-		ID:          s.newID(),
-		UserID:      userID,
-		MaterialID:  materialID,
-		SceneType:   sceneType,
-		Status:      StatusCreated,
-		DurationSec: 0,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            s.newID(),
+		UserID:        userID,
+		MaterialID:    materialID,
+		SceneType:     sceneType,
+		SessionLength: sessionLength,
+		Status:        StatusCreated,
+		DurationSec:   0,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	rawTicket, err := randomTicket()
@@ -177,6 +182,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateRequest) 
 		"session_id", session.ID,
 		"user_id", userID,
 		"scene_type", sceneType,
+		"session_length", sessionLength,
 		"ticket_expires_at", expiresAt,
 	)
 
@@ -239,7 +245,19 @@ func (s *Service) Activate(ctx context.Context, sessionID string) (ActivateRespo
 		SessionID:       session.ID,
 		Status:          session.Status,
 		MaterialContext: s.materialContext(ctx, session),
+		TurnLimit:       s.turnLimit(session),
 	}, nil
+}
+
+// turnLimit resolves the session's length contract; 0 means none.
+func (s *Service) turnLimit(session Session) int {
+	if session.SessionLength != SessionLengthMini {
+		return 0
+	}
+	if s.cfg.MiniSessionTurnLimit <= 0 {
+		return DefaultMiniSessionTurnLimit
+	}
+	return s.cfg.MiniSessionTurnLimit
 }
 
 // materialContext resolves the session's material text. A lookup failure opens
@@ -1006,6 +1024,18 @@ func normalizeSceneType(raw string) (string, error) {
 		return "", apierr.InvalidArgument("scene_type is invalid")
 	}
 	return scene, nil
+}
+
+func normalizeSessionLength(raw string) (string, error) {
+	length := strings.TrimSpace(raw)
+	switch length {
+	case "":
+		return SessionLengthStandard, nil
+	case SessionLengthStandard, SessionLengthMini:
+		return length, nil
+	default:
+		return "", apierr.InvalidArgument("session_length must be standard or mini")
+	}
 }
 
 func randomTicket() (string, error) {

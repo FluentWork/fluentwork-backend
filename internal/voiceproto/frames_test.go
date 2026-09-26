@@ -360,6 +360,42 @@ func TestSchemaAITurnEndIncludesOutcomeAndLogID(t *testing.T) {
 	}
 }
 
+func TestAITurnEndFieldsAreAllDeclaredInTheMirroredSchema(t *testing.T) {
+	t.Parallel()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
+	}
+	defs, ok := doc["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs")
+	}
+	def, ok := defs["aiTurnEnd"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing $defs.aiTurnEnd")
+	}
+	if def["additionalProperties"] != false {
+		t.Fatal("$defs.aiTurnEnd must set additionalProperties:false, otherwise an undeclared field is not a defect")
+	}
+	props, ok := def["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("$defs.aiTurnEnd missing properties")
+	}
+	typ := reflect.TypeOf(voiceproto.AITurnEnd{})
+	for i := 0; i < typ.NumField(); i++ {
+		tag := typ.Field(i).Tag.Get("json")
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		if _, ok := props[name]; !ok {
+			t.Fatalf("$defs.aiTurnEnd does not declare %q, which %s can emit; with additionalProperties:false every frame carrying it is invalid",
+				name, typ.Name())
+		}
+	}
+}
+
 func TestSchemaV2DeclaresBothHalvesOfTheRescueExchange(t *testing.T) {
 	t.Parallel()
 

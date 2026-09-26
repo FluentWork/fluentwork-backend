@@ -40,15 +40,15 @@ func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-const sessionColumns = `id, user_id, material_id, scene_type, status, duration_sec, review_json, created_at, updated_at, deleted_at`
+const sessionColumns = `id, user_id, material_id, scene_type, session_length, status, duration_sec, review_json, created_at, updated_at, deleted_at`
 
 // CreateSession inserts a practice session row.
 func (s *MySQLStore) CreateSession(ctx context.Context, session Session) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO practice_sessions (
-			id, user_id, material_id, scene_type, status, duration_sec, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, session.ID, session.UserID, nullString(session.MaterialID), session.SceneType, session.Status,
+			id, user_id, material_id, scene_type, session_length, status, duration_sec, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, session.ID, session.UserID, nullString(session.MaterialID), session.SceneType, session.SessionLength, session.Status,
 		session.DurationSec, session.CreatedAt, session.UpdatedAt)
 	return err
 }
@@ -130,9 +130,9 @@ func (s *MySQLStore) CreateSessionWithTicket(ctx context.Context, session Sessio
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO practice_sessions (
-			id, user_id, material_id, scene_type, status, duration_sec, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, session.ID, session.UserID, nullString(session.MaterialID), session.SceneType, session.Status,
+			id, user_id, material_id, scene_type, session_length, status, duration_sec, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, session.ID, session.UserID, nullString(session.MaterialID), session.SceneType, session.SessionLength, session.Status,
 		session.DurationSec, session.CreatedAt, session.UpdatedAt); err != nil {
 		return err
 	}
@@ -740,6 +740,7 @@ func scanSession(row sessionRow) (Session, error) {
 		&session.UserID,
 		&materialID,
 		&session.SceneType,
+		&session.SessionLength,
 		&session.Status,
 		&session.DurationSec,
 		&reviewJSON,

@@ -19,6 +19,9 @@ import (
 // same reason `ContinuationTurn` does — see provider.go.
 type ActivateResult struct {
 	MaterialContext string
+	// TurnLimit is how many user turns this session may run, resolved by
+	// app-server from session_length; 0 means no contract (PRD B1).
+	TurnLimit int
 }
 
 // SessionLifecycle notifies app-server of session.start / session.end, and
@@ -93,6 +96,7 @@ type activateBody struct {
 
 type activateResponse struct {
 	MaterialContext string `json:"material_context"`
+	TurnLimit       int    `json:"turn_limit"`
 }
 
 type endBody struct {

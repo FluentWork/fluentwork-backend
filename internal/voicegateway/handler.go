@@ -407,6 +407,11 @@ type sessionRuntime struct {
 	// turn is this session's current conversational turn: its identity and the
 	// legal ordering of its events. See turn.go for what it replaced.
 	turn *Turn
+	// userTurns counts the user turns this session has served (PRD B1).
+	userTurns int
+	// sessionComplete is set once the session has served the turns its
+	// contract allows. Atomic: several goroutines relay provider output.
+	sessionComplete atomic.Bool
 	// audioSeq numbers every binary audio frame this session sends to the client,
 	// whoever sends it: the provider streaming the AI's speech, or the rescue
 	// ladder. One allocator per client session, because the client's barge-in
@@ -480,6 +485,7 @@ func (rt *sessionRuntime) sendOutbound(ctx context.Context, conn *websocket.Conn
 	// the wire.
 	rt.noteProviderOutbound(outbound)
 	rt.noteDownlinkLayout(outbound)
+	rt.markSessionComplete(outbound)
 
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
@@ -684,6 +690,8 @@ func (h *Handler) startCollectTurn(
 		defer rt.collectWG.Done()
 		defer rt.collecting.Store(false)
 
+		h.noteUserTurn(rt, session)
+
 		outbound, err := rt.provider.HandleClientControl(ctx, voiceproto.TypeUserSpeechEnd, data)
 		if err != nil {
 			h.logger.Warn("provider control forward failed",
@@ -744,6 +752,54 @@ func (h *Handler) startCollectTurn(
 		rt.noteUserUtteranceText(userText)
 	}()
 	return nil
+}
+
+// closingInstruction is what the model is told on the session's last turn.
+const closingInstruction = "这是本次练习的最后一轮。请简短回应用户刚才说的内容并自然收尾：" +
+	"不要再提出新的问题，也不要开启新的话题。"
+
+// noteUserTurn counts a user turn and, on the last one the session's contract
+// allows, steers the model into closing the practice.
+func (h *Handler) noteUserTurn(rt *sessionRuntime, session ConsumedTicket) {
+	rt.userTurns++
+	limit := rt.session.TurnLimit
+	if limit <= 0 || rt.userTurns < limit {
+		return
+	}
+	rt.sessionComplete.Store(true)
+	if rt.userTurns > limit {
+		return
+	}
+	injector, ok := rt.provider.(SessionInstructionInjector)
+	if !ok {
+		h.logger.Warn("session reached its turn limit but the provider cannot be told to close it",
+			"session_id", session.SessionID,
+			"turn_limit", limit,
+		)
+		return
+	}
+	injector.QueueSessionInstruction(closingInstruction)
+	h.logger.Info("session reached its turn limit; closing the practice",
+		"session_id", session.SessionID,
+		"turn_limit", limit,
+		"stage", "orchestration",
+	)
+}
+
+// markSessionComplete stamps the length contract onto the frames the client can
+// act on.
+func (rt *sessionRuntime) markSessionComplete(outbound []ProviderOutbound) {
+	if !rt.sessionComplete.Load() {
+		return
+	}
+	for i := range outbound {
+		end, ok := outbound[i].Control.(voiceproto.AITurnEnd)
+		if !ok || end.SessionComplete {
+			continue
+		}
+		end.SessionComplete = true
+		outbound[i].Control = end
+	}
 }
 
 func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {

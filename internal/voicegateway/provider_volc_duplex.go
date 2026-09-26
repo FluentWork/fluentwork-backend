@@ -155,6 +155,9 @@ type volcDuplexProviderSession struct {
 	// interruptedThisTurn is set by a client `interrupt` and read once, at turn
 	// end, when the assistant utterance is written.
 	interruptedThisTurn bool
+	// pendingInstruction is a mid-session instruction the gateway queued for
+	// the next commit boundary (PRD B1).
+	pendingInstruction string
 	// collectingTurn is true while WaitTurnResult is in flight — the assistant
 	// reply has not yet been finalized by turnToOutbound. A barge-in
 	// user.speech.start must not reset interrupt accounting or streamed flags
@@ -507,6 +510,34 @@ func (s *volcDuplexProviderSession) Start(ctx context.Context, start voiceproto.
 	}}, nil
 }
 
+// QueueSessionInstruction records an instruction for the next commit boundary.
+func (s *volcDuplexProviderSession) QueueSessionInstruction(instruction string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingInstruction = instruction
+}
+
+// deliverPendingInstruction hands a queued instruction to the vendor and
+// returns the events that delivering it consumed, for replay into the turn.
+func (s *volcDuplexProviderSession) deliverPendingInstruction(ctx context.Context) []voiceduplex.DuplexEvent {
+	s.mu.Lock()
+	instruction := s.pendingInstruction
+	s.pendingInstruction = ""
+	s.mu.Unlock()
+	if instruction == "" || s.session == nil {
+		return nil
+	}
+	skipped, err := s.session.UpdateInstructions(ctx, instruction)
+	if err != nil {
+		s.logger.Warn("mid-session instruction was not acknowledged; continuing without it",
+			"session_id", s.session.SessionID(),
+			"turn_id", s.activeTurnID,
+			"err", err,
+		)
+	}
+	return skipped
+}
+
 func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, frameType string, data []byte) ([]ProviderOutbound, error) {
 	switch frameType {
 	case voiceproto.TypeUserSpeechStart:
@@ -555,6 +586,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 		if s.turnStarted.IsZero() {
 			s.turnStarted = time.Now()
 		}
+		preload := s.deliverPendingInstruction(ctx)
 		if err := s.session.CommitAudio(ctx); err != nil {
 			return nil, err
 		}
@@ -609,7 +641,7 @@ func (s *volcDuplexProviderSession) HandleClientControl(ctx context.Context, fra
 				"hint", "client opened a speech window before its capture produced audio",
 			)
 		}
-		turn, err := s.session.WaitTurnResult(ctx, s.turnStarted, turnWait(uplinkBytes))
+		turn, err := s.session.WaitTurn(ctx, s.turnStarted, preload, turnWait(uplinkBytes))
 
 		// The turn's read failed: the upstream socket is gone. Replace it here,
 		// where the death is detected, instead of leaving the corpse for the

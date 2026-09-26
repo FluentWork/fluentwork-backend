@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FluentWork app-server
-  version: 0.3.9
-  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, B21 materials, and B23 topic cards.
+  version: 0.4.0
+  description: Contracts for guest auth, merge, sessions, second-wave review, B17 TTS, B19 B7 hit injection, B22 drill, A4 privacy, B18 review eval, B24 session history, B21 materials, B23 topic cards, and PRD B1 session length.
 servers:
   - url: /api/v1
 paths:
@@ -204,6 +204,10 @@ paths:
                   type: string
                   maxLength: 64
                   default: demo
+                session_length:
+                  type: string
+                  enum: [standard, mini]
+                  default: standard
       responses:
         "200":
           description: Session id, WSS URL, and ticket
