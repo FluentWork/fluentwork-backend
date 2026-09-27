@@ -15,9 +15,14 @@
 #      「建议」：红的那一步不再中止整条运行。门禁照样打印 All checks passed.
 #   3. 每个 `scripts/check-*.sh` 有没有被门禁真的调用。写了一个检查脚本却没接
 #      进门禁，是「有保护」与「只是多了个文件」的差别。
+#   4. 测试那一步带不带 `-count>1`。这是与第 1 条同源的另一半：门禁的**选项**也是
+#      覆盖范围。固定 `-count=1` 时，「包级全局状态跨测试残留」这一类缺陷（断言一个
+#      进程级计数器的绝对值）对全绿门禁完全不可见 —— `BE-S2-9`（tts 的 routeHits
+#      在 `-count=2` 时报 "expected 1 hit for voice-a, got 2"）就是这么潜伏的。
+#      `-race` 照不到它，`-count=1` 照不到它，只有跑第二遍才照得到。
 #
-# 这三条的共同点：**一次一个词的编辑就能毁掉，而毁掉之后没有任何东西会变红。**
-# 所以每条各有一条断言。
+# 这四条的共同点：**一次一个词的编辑就能毁掉，而毁掉之后没有任何东西会变红。**
+# 所以每条各有一条断言。第 1 条与第 4 条断言的是**同一行**的两个词，各自独立。
 #
 # ⚠️ 这条守卫的边界，说清楚、不夸大：**它无法断言「自己被门禁调用」。** 一旦有人
 # 把 dev-check.sh 里那行调用删掉，这个脚本根本不会跑。剩下的只有 AGENTS.md /
@@ -65,7 +70,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. 测试那一步必须带 -race
+# 2. 测试那一步必须带 -race，且必须带 -count>1
 # ---------------------------------------------------------------------------
 test_lines="$(printf '%s\n' "$gate_code" | LC_ALL=C grep -E '^[0-9]+:go test([[:space:]]|$)' || true)"
 
@@ -77,10 +82,21 @@ else
   if [ "$test_line_count" -ne 1 ]; then
     fail "$GATE 里有 $test_line_count 行 'go test' 命令，期望恰好一行：
 $test_lines"
-  elif printf '%s' "$test_lines" | LC_ALL=C grep -q -- '-race'; then
-    ok
   else
-    fail "$GATE 的测试步骤不带 -race（${test_lines}）。去掉这一个词，数据竞争这一类缺陷对整条门禁完全不可见，而门禁仍然打印 All checks passed.（BE-S0-7 就是这么潜伏的）"
+    if printf '%s' "$test_lines" | LC_ALL=C grep -q -- '-race'; then
+      ok
+    else
+      fail "$GATE 的测试步骤不带 -race（${test_lines}）。去掉这一个词，数据竞争这一类缺陷对整条门禁完全不可见，而门禁仍然打印 All checks passed.（BE-S0-7 就是这么潜伏的）"
+    fi
+    # -count>1：只匹配 N>=2 —— `-count=1`、`-count=0`、没有 -count 都咬住；
+    # `-count=3`/`-count=10` 放行（这条断言判的是「跑不止一遍」，不是「字面等于 2」）。
+    # 边界（不夸大）：它只匹配文本。写 `-count=2 -count=1` 会命中，而后者覆盖前者。
+    # 它防的是「有人把 -count=2 删掉/改回 1」这一种编辑，与第 1 条同源。
+    if printf '%s' "$test_lines" | LC_ALL=C grep -qE -- '-count=([2-9]|[1-9][0-9]+)'; then
+      ok
+    else
+      fail "$GATE 的测试步骤不带 -count>1（${test_lines}）。门禁只跑一种 -count 时，「包级全局状态跨测试残留」这一类缺陷（断言一个进程级计数器的绝对值）对全绿门禁完全不可见 —— 而门禁仍然打印 All checks passed.（BE-S2-9 就是这么潜伏的）"
+    fi
   fi
 fi
 

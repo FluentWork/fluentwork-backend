@@ -38,8 +38,13 @@ golangci-lint run ./...
 # 数据竞争按调度发生、不按命令发生：去掉这一个词，整整一类缺陷对整条门禁完全
 # 不可见，而门禁照样打印 All checks passed.（BE-S0-7 潜伏到 2026-09-27 就是这个
 # 原因；BE-S0-8 也是只有 -race 才稳定复现。）`scripts/check-gate.sh` 钉着这一行。
-echo "== go test -race"
-go test -race ./...
+#
+# -count=2 是同一件事的另一半：门禁的**选项**也是覆盖范围。固定 -count=1 时，
+# 「包级全局状态跨测试残留」这一类缺陷（断言一个进程级计数器的绝对值）对全绿门禁
+# 完全不可见 —— `BE-S2-9`（tts 的 routeHits）就是这么潜伏的。`-race` 照不到它，
+# `-count=1` 照不到它，只有跑第二遍才照得到。check-gate.sh 同样钉着这一行。
+echo "== go test -race -count=2"
+go test -race -count=2 ./...
 
 echo "== go build"
 go build ./...

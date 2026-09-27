@@ -96,11 +96,11 @@ Eight steps, and **the first failure stops the run**:
 1. `gofumpt -l .`
 2. `goimports -l .`
 3. `golangci-lint run ./...` (config in `.golangci.yml`, includes `depguard` import-boundary rules)
-4. `go test -race ./...` — the only step that repeatedly *provokes* a data race
+4. `go test -race -count=2 ./...` — `-race` is the only step that repeatedly *provokes* a data race; `-count=2` is the only one that catches process-global state leaking across runs
 5. `go build ./...`
 6. `scripts/check-env-loaders.sh` — asserts dotenv semantics
 7. `scripts/check-dev-service.sh` — asserts the dev-service supervisor (pid/process-group/port safety)
-8. `scripts/check-gate.sh` — asserts the gate's own shape (`set -euo pipefail`, `-race` on step 4, every `check-*.sh` wired in)
+8. `scripts/check-gate.sh` — asserts the gate's own shape (`set -euo pipefail`, `-race` and `-count>1` on step 4, every `check-*.sh` wired in)
 
 `.githooks/pre-commit` chains `scripts/gstack-review-gate.sh` and then `dev-check.sh`,
 with `SKIP_DEV_CHECK=1` as the emergency bypass. **`core.hooksPath` is unset in a fresh
@@ -145,7 +145,7 @@ Change the schema in `fluentwork-infra` first, then sync outward.
 - `backend-ci.yml` — `repo-structure-check` (asserts `cmd/app-server`, `cmd/voice-gateway`,
   `cmd/worker`, `internal`, `migrations`, `configs`, `go.mod`, `Dockerfile`, the first
   three migrations and `api/openapi-v1.yaml`) and `go-build-and-test` (gofumpt,
-  goimports, golangci-lint, `go test`, `go build`, `docker build`).
+  goimports, golangci-lint, `go test -race -count=2`, `go build`, `docker build`).
 - `agent-config-check.yml` — requires `CLAUDE.md` and `AGENTS.md` to exist and to contain
   the string `fluentwork-meta`.
 

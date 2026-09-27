@@ -25,7 +25,7 @@ specific to this repository.
 ## Local Rules
 
 1. **Landing gate.** `./scripts/dev-check.sh` — eight steps, and the first failure stops
-   the run: gofumpt → goimports → golangci-lint → `go test -race` → `go build` →
+   the run: gofumpt → goimports → golangci-lint → `go test -race -count=2` → `go build` →
    `check-env-loaders.sh` → `check-dev-service.sh` → `check-gate.sh`.
 2. **The gate does not run itself.** `.githooks/pre-commit` chains
    `scripts/gstack-review-gate.sh` then `dev-check.sh`, but `core.hooksPath` is unset in
@@ -118,7 +118,8 @@ These are measured, not suspected. Fix or work around them deliberately.
 
 ## CI Boundary
 
-CI runs `repo-structure-check`, then gofumpt, goimports, golangci-lint, `go test`,
-`go build` and a `docker build` of the app-server image. It validates that `CLAUDE.md`
+CI runs `repo-structure-check`, then gofumpt, goimports, golangci-lint,
+`go test -race -count=2`, `go build` and a `docker build` of the app-server image. It
+validates that `CLAUDE.md`
 and `AGENTS.md` exist and reference `fluentwork-meta`. CI does not run the interactive
 gstack review skill and does not load a skills runtime.

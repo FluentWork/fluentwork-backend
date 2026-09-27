@@ -31,6 +31,9 @@ func TestRouter_Stream_RouteHit(t *testing.T) {
 
 	ctx := context.Background()
 
+	beforeA := processMetrics.RouteHits("voice-a")
+	beforeB := processMetrics.RouteHits("voice-b")
+
 	ch, err := router.Stream(ctx, "test", VoiceConfig{VoiceID: "voice-a"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -49,11 +52,11 @@ func TestRouter_Stream_RouteHit(t *testing.T) {
 		t.Errorf("expected mock-b, got %s", chunk.Data)
 	}
 
-	if processMetrics.RouteHits("voice-a") != 1 {
-		t.Errorf("expected 1 hit for voice-a, got %d", processMetrics.RouteHits("voice-a"))
+	if got := processMetrics.RouteHits("voice-a") - beforeA; got != 1 {
+		t.Errorf("expected 1 hit for voice-a, got %d", got)
 	}
-	if processMetrics.RouteHits("voice-b") != 1 {
-		t.Errorf("expected 1 hit for voice-b, got %d", processMetrics.RouteHits("voice-b"))
+	if got := processMetrics.RouteHits("voice-b") - beforeB; got != 1 {
+		t.Errorf("expected 1 hit for voice-b, got %d", got)
 	}
 }
 
