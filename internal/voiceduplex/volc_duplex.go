@@ -84,11 +84,31 @@ type DuplexSession struct {
 	// voice-gateway process down. That last part is the worst case, not an
 	// incident: writers here reach the socket before the teardown gets there,
 	// so no production caller that sends *after* Close was found.
-	connMu    sync.Mutex
-	conn      *websocket.Conn
-	sessionID string
-	logID     string
-	cfg       DuplexConfig
+	connMu sync.Mutex
+	conn   *websocket.Conn
+	// writeCtx is what every frame this session puts on the wire is written
+	// with, and cancelWrite releases it — from Close, nowhere else.
+	//
+	// It is deliberately not the caller's ctx. coder/websocket treats a
+	// cancelled *write* context as "this socket is dead": each write installs
+	// context.AfterFunc(ctx, c.close) for its duration (conn.go:171, installed
+	// by write.go:276) and that callback closes the whole Conn. So handing it a
+	// caller's ctx makes "the caller withdrew" — a turn ended, a request
+	// finished — indistinguishable from "the socket died", and the frame is
+	// only the first casualty: every later turn gets ErrDuplexClosed too.
+	//
+	// The silence pump collectTurn starts is what made that reachable on every
+	// turn boundary: the pump writes every 20ms with its turn-scoped context,
+	// and the turn ending cancels exactly that context.
+	//
+	// Close is the one interruption of this context, which is the honest
+	// mapping: a write that never comes back is stuck on a socket the session
+	// is finished with anyway.
+	writeCtx    context.Context
+	cancelWrite context.CancelFunc
+	sessionID   string
+	logID       string
+	cfg         DuplexConfig
 	// clientTurnID is the iOS-supplied "turn-N" for this collectTurn, if any.
 	// Set by the gateway provider before WaitTurnResult so segment logs join
 	// the same id that lands on ai.turn.end.
@@ -209,7 +229,11 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 
 	conn.SetReadLimit(duplexReadLimit)
 
-	s := &DuplexSession{conn: conn, cfg: cfg}
+	// WithoutCancel keeps the ctx's values (logger, tracing) but drops its
+	// cancellation: this session outlives the call that opened it, and Close is
+	// the only thing allowed to interrupt a write. See writeCtx.
+	writeCtx, cancelWrite := context.WithCancel(context.WithoutCancel(ctx))
+	s := &DuplexSession{conn: conn, cfg: cfg, writeCtx: writeCtx, cancelWrite: cancelWrite}
 	if resp != nil {
 		s.logID = resp.Header.Get("X-Tt-Logid")
 	}
@@ -853,6 +877,11 @@ func (s *DuplexSession) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	// Released on the way out, not on the way in: the goodbye frame below still
+	// goes out under the caller's ctx (the one write that is allowed to be
+	// abandoned with the caller), and cancelling this context first would fire
+	// the library's AfterFunc against a socket we are still writing to.
+	defer s.cancelWrite()
 	s.connMu.Lock()
 	conn := s.conn
 	s.conn = nil
@@ -913,12 +942,23 @@ func (s *DuplexSession) ensureOpen() error {
 	return err
 }
 
+// send writes one JSON frame to the session socket.
+//
+// ctx is the caller's, and it is honoured as exactly one thing: "should this
+// frame be started at all". It is NOT the context the write runs under — a
+// cancelled write context closes the socket rather than the write (see
+// writeCtx), so passing it on would turn one caller's withdrawal into every
+// later turn's failure. A caller handing over a ctx that is already done gets
+// that cancellation back and loses the frame; it does not lose the session.
 func (s *DuplexSession) send(ctx context.Context, v any) error {
 	conn, err := s.currentConn()
 	if err != nil {
 		return err
 	}
-	return writeJSON(ctx, conn, v)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return writeJSON(s.writeCtx, conn, v)
 }
 
 // writeJSON writes one JSON text frame to conn.
