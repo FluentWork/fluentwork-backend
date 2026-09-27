@@ -91,15 +91,16 @@ script shebang resolves to it.
 ./scripts/dev-check.sh
 ```
 
-Seven steps, and **the first failure stops the run**:
+Eight steps, and **the first failure stops the run**:
 
 1. `gofumpt -l .`
 2. `goimports -l .`
 3. `golangci-lint run ./...` (config in `.golangci.yml`, includes `depguard` import-boundary rules)
-4. `go test ./...`
+4. `go test -race ./...` — the only step that repeatedly *provokes* a data race
 5. `go build ./...`
 6. `scripts/check-env-loaders.sh` — asserts dotenv semantics
 7. `scripts/check-dev-service.sh` — asserts the dev-service supervisor (pid/process-group/port safety)
+8. `scripts/check-gate.sh` — asserts the gate's own shape (`set -euo pipefail`, `-race` on step 4, every `check-*.sh` wired in)
 
 `.githooks/pre-commit` chains `scripts/gstack-review-gate.sh` and then `dev-check.sh`,
 with `SKIP_DEV_CHECK=1` as the emergency bypass. **`core.hooksPath` is unset in a fresh

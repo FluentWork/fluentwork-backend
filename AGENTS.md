@@ -24,9 +24,9 @@ specific to this repository.
 
 ## Local Rules
 
-1. **Landing gate.** `./scripts/dev-check.sh` — seven steps, and the first failure stops
-   the run: gofumpt → goimports → golangci-lint → `go test` → `go build` →
-   `check-env-loaders.sh` → `check-dev-service.sh`.
+1. **Landing gate.** `./scripts/dev-check.sh` — eight steps, and the first failure stops
+   the run: gofumpt → goimports → golangci-lint → `go test -race` → `go build` →
+   `check-env-loaders.sh` → `check-dev-service.sh` → `check-gate.sh`.
 2. **The gate does not run itself.** `.githooks/pre-commit` chains
    `scripts/gstack-review-gate.sh` then `dev-check.sh`, but `core.hooksPath` is unset in
    a fresh clone. Run `./scripts/setup-git-hooks.sh` once, and run `dev-check.sh`

@@ -27,7 +27,7 @@ before changing code.
 
 ## Repo-Specific Constraints
 
-1. **Landing gate:** `./scripts/dev-check.sh`, seven steps, first failure stops the run.
+1. **Landing gate:** `./scripts/dev-check.sh`, eight steps, first failure stops the run.
    The pre-commit hook is not installed by default (`core.hooksPath` is unset) — run the
    gate yourself.
 2. **Develop on `main`; do not open a PR unless asked.** One ticket per commit.
