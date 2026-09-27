@@ -31,6 +31,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -67,6 +68,23 @@ type DuplexConfig struct {
 
 // DuplexSession is one live duplex WebSocket session (JSON text frames).
 type DuplexSession struct {
+	// connMu guards conn. The socket is written once — by Close, which sets it
+	// to nil so every later frame fails fast instead of writing to a closed
+	// socket — and read by every frame-shaped method plus the silence pump
+	// collectTurn starts. Those two genuinely overlap: the session teardown
+	// closes the upstream *first*, on purpose, so the in-flight turn unblocks
+	// (internal/voicegateway/handler.go:1000), which means Close runs while
+	// that turn's pump is still sending.
+	//
+	// What that cost, before the lock: the detector reported a race on this
+	// field. The same overlap in a different order reads conn as nil and then
+	// dereferences it, and coder/websocket's Conn.Write has no nil-receiver
+	// guard, so the panic would land in whichever goroutine sent the frame —
+	// for the pump, a goroutine with no recover, which would take the whole
+	// voice-gateway process down. That last part is the worst case, not an
+	// incident: writers here reach the socket before the teardown gets there,
+	// so no production caller that sends *after* Close was found.
+	connMu    sync.Mutex
 	conn      *websocket.Conn
 	sessionID string
 	logID     string
@@ -240,8 +258,8 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 // UpdateInstructions sends session.update — B14 V2 mid-session inject channel.
 // Non-update events observed while waiting are returned so callers can keep ASR/text.
 func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions string) ([]DuplexEvent, error) {
-	if s == nil || s.conn == nil {
-		return nil, fmt.Errorf("duplex session is nil")
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
 	}
 	seg := logx.Begin(s.cfg.Logger, "voice.duplex.update_instructions",
 		"module", "voicepoc.duplex",
@@ -294,8 +312,8 @@ func (s *DuplexSession) UpdateInstructions(ctx context.Context, instructions str
 
 // SendPCM streams 16 kHz mono s16le PCM as 20ms input_audio_buffer.append frames.
 func (s *DuplexSession) SendPCM(ctx context.Context, pcm []byte) error {
-	if s == nil || s.conn == nil {
-		return fmt.Errorf("duplex session is nil")
+	if err := s.ensureOpen(); err != nil {
+		return err
 	}
 	seg := logx.Begin(s.cfg.Logger, "voice.duplex.send_pcm",
 		"module", "voicepoc.duplex",
@@ -381,8 +399,8 @@ func (s *DuplexSession) CommitInputUnmute(ctx context.Context) error {
 
 // AppendPCMChunk forwards one raw 16kHz mono PCM s16le chunk to the live duplex session.
 func (s *DuplexSession) AppendPCMChunk(ctx context.Context, chunk []byte) error {
-	if s == nil || s.conn == nil {
-		return fmt.Errorf("duplex session is nil")
+	if err := s.ensureOpen(); err != nil {
+		return err
 	}
 	return s.send(ctx, map[string]any{
 		"type":     "input_audio_buffer.append",
@@ -413,6 +431,17 @@ const (
 // reporting a semantic error. Callers use it to decide whether the session can
 // still be reused: a closed connection cannot, an expired window can.
 var ErrDuplexClosed = errors.New("duplex connection closed")
+
+// errSessionClosed is what a frame-shaped method returns once Close has run.
+//
+// It wraps ErrDuplexClosed rather than being a third kind of thing: callers
+// already match on that sentinel to mean "the socket is gone, replace the
+// duplex", and a closed session and a dead socket call for the same response.
+// Before this, only four of the eight methods that put a frame on the wire
+// answered at all — the other four dereferenced the nil socket — and the four
+// that did answer used a bare "duplex session is nil", which no caller can
+// match on.
+var errSessionClosed = fmt.Errorf("duplex session is closed: %w", ErrDuplexClosed)
 
 // ErrTurnCancelled marks a turn whose read ended because the **caller's**
 // context was cancelled — the client disconnected, or the session is being torn
@@ -816,17 +845,26 @@ func (s *DuplexSession) sendSilence(ctx context.Context) {
 }
 
 // Close sends session.close and closes the WebSocket.
+//
+// Exactly once: it detaches the socket before doing anything with it, so a
+// second Close (or any frame from another goroutine) sees a closed session
+// instead of a second teardown of the same connection.
 func (s *DuplexSession) Close(ctx context.Context) error {
-	if s == nil || s.conn == nil {
+	if s == nil {
 		return nil
 	}
-	_ = s.send(ctx, map[string]any{
+	s.connMu.Lock()
+	conn := s.conn
+	s.conn = nil
+	s.connMu.Unlock()
+	if conn == nil {
+		return nil
+	}
+	_ = writeJSON(ctx, conn, map[string]any{
 		"type":     "session.close",
 		"event_id": uuid.NewString(),
 	})
-	err := s.conn.Close(websocket.StatusNormalClosure, "done")
-	s.conn = nil
-	return err
+	return conn.Close(websocket.StatusNormalClosure, "done")
 }
 
 func (s *DuplexSession) sessionPayload(instructions string) map[string]any {
@@ -849,12 +887,51 @@ func (s *DuplexSession) sessionPayload(instructions string) map[string]any {
 	return payload
 }
 
+// currentConn is the only reader of the socket field.
+//
+// Returns errSessionClosed once Close has run, so callers get an answer instead
+// of a nil they would dereference. The lock is held only for the read: the
+// write itself must not hold it, or a send blocked on a wedged socket would
+// block the teardown that is supposed to unblock it.
+func (s *DuplexSession) currentConn() (*websocket.Conn, error) {
+	if s == nil {
+		return nil, errSessionClosed
+	}
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.conn == nil {
+		return nil, errSessionClosed
+	}
+	return s.conn, nil
+}
+
+// ensureOpen reports errSessionClosed while the session is gone, nil while it
+// is usable. It is the fail-fast half of currentConn for the methods that want
+// to bail out before they start a log segment.
+func (s *DuplexSession) ensureOpen() error {
+	_, err := s.currentConn()
+	return err
+}
+
 func (s *DuplexSession) send(ctx context.Context, v any) error {
+	conn, err := s.currentConn()
+	if err != nil {
+		return err
+	}
+	return writeJSON(ctx, conn, v)
+}
+
+// writeJSON writes one JSON text frame to conn.
+//
+// A free function rather than a method because Close writes to the connection
+// it has *already detached* from the session: going back through send would
+// re-read the field it just cleared and get errSessionClosed.
+func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	return s.conn.Write(ctx, websocket.MessageText, b)
+	return conn.Write(ctx, websocket.MessageText, b)
 }
 
 // Recv reads the next server-sent duplex event.
@@ -869,8 +946,8 @@ func (s *DuplexSession) RequestTextTTS(ctx context.Context, text string) error {
 	if text == "" {
 		return fmt.Errorf("duplex TTS text is empty")
 	}
-	if s == nil || s.conn == nil {
-		return fmt.Errorf("duplex session is nil")
+	if err := s.ensureOpen(); err != nil {
+		return err
 	}
 	return s.send(ctx, map[string]any{
 		"type":     "response.create",
@@ -893,7 +970,11 @@ type DuplexEvent struct {
 }
 
 func (s *DuplexSession) recv(ctx context.Context) (DuplexEvent, error) {
-	_, data, err := s.conn.Read(ctx)
+	conn, err := s.currentConn()
+	if err != nil {
+		return DuplexEvent{}, err
+	}
+	_, data, err := conn.Read(ctx)
 	if err != nil {
 		return DuplexEvent{}, err
 	}
