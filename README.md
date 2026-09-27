@@ -121,7 +121,13 @@ clone**, so nothing runs automatically: run `./scripts/setup-git-hooks.sh` once,
 | `pkg/` | `buildinfo`, `logx` |
 | `deploy/` | `docker-compose.yml` |
 | `scripts/` | dev entry points, gates, smokes, integration harnesses |
-| `eval/`, `test/` | eval datasets and test support |
+| `eval/` | eval datasets, moat baselines and offline sample sets |
+
+Cross-layer verification that needs a real process, real credentials, or a real service
+lives outside `go test`: `scripts/smoke-*.sh` and `cmd/integration-voice-gateway/`. Tests
+that wire several packages together over `httptest` — real handlers on a real server —
+are ordinary `_test.go` files next to the code they exercise, so they run in step 4 of
+the gate.
 
 ## Shared schemas
 
