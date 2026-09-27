@@ -106,9 +106,34 @@ type DuplexSession struct {
 	// is finished with anyway.
 	writeCtx    context.Context
 	cancelWrite context.CancelFunc
-	sessionID   string
-	logID       string
-	cfg         DuplexConfig
+	// readCtx is what the one goroutine allowed to read this socket reads
+	// with, and cancelRead releases it — from Close, nowhere else. It is the
+	// read-side twin of writeCtx, for the same reason: coder/websocket turns a
+	// cancelled *read* context into the whole-Conn close too (read.go:232
+	// installs context.AfterFunc(ctx, c.close) in setupReadTimeout).
+	//
+	// The windows a caller waits for — a turn's deadline, the 8s wait for
+	// session.updated, the 3s pre-commit drain — are *consumer* deadlines, not
+	// socket deadlines. Handing them to conn.Read made each one a connection
+	// event: a turn that timed out is a designed-for outcome (reported to iOS
+	// as `timeout`), yet it left the socket closed behind it, so the next turn
+	// failed as ErrDuplexClosed and the failure was attributed to anything but
+	// the silent turn that caused it.
+	readCtx    context.Context
+	cancelRead context.CancelFunc
+	// events carries decoded frames from readLoop to whoever is consuming the
+	// turn. Production has exactly one consumer at a time (collectTurn, or one
+	// of the update/drain windows), so the buffer is slack against a burst,
+	// not a concurrency mechanism.
+	events chan DuplexEvent
+	// readDone is closed by readLoop on its way out; readErr holds why it left.
+	// readErr is written before the close and read only after a receive from
+	// the closed channel, so the close is the whole synchronisation.
+	readDone  chan struct{}
+	readErr   error
+	sessionID string
+	logID     string
+	cfg       DuplexConfig
 	// clientTurnID is the iOS-supplied "turn-N" for this collectTurn, if any.
 	// Set by the gateway provider before WaitTurnResult so segment logs join
 	// the same id that lands on ai.turn.end.
@@ -233,10 +258,25 @@ func OpenDuplex(ctx context.Context, cfg DuplexConfig) (*DuplexSession, error) {
 	// cancellation: this session outlives the call that opened it, and Close is
 	// the only thing allowed to interrupt a write. See writeCtx.
 	writeCtx, cancelWrite := context.WithCancel(context.WithoutCancel(ctx))
-	s := &DuplexSession{conn: conn, cfg: cfg, writeCtx: writeCtx, cancelWrite: cancelWrite}
+	readCtx, cancelRead := context.WithCancel(context.WithoutCancel(ctx))
+	s := &DuplexSession{
+		conn:        conn,
+		cfg:         cfg,
+		writeCtx:    writeCtx,
+		cancelWrite: cancelWrite,
+		readCtx:     readCtx,
+		cancelRead:  cancelRead,
+		events:      make(chan DuplexEvent, 64),
+		readDone:    make(chan struct{}),
+	}
 	if resp != nil {
 		s.logID = resp.Header.Get("X-Tt-Logid")
 	}
+	// The single reader starts before the first frame is written: from here on
+	// recv() is a channel receive, so session.created and every later event
+	// arrive through the same path, and no caller's window can end up deciding
+	// whether this socket stays alive.
+	go s.readLoop()
 
 	if err := s.send(ctx, map[string]any{
 		"type":     "session.create",
@@ -882,6 +922,10 @@ func (s *DuplexSession) Close(ctx context.Context) error {
 	// abandoned with the caller), and cancelling this context first would fire
 	// the library's AfterFunc against a socket we are still writing to.
 	defer s.cancelWrite()
+	// Same reasoning on the read side, and released last for the same reason:
+	// this is what stops readLoop, and readLoop must be allowed to finish
+	// reading the peer's close frame before the teardown below.
+	defer s.cancelRead()
 	s.connMu.Lock()
 	conn := s.conn
 	s.conn = nil
@@ -1009,15 +1053,80 @@ type DuplexEvent struct {
 	Raw        string
 }
 
+// recv hands back the next server event, or the reason there is none.
+//
+// ctx is the caller's **window**, and it is honoured as exactly one thing: how
+// long this consumer is willing to wait. It is NOT what the socket is read
+// with — readLoop owns that, under readCtx — so a window expiring is a local
+// decision that ends this wait and nothing else.
+//
+// That split is the whole point. This used to be conn.Read(ctx), and
+// coder/websocket turns a cancelled read context into a close of the entire
+// Conn, so a turn that merely ran out of patience closed the session and the
+// next turn reported ErrDuplexClosed.
 func (s *DuplexSession) recv(ctx context.Context) (DuplexEvent, error) {
-	conn, err := s.currentConn()
-	if err != nil {
-		return DuplexEvent{}, err
+	if s == nil {
+		return DuplexEvent{}, errSessionClosed
 	}
-	_, data, err := conn.Read(ctx)
-	if err != nil {
-		return DuplexEvent{}, err
+	select {
+	case evt := <-s.events:
+		return evt, nil
+	case <-ctx.Done():
+		return DuplexEvent{}, ctx.Err()
+	case <-s.readDone:
+		// The reader is gone. Frames it had already decoded but not yet handed
+		// over are still in the buffer, so take one before reporting the
+		// failure — otherwise a consumer loses events that did arrive.
+		select {
+		case evt := <-s.events:
+			return evt, nil
+		default:
+		}
+		if s.readErr == nil {
+			return DuplexEvent{}, errSessionClosed
+		}
+		// Whatever stopped the reader — the peer's close frame, a transport
+		// error, the teardown cancelling readCtx — the consumer's question is
+		// the same one, so it gets the same sentinel: this duplex is gone.
+		// Callers branch on that, and the raw library error would make
+		// "replace the duplex" unanswerable.
+		return DuplexEvent{}, fmt.Errorf("%w: %w", ErrDuplexClosed, s.readErr)
 	}
+}
+
+// readLoop is the only goroutine that reads this socket.
+//
+// It runs under the session's own readCtx, so the one thing that can stop it is
+// Close. Every consumer window sits above it, in recv's select. Keeping those
+// two apart is what makes "this turn waited long enough" a different statement
+// from "this connection is over".
+func (s *DuplexSession) readLoop() {
+	defer close(s.readDone)
+	for {
+		conn, err := s.currentConn()
+		if err != nil {
+			s.readErr = err
+			return
+		}
+		_, data, err := conn.Read(s.readCtx)
+		if err != nil {
+			s.readErr = err
+			return
+		}
+		select {
+		case s.events <- decodeDuplexEvent(data):
+		case <-s.readCtx.Done():
+			s.readErr = s.readCtx.Err()
+			return
+		}
+	}
+}
+
+// decodeDuplexEvent turns one wire frame into a DuplexEvent.
+//
+// A free function because the reader is the only place frames are decoded, and
+// keeping the decode out of recv is what lets recv stay a pure select.
+func decodeDuplexEvent(data []byte) DuplexEvent {
 	var envelope struct {
 		Type       string `json:"type"`
 		Delta      string `json:"delta"`
@@ -1038,7 +1147,7 @@ func (s *DuplexSession) recv(ctx context.Context) (DuplexEvent, error) {
 	if envelope.Session != nil {
 		evt.SessionID = envelope.Session.ID
 	}
-	return evt, nil
+	return evt
 }
 
 // FirstNonEmpty returns the first value with any non-space content.
