@@ -862,11 +862,6 @@ func writeProviderOutbound(ctx context.Context, conn *websocket.Conn, outbound [
 // extractServerASRText returns the server-side ASR text from provider outbound.
 // B14: The Volcengine provider populates ServerASRText in ProviderOutbound so
 // the handler can use it for badge detection when client ASR text is empty.
-// resolvedUserText returns the user's utterance for this turn, preferring the
-// client's own text and falling back to the provider's server-side ASR — the
-// same resolution the badge emitter performs. Empty means the turn produced no
-// text we can use as an anchor.
-
 func extractServerASRText(outbound []ProviderOutbound) string {
 	for _, item := range outbound {
 		if item.ServerASRText != "" {

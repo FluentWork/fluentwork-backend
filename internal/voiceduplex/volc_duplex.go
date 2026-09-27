@@ -1152,12 +1152,6 @@ func decodeDuplexEvent(data []byte) DuplexEvent {
 
 // FirstNonEmpty returns the first value with any non-space content.
 //
-// Exported because both halves of the package this was split out of need it, and
-// because a reader of the transport should be able to see that a config falls
-// back rather than learning it from a panic.
-
-// FirstNonEmpty returns the first value with any non-space content.
-//
 // Exported because the smoke probes in the PoC package also build configs that
 // fall back, and duplicating this would give the two halves a chance to disagree
 // about what "empty" means.

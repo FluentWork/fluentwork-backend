@@ -302,7 +302,6 @@ func (s *Service) DeleteBlock(ctx context.Context, userID, blockID string) error
 	return nil
 }
 
-// BatchAccept idempotently stores refine blocks from one session.
 // dedupeScanLimit bounds the corpus scan one accept performs. Comparison is
 // in-memory on purpose: a normalised-expression column would need a backfill
 // whose SQL normalisation could drift from the Go one, and a user's corpus is
@@ -378,7 +377,8 @@ func (s *Service) CountRealUsesBySource(ctx context.Context, userID string, sinc
 	return s.store.CountRealUsesBySource(ctx, userID, since)
 }
 
-// BatchAccept admits refine cards into the corpus.
+// BatchAccept admits refine blocks from one session into the corpus,
+// idempotently.
 //
 // A phrase the learner already owns is not admitted again: the existing block is
 // returned instead, because two near-identical rows are two weaker assets, not

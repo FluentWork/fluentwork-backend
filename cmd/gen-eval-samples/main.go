@@ -20,10 +20,6 @@ import (
 	"strings"
 )
 
-// sceneFrames returns (transcript, issueQuote, refinedExpression, intentZH)
-// tuples. The grammar-mistake form is intentional — review/refine must point
-// at a real transcript fragment, so we keep the mistake and supply a polished
-// alternative next to it.
 type sceneFrame struct {
 	transcript  string
 	issueQuote  string
@@ -32,6 +28,10 @@ type sceneFrame struct {
 	functionTag string
 }
 
+// sceneFrames returns (transcript, issueQuote, refinedExpression, intentZH)
+// tuples. The grammar-mistake form is intentional — review/refine must point
+// at a real transcript fragment, so we keep the mistake and supply a polished
+// alternative next to it.
 func sceneFrames() map[string][]sceneFrame {
 	return map[string][]sceneFrame{
 		"standup": {
