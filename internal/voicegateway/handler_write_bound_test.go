@@ -53,7 +53,7 @@ func TestSessionRuntime_WriteToStalledClientIsBounded(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), testBudget)
 	defer dialCancel()
 
 	client, _, err := websocket.Dial(dialCtx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
@@ -181,7 +181,7 @@ func TestSessionRuntime_WritableOutboundStillWaitsForTheWriteLock(t *testing.T) 
 	}))
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)

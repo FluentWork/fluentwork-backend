@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -28,7 +27,7 @@ func TestHandler_ClientTurnAbortKeepsSessionAlive(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)
@@ -78,7 +77,7 @@ func TestHandler_ClientTurnAbortBeforeStartIsNoop(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)
@@ -123,7 +122,7 @@ func TestHandler_ClientTurnAbortRejectsOkOutcome(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)

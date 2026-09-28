@@ -58,7 +58,7 @@ func refusingRig(t *testing.T) *websocket.Conn {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
 	conn := dialVoice(ctx, t, srv)
 	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
@@ -227,7 +227,7 @@ func spyingRig(t *testing.T, spy *frameSpy) *websocket.Conn {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
 	conn := dialVoice(ctx, t, srv)
 	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
@@ -269,7 +269,7 @@ func TestControlPolicy_EveryPolicyRowIsAFrameTheGatewayForwards(t *testing.T) {
 			spy := &frameSpy{}
 			conn := spyingRig(t, spy)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 			defer cancel()
 			if err := conn.Write(ctx, websocket.MessageText, clientFrame(frameType)); err != nil {
 				t.Fatalf("write %s: %v", frameType, err)

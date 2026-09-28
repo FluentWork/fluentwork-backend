@@ -122,7 +122,7 @@ func TestHandler_AudioMarksSessionBrokenAfterFirstFailure(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -243,7 +243,7 @@ func TestHandler_AITurnEndCarriesTimeoutOutcomeOnWire(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"

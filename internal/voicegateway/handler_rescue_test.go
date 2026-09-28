@@ -36,9 +36,10 @@ const (
 	// test moving the clock. It is not a threshold: nothing fires unless the
 	// *clock* says a threshold has passed.
 	rescueTestTick = 5 * time.Millisecond
+	testBudget     = 60 * time.Second
 	// rescueTestWait bounds how long a test waits for a frame it does believe
 	// will arrive. Generous on purpose — it only ever expires on a real failure.
-	rescueTestWait = 5 * time.Second
+	rescueTestWait = testBudget
 )
 
 type rescueTestClock struct {

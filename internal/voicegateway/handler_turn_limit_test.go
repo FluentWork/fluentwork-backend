@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -33,7 +32,7 @@ func openSessionForTurnLimitTest(t *testing.T, life *stubLifecycle, providerSess
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -167,8 +166,8 @@ func TestTheSessionStaysCompleteAndIsNotClosedTwice(t *testing.T) {
 	if frame := driveTurn(ctx, t, conn); !sessionComplete(frame) {
 		t.Fatal("a session past its limit must keep saying so")
 	}
-	if len(providerSession.state().queuedInstructions) != 1 {
-		t.Fatalf("queued %v, want the closing instruction exactly once", providerSession.state().queuedInstructions)
+	if queued := providerSession.state().queuedInstructions; len(queued) != 1 {
+		t.Fatalf("queued %v, want the closing instruction exactly once", queued)
 	}
 }
 
@@ -186,7 +185,7 @@ func TestAStandardSessionGetsNoClosingInstructionAndNoTerminationSignal(t *testi
 			t.Fatalf("turn %d of a standard session carried session_complete", turn)
 		}
 	}
-	if len(providerSession.state().queuedInstructions) != 0 {
-		t.Fatalf("a standard session was sent %v, want no instruction at all", providerSession.state().queuedInstructions)
+	if queued := providerSession.state().queuedInstructions; len(queued) != 0 {
+		t.Fatalf("a standard session was sent %v, want no instruction at all", queued)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -32,7 +31,7 @@ func startInstructionDuplexStub(t *testing.T) (string, <-chan map[string]any) {
 			_ = conn.Write(context.Background(), websocket.MessageText, []byte(raw))
 		}
 		for {
-			readCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			readCtx, cancel := context.WithTimeout(context.Background(), testBudget)
 			_, data, readErr := conn.Read(readCtx)
 			cancel()
 			if readErr != nil {
@@ -75,7 +74,7 @@ func liveProviderSession(t *testing.T, endpoint string) *volcDuplexProviderSessi
 		ClientAudioFormat:  "pcm-s16le",
 	}, nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
 
 	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{}, nil)

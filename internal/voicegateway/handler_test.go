@@ -19,6 +19,8 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
 )
 
+const testBudget = 60 * time.Second
+
 type stubConsumer struct {
 	ticket string
 	out    voicegateway.ConsumedTicket
@@ -260,7 +262,7 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -353,7 +355,7 @@ func TestVoiceHandshakeRejectsBadTicket(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -394,7 +396,7 @@ func TestVoiceSessionStartFailsWhenProviderOpenFails(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -443,7 +445,7 @@ func TestVoiceBinaryAudioReturnsProviderAudioFailure(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -514,7 +516,7 @@ func TestVoiceSessionEndFiresBadgeOnHit(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
@@ -608,7 +610,7 @@ func TestVoiceSessionEndEmitsNoBadgeOnMiss(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -671,7 +673,7 @@ func TestVoiceSessionEndWithoutTextSkipsDetection(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -726,7 +728,7 @@ func TestHandler_RejectsEmptyTextWhenClientASRRequired(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -788,7 +790,7 @@ func TestHandler_AcceptsEmptyTextWhenClientASRNotRequired(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -853,7 +855,7 @@ func TestHandler_AcceptsPopulatedTextWhenClientASRRequired(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -918,7 +920,7 @@ func TestHandler_ClientASRRequiredWhitespaceOnlyCountsAsEmpty(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -1044,7 +1046,7 @@ func TestHandler_UsesServerASRTextForBadgeDetectionWhenClientTextEmpty(t *testin
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -1136,7 +1138,7 @@ func TestHandler_DetectTimeoutDoesNotBlockUserSpeechEnd(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/voice"

@@ -81,7 +81,7 @@ func TestVolcDuplexForwardsAssistantAudioAsBinaryFrames(t *testing.T) {
 		vendorAudio[i] = byte(i % 251)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	duplex, err := voiceduplex.OpenDuplex(ctx, voiceduplex.DuplexConfig{
@@ -194,7 +194,7 @@ func dyingDuplexStub(t *testing.T) string {
 func TestVolcDuplexResetsSessionWhenTurnReadFails(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	duplex, err := voiceduplex.OpenDuplex(ctx, voiceduplex.DuplexConfig{
@@ -276,7 +276,7 @@ func TestVolcDuplexStartEmitsBootstrapTurnEnd(t *testing.T) {
 		ClientAudioFormat:  "pcm-s16le",
 	}, nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{}, nil)

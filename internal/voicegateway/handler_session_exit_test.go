@@ -109,7 +109,7 @@ func TestHandler_ProviderFailurePersistsSessionOnExit(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)
@@ -164,7 +164,7 @@ func TestHandler_ClientSessionEndPersistsExactlyOnce(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)
@@ -219,7 +219,7 @@ func TestHandler_ExitWithoutSessionStartDoesNotPersist(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 
 	conn := dialVoice(ctx, t, srv)

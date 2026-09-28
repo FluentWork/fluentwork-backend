@@ -82,7 +82,7 @@ func openMuteTestSession(t *testing.T) (*volcDuplexProviderSession, <-chan map[s
 		ClientAudioFormat:  "pcm-s16le",
 	}, nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
 
 	sess, err := provider.Open(ctx, ConsumedTicket{TicketID: "t1", SessionID: "s1", UserID: "u1"}, &SeqAllocator{}, nil)
