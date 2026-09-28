@@ -36,6 +36,50 @@ func fiveBlockJSON() string {
 	]}`
 }
 
+// How long a test waits for a background refine to reach a terminal status, and
+// how often it looks. The stub LLM answers immediately, so this only ever
+// expires on a real failure.
+const (
+	refineAwaitBudget = 10 * time.Second
+	refineAwaitPoll   = 2 * time.Millisecond
+)
+
+// awaitRefine returns the material once its refine has finished, one way or the
+// other, and fails if it never does.
+//
+// `Create` starts a refine in the background (`go s.refineAsync(id)`), so there
+// is no moment at which "create, then read the row" is safe: the read is always
+// racing that goroutine. Waiting for the terminal status is the event to block
+// on, and the two terminal statuses are the only ones it can end in.
+//
+// These tests used to call `Refine` explicitly and then read the row, which
+// looked like it made the work synchronous. It did not: the background job from
+// Create usually got there first, `Refine` returned immediately because the row
+// was no longer `queued`, and the row was read while the goroutine was still
+// working. Four tests in this file were reading a mid-flight row 13 times per
+// 600 runs, which is the same defect as "asserted without waiting", wearing a
+// synchronous disguise.
+func awaitRefine(t *testing.T, svc *Service, materialID string) Material {
+	t.Helper()
+
+	deadline := time.Now().Add(refineAwaitBudget)
+	for {
+		got, err := svc.Get(context.Background(), "u1", materialID)
+		if err != nil {
+			t.Fatalf("get %s: %v", materialID, err)
+		}
+		switch got.RefineStatus {
+		case StatusReady, StatusFailed:
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("material %s stayed %s for %s; the background refine never settled",
+				materialID, got.RefineStatus, refineAwaitBudget)
+		}
+		time.Sleep(refineAwaitPoll)
+	}
+}
+
 func TestStore_InsertGetMark(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Now().UTC()
@@ -97,12 +141,8 @@ func TestRefine_SuccessFiveBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Refine(context.Background(), created.MaterialID); err != nil {
-		t.Fatal(err)
-	}
-	got, err := svc.Get(context.Background(), "u1", created.MaterialID)
-	if err != nil || got.RefineStatus != StatusReady || got.BlockCount != 5 {
-		t.Fatalf("got = %+v err=%v", got, err)
+	if got := awaitRefine(t, svc, created.MaterialID); got.RefineStatus != StatusReady || got.BlockCount != 5 {
+		t.Fatalf("got = %+v", got)
 	}
 	listed, err := blocks.ListBlocks(context.Background(), corpus.ListFilter{UserID: "u1", Limit: 20})
 	if err != nil || len(listed) != 5 {
@@ -113,11 +153,7 @@ func TestRefine_SuccessFiveBlocks(t *testing.T) {
 func TestRefine_TimeoutAndParseError(t *testing.T) {
 	svc := NewService(NewMemoryStore(), corpus.NewMemoryStore(), stubLLM{err: errors.New("timeout")}, nil)
 	created, _ := svc.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: "hi"})
-	if err := svc.Refine(context.Background(), created.MaterialID); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := svc.Get(context.Background(), "u1", created.MaterialID)
-	if got.RefineStatus != StatusFailed || got.ErrorCode != ErrorLLMTimeout {
+	if got := awaitRefine(t, svc, created.MaterialID); got.RefineStatus != StatusFailed || got.ErrorCode != ErrorLLMTimeout {
 		t.Fatalf("timeout got %+v", got)
 	}
 	if !strings.Contains(PrometheusMetrics(), "material_refine_timeout_total") {
@@ -126,9 +162,7 @@ func TestRefine_TimeoutAndParseError(t *testing.T) {
 
 	svc2 := NewService(NewMemoryStore(), corpus.NewMemoryStore(), stubLLM{body: "not-json"}, nil)
 	created2, _ := svc2.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: "hi"})
-	_ = svc2.Refine(context.Background(), created2.MaterialID)
-	got2, _ := svc2.Get(context.Background(), "u1", created2.MaterialID)
-	if got2.RefineStatus != StatusFailed || got2.ErrorCode != ErrorParse {
+	if got2 := awaitRefine(t, svc2, created2.MaterialID); got2.RefineStatus != StatusFailed || got2.ErrorCode != ErrorParse {
 		t.Fatalf("parse got %+v", got2)
 	}
 	if !strings.Contains(PrometheusMetrics(), "material_refine_parse_error_total") {
@@ -139,8 +173,7 @@ func TestRefine_TimeoutAndParseError(t *testing.T) {
 func TestRefine_ZeroChunksReady(t *testing.T) {
 	svc := NewService(NewMemoryStore(), corpus.NewMemoryStore(), stubLLM{body: `{"blocks":[]}`}, nil)
 	created, _ := svc.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: "zzz"})
-	_ = svc.Refine(context.Background(), created.MaterialID)
-	got, _ := svc.Get(context.Background(), "u1", created.MaterialID)
+	got := awaitRefine(t, svc, created.MaterialID)
 	if got.RefineStatus != StatusReady || got.ErrorCode != ErrorNoChunks || got.BlockCount != 0 {
 		t.Fatalf("zero = %+v", got)
 	}
@@ -149,16 +182,18 @@ func TestRefine_ZeroChunksReady(t *testing.T) {
 func TestRefine_InsertBulkFailAndIdempotent(t *testing.T) {
 	svc := NewService(NewMemoryStore(), boomBlocks{}, stubLLM{body: fiveBlockJSON()}, nil)
 	created, _ := svc.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: "hi"})
-	if err := svc.Refine(context.Background(), created.MaterialID); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := svc.Get(context.Background(), "u1", created.MaterialID)
-	if got.RefineStatus != StatusFailed || got.ErrorCode != ErrorDB {
+	if got := awaitRefine(t, svc, created.MaterialID); got.RefineStatus != StatusFailed || got.ErrorCode != ErrorDB {
 		t.Fatalf("db fail = %+v", got)
 	}
 
 	svc2 := NewService(NewMemoryStore(), corpus.NewMemoryStore(), stubLLM{body: fiveBlockJSON()}, nil)
 	ok, _ := svc2.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: "hi"})
+	if first := awaitRefine(t, svc2, ok.MaterialID); first.RefineStatus != StatusReady {
+		t.Fatalf("first refine = %+v", first)
+	}
+	// Settled first, so the two calls below are genuinely extra ones. Asking
+	// "what does a second refine answer" of a fixture that is still being
+	// refined by Create measures the race, not the answer.
 	_ = svc2.Refine(context.Background(), ok.MaterialID)
 	if err := svc2.Refine(context.Background(), ok.MaterialID); err != nil {
 		t.Fatalf("second refine: %v", err)
@@ -199,12 +234,14 @@ func TestGet_CrossUserAndSoftDelete(t *testing.T) {
 
 func TestRefine_P95Budget(t *testing.T) {
 	svc := NewService(NewMemoryStore(), corpus.NewMemoryStore(), stubLLM{body: fiveBlockJSON()}, nil)
-	created, _ := svc.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: strings.Repeat("word ", 100)})
 	start := time.Now()
-	if err := svc.Refine(context.Background(), created.MaterialID); err != nil {
-		t.Fatal(err)
-	}
-	if time.Since(start) > 35*time.Second {
-		t.Fatalf("refine too slow: %s", time.Since(start))
+	created, _ := svc.Create(context.Background(), "u1", CreateRequest{Kind: KindPaste, Content: strings.Repeat("word ", 100)})
+	awaitRefine(t, svc, created.MaterialID)
+	// Measured from Create, not from an explicit Refine call. The old shape
+	// timed `Refine` on its own — and when the background job had already taken
+	// the row, that call returned at once, so the test was timing a no-op that
+	// could never be slow. This is the path a request actually takes.
+	if elapsed := time.Since(start); elapsed > 35*time.Second {
+		t.Fatalf("refine too slow: %s", elapsed)
 	}
 }
