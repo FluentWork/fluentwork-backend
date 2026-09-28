@@ -17,6 +17,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/voicegateway"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
+	"github.com/FluentWork/fluentwork-backend/internal/wsframetest"
 )
 
 const testBudget = 60 * time.Second
@@ -977,23 +978,19 @@ func (s *integrationSource) CandidatesForUser(ctx context.Context, _ string) ([]
 	return out, nil
 }
 
-// waitForType reads frames until one with the requested type arrives or the
-// context expires.
+// waitForType reads frames until one with the requested type arrives.
+//
+// A timeout is a failure — callers only ask for frames they do expect — and the
+// failure message carries the frames that arrived in the meantime. That
+// transcript is the whole reason this goes through wsframetest: a wait that
+// discards what it skips also discards the evidence for its own failure.
 func waitForType(ctx context.Context, t *testing.T, conn *websocket.Conn, want string) any {
 	t.Helper()
-	for {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("waitForType(%s): %v", want, err)
-		}
-		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatalf("decode frame: %v", err)
-		}
-		if raw["type"] == want {
-			return raw
-		}
+	frame, err := wsframetest.AwaitType(ctx, conn, want)
+	if err != nil {
+		t.Fatalf("waitForType: %v", err)
 	}
+	return frame
 }
 
 func readFrame(ctx context.Context, t *testing.T, conn *websocket.Conn) map[string]any {

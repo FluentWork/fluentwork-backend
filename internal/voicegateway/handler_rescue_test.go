@@ -17,6 +17,7 @@ import (
 
 	"github.com/FluentWork/fluentwork-backend/internal/conversation"
 	"github.com/FluentWork/fluentwork-backend/internal/voiceproto"
+	"github.com/FluentWork/fluentwork-backend/internal/wsframetest"
 )
 
 // The handler-level B8 tests run on a **fake clock**.
@@ -457,22 +458,15 @@ func rescueReadFrame(ctx context.Context, t *testing.T, conn *websocket.Conn) ma
 }
 
 // rescueWaitForType reads until the wanted type arrives or the budget expires.
-// A timeout is a failure: callers only ask for frames they expect.
+// A timeout is a failure: callers only ask for frames they expect. The message
+// names what did arrive — see wsframetest.AwaitType for why that matters.
 func rescueWaitForType(ctx context.Context, t *testing.T, conn *websocket.Conn, want string) map[string]any {
 	t.Helper()
-	for {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("waitForType(%s): %v", want, err)
-		}
-		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatalf("decode frame: %v", err)
-		}
-		if raw["type"] == want {
-			return raw
-		}
+	frame, err := wsframetest.AwaitType(ctx, conn, want)
+	if err != nil {
+		t.Fatalf("rescueWaitForType: %v", err)
 	}
+	return frame
 }
 
 // rescueReadAudioStream consumes one rung's audio: the ai.tts.start, its binary
