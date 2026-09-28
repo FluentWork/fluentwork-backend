@@ -101,16 +101,16 @@ func TestTheFinalTurnCarriesTheClosingInstructionAndTheTerminationSignal(t *test
 	ctx, conn := openSessionForTurnLimitTest(t, life, providerSession)
 
 	first := driveTurn(ctx, t, conn)
-	if len(providerSession.queuedInstructions) != 0 {
-		t.Fatalf("turn 1 queued %v, want nothing before the limit", providerSession.queuedInstructions)
+	if len(providerSession.state().queuedInstructions) != 0 {
+		t.Fatalf("turn 1 queued %v, want nothing before the limit", providerSession.state().queuedInstructions)
 	}
 	if sessionComplete(first) {
 		t.Fatal("turn 1 said the session was complete, but it was only 1 of 2")
 	}
 
 	second := driveTurn(ctx, t, conn)
-	if len(providerSession.queuedInstructions) != 1 {
-		t.Fatalf("turn 2 queued %v, want exactly one closing instruction", providerSession.queuedInstructions)
+	if len(providerSession.state().queuedInstructions) != 1 {
+		t.Fatalf("turn 2 queued %v, want exactly one closing instruction", providerSession.state().queuedInstructions)
 	}
 	if !sessionComplete(second) {
 		t.Fatal("the last turn's ai.turn.end must carry session_complete")
@@ -134,7 +134,7 @@ func TestTheTurnLimitIsWhateverActivationReported(t *testing.T) {
 			reachedAt := 0
 			for turn := 1; turn <= limit+1 && reachedAt == 0; turn++ {
 				frame := driveTurn(ctx, t, conn)
-				if len(providerSession.queuedInstructions) > 0 {
+				if len(providerSession.state().queuedInstructions) > 0 {
 					reachedAt = turn
 					if !sessionComplete(frame) {
 						t.Fatalf("turn %d produced the closing instruction but its ai.turn.end was not stamped", turn)
@@ -144,8 +144,8 @@ func TestTheTurnLimitIsWhateverActivationReported(t *testing.T) {
 			if reachedAt != limit {
 				t.Fatalf("the closing instruction arrived on turn %d, want turn %d", reachedAt, limit)
 			}
-			if len(providerSession.queuedInstructions) != 1 {
-				t.Fatalf("queued %d instructions, want 1", len(providerSession.queuedInstructions))
+			if len(providerSession.state().queuedInstructions) != 1 {
+				t.Fatalf("queued %d instructions, want 1", len(providerSession.state().queuedInstructions))
 			}
 		})
 	}
@@ -167,8 +167,8 @@ func TestTheSessionStaysCompleteAndIsNotClosedTwice(t *testing.T) {
 	if frame := driveTurn(ctx, t, conn); !sessionComplete(frame) {
 		t.Fatal("a session past its limit must keep saying so")
 	}
-	if len(providerSession.queuedInstructions) != 1 {
-		t.Fatalf("queued %v, want the closing instruction exactly once", providerSession.queuedInstructions)
+	if len(providerSession.state().queuedInstructions) != 1 {
+		t.Fatalf("queued %v, want the closing instruction exactly once", providerSession.state().queuedInstructions)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestAStandardSessionGetsNoClosingInstructionAndNoTerminationSignal(t *testi
 			t.Fatalf("turn %d of a standard session carried session_complete", turn)
 		}
 	}
-	if len(providerSession.queuedInstructions) != 0 {
-		t.Fatalf("a standard session was sent %v, want no instruction at all", providerSession.queuedInstructions)
+	if len(providerSession.state().queuedInstructions) != 0 {
+		t.Fatalf("a standard session was sent %v, want no instruction at all", providerSession.state().queuedInstructions)
 	}
 }

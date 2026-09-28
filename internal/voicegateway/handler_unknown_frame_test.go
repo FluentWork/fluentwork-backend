@@ -52,8 +52,8 @@ func TestHandler_UnknownControlFrameIsIgnoredSessionStaysAlive(t *testing.T) {
 	if pong["ts"] != float64(11) {
 		t.Fatalf("pong ts = %#v", pong["ts"])
 	}
-	if len(providerSession.controlTypes) != 0 {
-		t.Fatalf("unknown type must not reach the provider, got %#v", providerSession.controlTypes)
+	if len(providerSession.state().controlTypes) != 0 {
+		t.Fatalf("unknown type must not reach the provider, got %#v", providerSession.state().controlTypes)
 	}
 }
 

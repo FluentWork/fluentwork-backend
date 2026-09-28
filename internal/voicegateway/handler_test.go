@@ -84,9 +84,12 @@ type stubProvider struct {
 	session *stubProviderSession
 	err     error
 	calls   int
+	mu      sync.Mutex
 }
 
 func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ *voicegateway.SeqAllocator, _ *voicegateway.TurnRefAllocator) (voicegateway.VoiceProviderSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
@@ -97,7 +100,14 @@ func (s *stubProvider) Open(_ context.Context, _ voicegateway.ConsumedTicket, _ 
 	return s.session, nil
 }
 
+func (s *stubProvider) snapshot() (int, *stubProviderSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls, s.session
+}
+
 type stubProviderSession struct {
+	mu           sync.Mutex
 	startCalls   int
 	controlTypes []string
 	audioPayload [][]byte
@@ -122,7 +132,39 @@ type stubProviderSession struct {
 	turnEndOnSpeechEnd bool
 }
 
+type stubProviderSessionState struct {
+	startCalls         int
+	controlTypes       []string
+	audioPayload       [][]byte
+	closed             bool
+	utterances         []voicegateway.EndUtterance
+	continuation       [][]voicegateway.ContinuationTurn
+	materials          []string
+	startFrames        []voiceproto.SessionStart
+	queuedInstructions []string
+}
+
+func (s *stubProviderSession) state() stubProviderSessionState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	continuation := make([][]voicegateway.ContinuationTurn, len(s.continuation))
+	copy(continuation, s.continuation)
+	return stubProviderSessionState{
+		startCalls:         s.startCalls,
+		controlTypes:       append([]string(nil), s.controlTypes...),
+		audioPayload:       append([][]byte(nil), s.audioPayload...),
+		closed:             s.closed,
+		utterances:         append([]voicegateway.EndUtterance(nil), s.utterances...),
+		continuation:       continuation,
+		materials:          append([]string(nil), s.materials...),
+		startFrames:        append([]voiceproto.SessionStart(nil), s.startFrames...),
+		queuedInstructions: append([]string(nil), s.queuedInstructions...),
+	}
+}
+
 func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionStart, session voicegateway.SessionContext) ([]voicegateway.ProviderOutbound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.startCalls++
 	s.startFrames = append(s.startFrames, start)
 	s.continuation = append(s.continuation, session.Continuation)
@@ -144,10 +186,14 @@ func (s *stubProviderSession) Start(_ context.Context, start voiceproto.SessionS
 }
 
 func (s *stubProviderSession) QueueSessionInstruction(instruction string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.queuedInstructions = append(s.queuedInstructions, instruction)
 }
 
 func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType string, _ []byte) ([]voicegateway.ProviderOutbound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.controlTypes = append(s.controlTypes, frameType)
 	if s.serverASRText != "" {
 		return []voicegateway.ProviderOutbound{
@@ -175,15 +221,21 @@ func (s *stubProviderSession) HandleClientControl(_ context.Context, frameType s
 }
 
 func (s *stubProviderSession) HandleClientAudio(_ context.Context, payload []byte) ([]voicegateway.ProviderOutbound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.audioPayload = append(s.audioPayload, append([]byte(nil), payload...))
 	return nil, s.audioErr
 }
 
 func (s *stubProviderSession) SnapshotUtterances() []voicegateway.EndUtterance {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return append([]voicegateway.EndUtterance(nil), s.utterances...)
 }
 
 func (s *stubProviderSession) Close(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.closed = true
 	return nil
 }
@@ -283,8 +335,8 @@ func TestVoiceHandshakeAndSessionLoop(t *testing.T) {
 	if life.activateCalls != 1 || life.endCalls != 1 {
 		t.Fatalf("lifecycle activate=%d end=%d", life.activateCalls, life.endCalls)
 	}
-	if provider.calls != 1 || providerSession.startCalls != 1 {
-		t.Fatalf("provider open=%d start=%d", provider.calls, providerSession.startCalls)
+	if calls, _ := provider.snapshot(); calls != 1 || providerSession.state().startCalls != 1 {
+		t.Fatalf("provider open=%d start=%d", calls, providerSession.state().startCalls)
 	}
 	if life.lastEnd.SessionID != "s1" || len(life.lastEnd.Utterances) != 1 || life.lastEnd.Utterances[0].Text != "provider-ready" {
 		t.Fatalf("unexpected end request: %+v", life.lastEnd)
@@ -777,8 +829,8 @@ func TestHandler_AcceptsEmptyTextWhenClientASRNotRequired(t *testing.T) {
 	}
 
 	// Verify provider received the control frame
-	if len(providerSession.controlTypes) != 1 || providerSession.controlTypes[0] != voiceproto.TypeUserSpeechEnd {
-		t.Fatalf("provider controlTypes: got %v", providerSession.controlTypes)
+	if got := providerSession.state().controlTypes; len(got) != 1 || got[0] != voiceproto.TypeUserSpeechEnd {
+		t.Fatalf("provider controlTypes: got %v", got)
 	}
 }
 
@@ -842,8 +894,8 @@ func TestHandler_AcceptsPopulatedTextWhenClientASRRequired(t *testing.T) {
 	}
 
 	// Verify provider received the control frame
-	if len(providerSession.controlTypes) != 1 || providerSession.controlTypes[0] != voiceproto.TypeUserSpeechEnd {
-		t.Fatalf("provider controlTypes: got %v", providerSession.controlTypes)
+	if got := providerSession.state().controlTypes; len(got) != 1 || got[0] != voiceproto.TypeUserSpeechEnd {
+		t.Fatalf("provider controlTypes: got %v", got)
 	}
 }
 

@@ -21,10 +21,10 @@ func TestSessionStartPassesTheMaterialContextToTheProvider(t *testing.T) {
 		SceneType: "standup",
 	})
 
-	if len(providerSession.materials) != 1 {
-		t.Fatalf("Start called %d times, want 1", len(providerSession.materials))
+	if len(providerSession.state().materials) != 1 {
+		t.Fatalf("Start called %d times, want 1", len(providerSession.state().materials))
 	}
-	if got := providerSession.materials[0]; got != "The deploy is blocked on the migration." {
+	if got := providerSession.state().materials[0]; got != "The deploy is blocked on the migration." {
 		t.Fatalf("provider material = %q", got)
 	}
 }
@@ -39,10 +39,10 @@ func TestSessionStartWithoutMaterialHandsTheProviderNothing(t *testing.T) {
 		Type: voiceproto.TypeSessionStart,
 	})
 
-	if len(providerSession.materials) != 1 {
-		t.Fatalf("Start called %d times, want 1", len(providerSession.materials))
+	if len(providerSession.state().materials) != 1 {
+		t.Fatalf("Start called %d times, want 1", len(providerSession.state().materials))
 	}
-	if got := providerSession.materials[0]; got != "" {
+	if got := providerSession.state().materials[0]; got != "" {
 		t.Fatalf("provider material = %q, want empty", got)
 	}
 }

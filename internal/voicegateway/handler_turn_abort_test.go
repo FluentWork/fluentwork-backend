@@ -58,7 +58,7 @@ func TestHandler_ClientTurnAbortKeepsSessionAlive(t *testing.T) {
 		t.Fatalf("expected pong (session alive, no error/ai.turn.end), got %#v", pong)
 	}
 
-	if got := providerSession.controlTypes; len(got) != 2 ||
+	if got := providerSession.state().controlTypes; len(got) != 2 ||
 		got[0] != voiceproto.TypeUserSpeechStart ||
 		got[1] != voiceproto.TypeClientTurnAbort {
 		t.Fatalf("provider control types = %#v want [user.speech.start client.turn.abort]", got)
@@ -141,8 +141,8 @@ func TestHandler_ClientTurnAbortRejectsOkOutcome(t *testing.T) {
 	if errFrame["type"] != voiceproto.TypeError || errFrame["code"] != "invalid_frame" {
 		t.Fatalf("expected invalid_frame, got %#v", errFrame)
 	}
-	if len(providerSession.controlTypes) != 0 {
-		t.Fatalf("invalid abort must not reach the provider, got %#v", providerSession.controlTypes)
+	if len(providerSession.state().controlTypes) != 0 {
+		t.Fatalf("invalid abort must not reach the provider, got %#v", providerSession.state().controlTypes)
 	}
 }
 

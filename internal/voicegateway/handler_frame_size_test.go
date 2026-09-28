@@ -65,10 +65,10 @@ func TestHandler_AcceptsASingleLargeBinaryAudioFrame(t *testing.T) {
 	// The pong also orders the server's handling of the blob before the reads below.
 	assertSessionAlive(ctx, t, conn, "after a single 1.8 MiB binary frame")
 
-	if got := len(provider.session.audioPayload); got != 1 {
+	if got := len(provider.session.state().audioPayload); got != 1 {
 		t.Fatalf("provider saw %d audio frames, want 1", got)
 	}
-	if got := len(provider.session.audioPayload[0]); got != sixtySecondsOfPCM16 {
+	if got := len(provider.session.state().audioPayload[0]); got != sixtySecondsOfPCM16 {
 		t.Fatalf("provider payload = %d bytes, want %d", got, sixtySecondsOfPCM16)
 	}
 }

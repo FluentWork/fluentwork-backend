@@ -104,10 +104,10 @@ func TestSessionStartPassesContinuationContextToTheProvider(t *testing.T) {
 		t.Fatalf("limit = %d, want 0 (app-server's default)", life.continuationLimitIn)
 	}
 
-	if len(providerSession.continuation) != 1 {
-		t.Fatalf("Start called %d times, want 1", len(providerSession.continuation))
+	if len(providerSession.state().continuation) != 1 {
+		t.Fatalf("Start called %d times, want 1", len(providerSession.state().continuation))
 	}
-	got := providerSession.continuation[0]
+	got := providerSession.state().continuation[0]
 	if len(got) != 2 || got[0].Text != "how do I say 限流?" || got[1].Speaker != "ai" {
 		t.Fatalf("provider got %+v", got)
 	}
@@ -130,11 +130,11 @@ func TestSessionStartOpensWithoutContextWhenResolutionFails(t *testing.T) {
 	if life.continuationCalls != 1 {
 		t.Fatalf("ContinuationContext called %d times, want 1", life.continuationCalls)
 	}
-	if len(providerSession.continuation) != 1 {
-		t.Fatalf("Start called %d times, want 1", len(providerSession.continuation))
+	if len(providerSession.state().continuation) != 1 {
+		t.Fatalf("Start called %d times, want 1", len(providerSession.state().continuation))
 	}
-	if len(providerSession.continuation[0]) != 0 {
-		t.Fatalf("provider got %+v, want nothing", providerSession.continuation[0])
+	if len(providerSession.state().continuation[0]) != 0 {
+		t.Fatalf("provider got %+v, want nothing", providerSession.state().continuation[0])
 	}
 }
 
@@ -153,7 +153,7 @@ func TestSessionStartWithoutContinuationIDDoesNotLookAnythingUp(t *testing.T) {
 	if life.continuationCalls != 0 {
 		t.Fatalf("ContinuationContext called %d times, want 0", life.continuationCalls)
 	}
-	if len(providerSession.continuation) != 1 || len(providerSession.continuation[0]) != 0 {
-		t.Fatalf("provider got %+v, want nothing", providerSession.continuation)
+	if got := providerSession.state().continuation; len(got) != 1 || len(got[0]) != 0 {
+		t.Fatalf("provider got %+v, want nothing", got)
 	}
 }
