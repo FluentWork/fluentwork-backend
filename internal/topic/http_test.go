@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/topic"
 )
@@ -68,10 +68,7 @@ func setupTopic(t *testing.T) (*httpserver.Server, *topic.Service, string) {
 	t.Helper()
 	accountStore := account.NewMemoryStore()
 	store := topic.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		AccessTokenTTL: 2 * time.Hour, RefreshTokenTTL: 24 * time.Hour,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

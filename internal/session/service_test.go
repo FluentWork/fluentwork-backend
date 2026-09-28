@@ -12,18 +12,13 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
 )
 
 func TestCreateSessionIssuesTicket(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	result, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
@@ -60,13 +55,7 @@ func TestCreateSessionIssuesTicket(t *testing.T) {
 
 func TestCreateDefaultsSceneTypeAndRejectsInvalidMaterial(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ok, err := svc.Create(context.Background(), "user-1", CreateRequest{})
@@ -85,13 +74,8 @@ func TestCreateDefaultsSceneTypeAndRejectsInvalidMaterial(t *testing.T) {
 
 func TestLookupTicketRejectsExpired(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Second,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
+	cfg.SessionTicketTTL = time.Second
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	fixed := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return fixed }
@@ -108,13 +92,7 @@ func TestLookupTicketRejectsExpired(t *testing.T) {
 
 func TestLookupTicketRejectsInvalidAndUsed(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if _, err := svc.ConsumeTicket(context.Background(), ""); err == nil {
 		t.Fatal("expected empty ticket error")
@@ -143,13 +121,7 @@ func TestLookupTicketRejectsInvalidAndUsed(t *testing.T) {
 
 func TestCreateRejectsInvalidSceneType(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if _, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "bad scene!"}); err == nil {
 		t.Fatal("expected invalid scene_type error")
@@ -158,13 +130,7 @@ func TestCreateRejectsInvalidSceneType(t *testing.T) {
 
 func TestReassignerMovesSessions(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created, err := svc.Create(context.Background(), "guest-1", CreateRequest{})
 	if err != nil {
@@ -185,13 +151,7 @@ func TestReassignerMovesSessions(t *testing.T) {
 
 func TestActivateAndEndPersistUtterances(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
 	if err != nil {
@@ -285,13 +245,7 @@ func TestActivateAndEndPersistUtterances(t *testing.T) {
 
 func TestGetReviewPendingAndFailedAndAuthz(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
 	if err != nil {
@@ -340,13 +294,7 @@ func TestGetReviewPendingAndFailedAndAuthz(t *testing.T) {
 
 func TestEndReenqueuesMissingFinishedJob(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "demo"})
 	if err != nil {
@@ -508,13 +456,7 @@ func TestBuildReviewArtifactsFallsBackToStubOnGeneratorError(t *testing.T) {
 
 func TestGetReviewCanonicalizesLegacyReviewPayload(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
@@ -560,13 +502,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayload(t *testing.T) {
 
 func TestGetReviewCanonicalizesLegacyReviewPayloadWithoutGenerator(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{SceneType: "standup"})
@@ -597,13 +533,7 @@ func TestGetReviewCanonicalizesLegacyReviewPayloadWithoutGenerator(t *testing.T)
 
 func TestPostMessageTextDegradeAndVoiceConflict(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{})
 	if err != nil {
@@ -854,13 +784,7 @@ func TestMarkSessionReviewedWithCost_Memory_RejectsNonEnded(t *testing.T) {
 
 func newReviewServiceForStore(t *testing.T, store *MemoryStore) *Service {
 	t.Helper()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-	}
+	cfg := configtest.Config()
 	return NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -913,10 +837,7 @@ func (f *fakeEvalProcessor) RunEvalJob(context.Context, string) error { return n
 
 func TestEnd_EnqueuesEval(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	hook := &fakeEvalProcessor{}
 	svc.SetEvalProcessor(hook)
@@ -937,10 +858,7 @@ func TestEnd_EnqueuesEval(t *testing.T) {
 
 func TestGetReview_IncludesCompleteEval(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created := createEndedSession(t, svc)
 	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, []byte(`{"generator":"stub-v1"}`), time.Now().UTC()); err != nil {
@@ -959,10 +877,7 @@ func TestGetReview_IncludesCompleteEval(t *testing.T) {
 
 func TestGetReview_OmitsIncompleteEval(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	created := createEndedSession(t, svc)
 	if _, err := store.MarkSessionReviewed(context.Background(), created.SessionID, []byte(`{"generator":"stub-v1"}`), time.Now().UTC()); err != nil {
@@ -988,10 +903,7 @@ func (boomEval) RunEvalJob(context.Context, string) error { return nil }
 
 func TestEnd_EvalEnqueueFailureDoesNotFailEnd(t *testing.T) {
 	store := NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice", SessionTicketTTL: 60 * time.Second,
-	}
+	cfg := configtest.Config()
 	svc := NewService(store, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	svc.SetEvalProcessor(boomEval{})
 	created, err := svc.Create(context.Background(), "user-1", CreateRequest{})
@@ -1046,13 +958,7 @@ func TestCreate_ProvisionsStarterCorpusForANewLearner(t *testing.T) {
 // newTestService is a service over the given store, with logging discarded.
 func newTestService(t *testing.T, store Store) *Service {
 	t.Helper()
-	return NewService(store, config.Config{
-		VoiceGatewayWSSURL: "ws://example.test/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		AuthJWTSecret:      config.DevJWTSecret,
-		AppEnv:             "development",
-		HTTPAddr:           ":0",
-	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewService(store, configtest.Config(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 // P0-3 方案 A: a session the learner never spoke in has nothing to review. It

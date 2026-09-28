@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
@@ -17,16 +17,7 @@ import (
 func TestInternalConsumeTicket(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, nil)
@@ -167,16 +158,7 @@ func TestInternalConsumeTicket(t *testing.T) {
 func TestInternalConsumeTicketRequiresToken(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   time.Minute,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, nil)

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
@@ -20,14 +20,7 @@ import (
 
 func TestHandler_RoundAndJudgeHTTP(t *testing.T) {
 	accountStore := account.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:         ":0",
-		AppEnv:           "development",
-		AuthJWTSecret:    config.DevJWTSecret,
-		AccessTokenTTL:   2 * time.Hour,
-		RefreshTokenTTL:  24 * time.Hour,
-		InternalAPIToken: config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

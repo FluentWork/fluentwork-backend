@@ -10,11 +10,11 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/review"
 	"github.com/FluentWork/fluentwork-backend/internal/reviewgen"
@@ -25,16 +25,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.Service) {
 	t.Helper()
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     2 * time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
@@ -48,16 +39,7 @@ func setupServerWithReviewGen(t *testing.T, gen session.ReviewGenerator) (*https
 	t.Helper()
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     2 * time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)
@@ -440,16 +422,7 @@ func drainSessionJobs(t *testing.T, svc *session.Service) {
 func TestGetReviewHTTP_IncludesEvalAndA4Undelete(t *testing.T) {
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     2 * time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

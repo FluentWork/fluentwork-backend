@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/content"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
@@ -24,16 +24,7 @@ func setupServer(t *testing.T) (*httpserver.Server, *account.TokenResponse) {
 	sessionStore := session.NewMemoryStore()
 	corpusStore := corpus.NewMemoryStore()
 	contentStore := content.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:           ":0",
-		AppEnv:             "development",
-		AuthJWTSecret:      config.DevJWTSecret,
-		AccessTokenTTL:     2 * time.Hour,
-		RefreshTokenTTL:    24 * time.Hour,
-		VoiceGatewayWSSURL: "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:   60 * time.Second,
-		InternalAPIToken:   config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.ChainReassigner{
 		session.Reassigner{Store: sessionStore},

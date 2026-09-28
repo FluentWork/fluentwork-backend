@@ -15,6 +15,7 @@ import (
 	"github.com/FluentWork/fluentwork-backend/internal/aicost"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/corpus"
 	"github.com/FluentWork/fluentwork-backend/internal/drill"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
@@ -24,14 +25,7 @@ import (
 func setupPrivacyServer(t *testing.T) (*httpserver.Server, *account.Service, *account.PrivacyService, *corpus.MemoryStore, *account.MemoryStore, *account.TokenResponse) {
 	t.Helper()
 	accountStore := account.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:         ":0",
-		AppEnv:           "development",
-		AuthJWTSecret:    config.DevJWTSecret,
-		AccessTokenTTL:   2 * time.Hour,
-		RefreshTokenTTL:  24 * time.Hour,
-		InternalAPIToken: config.DevInternalAPIToken,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 	"github.com/FluentWork/fluentwork-backend/internal/sessionhistory"
@@ -21,13 +21,7 @@ func setupHistory(t *testing.T) (*httpserver.Server, *session.MemoryStore, strin
 	t.Helper()
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:        ":0",
-		AppEnv:          "development",
-		AuthJWTSecret:   config.DevJWTSecret,
-		AccessTokenTTL:  2 * time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, session.Reassigner{Store: sessionStore}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

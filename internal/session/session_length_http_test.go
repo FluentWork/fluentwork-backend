@@ -8,27 +8,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/session"
 )
 
 func serverWithMiniTurnLimit(t *testing.T, miniTurnLimit int) *httpserver.Server {
 	t.Helper()
-	cfg := config.Config{
-		HTTPAddr:             ":0",
-		AppEnv:               "development",
-		AuthJWTSecret:        config.DevJWTSecret,
-		AccessTokenTTL:       time.Hour,
-		RefreshTokenTTL:      24 * time.Hour,
-		VoiceGatewayWSSURL:   "ws://127.0.0.1:8081/v1/voice",
-		SessionTicketTTL:     time.Minute,
-		InternalAPIToken:     config.DevInternalAPIToken,
-		MiniSessionTurnLimit: miniTurnLimit,
-	}
+	cfg := configtest.Config()
+	cfg.MiniSessionTurnLimit = miniTurnLimit
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountStore := account.NewMemoryStore()
 	sessionStore := session.NewMemoryStore()

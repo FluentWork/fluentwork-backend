@@ -8,10 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 	"github.com/FluentWork/fluentwork-backend/internal/materials"
 )
@@ -20,10 +19,7 @@ func setupMaterials(t *testing.T) (*httpserver.Server, *materials.Service, strin
 	t.Helper()
 	accountStore := account.NewMemoryStore()
 	store := materials.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr: ":0", AppEnv: "development", AuthJWTSecret: config.DevJWTSecret,
-		AccessTokenTTL: 2 * time.Hour, RefreshTokenTTL: 24 * time.Hour,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	accountSvc := account.NewService(accountStore, account.NopReassigner{}, cfg, logger)
 	accountHandler := account.NewHandler(accountSvc)

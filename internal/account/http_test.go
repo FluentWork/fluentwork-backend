@@ -13,20 +13,14 @@ import (
 
 	"github.com/FluentWork/fluentwork-backend/internal/account"
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 	"github.com/FluentWork/fluentwork-backend/internal/httpserver"
 )
 
 func setupServer(t *testing.T) (*httpserver.Server, *account.Service, *account.MemoryStore) {
 	t.Helper()
 	store := account.NewMemoryStore()
-	cfg := config.Config{
-		HTTPAddr:        ":0",
-		AppEnv:          "development",
-		AuthJWTSecret:   config.DevJWTSecret,
-		AccessTokenTTL:  2 * time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
-	}
+	cfg := configtest.Config()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := account.NewService(store, account.NopReassigner{}, cfg, logger)
 	server := httpserver.New(cfg, logger, account.NewHandler(svc), nil, nil, nil, nil, nil, nil, nil, nil, nil, store.Ping)

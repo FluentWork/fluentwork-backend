@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/FluentWork/fluentwork-backend/internal/apierr"
-	"github.com/FluentWork/fluentwork-backend/internal/config"
+	"github.com/FluentWork/fluentwork-backend/internal/configtest"
 )
 
 type recordingReassigner struct {
@@ -25,21 +25,11 @@ func (r *recordingReassigner) ReassignFromGuest(_ context.Context, guestUserID, 
 	return nil
 }
 
-func testConfig() config.Config {
-	return config.Config{
-		HTTPAddr:        ":8080",
-		AppEnv:          "development",
-		AuthJWTSecret:   config.DevJWTSecret,
-		AccessTokenTTL:  2 * time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
-	}
-}
-
 func newTestService(t *testing.T, reassigner Reassigner) (*Service, *MemoryStore) {
 	t.Helper()
 	store := NewMemoryStore()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	svc := NewService(store, reassigner, testConfig(), logger)
+	svc := NewService(store, reassigner, configtest.Config(), logger)
 	svc.now = func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) }
 	return svc, store
 }
