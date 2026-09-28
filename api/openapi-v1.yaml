@@ -1218,14 +1218,41 @@ components:
         session_id: { type: string }
     DrillJudgeResponse:
       type: object
-      required: [pass, judge_reason, success_streak, state, next_due_at, recorded]
+      required: [pass, judge_reason, judged, success_streak, state, next_due_at, recorded]
       properties:
         pass: { type: boolean }
         judge_reason: { type: string }
+        judged:
+          type: boolean
+          description: |
+            False when the judge could not run (timeout, parse failure, judge
+            unavailable). The schedule is then untouched and `retryable` is set:
+            a judge that did not run is not evidence that the learner was wrong.
+        retryable:
+          type: boolean
+          description: This attempt can simply be sent again.
         success_streak: { type: integer }
         state: { type: string }
         next_due_at: { type: string, format: date-time }
         recorded: { type: boolean }
+        record_id:
+          type: integer
+          format: int64
+          description: |
+            Names this attempt so POST /drill/appeal can point at it (PRD E2).
+            Zero when the ledger write failed after the schedule had moved.
+        promoted:
+          type: boolean
+          description: |
+            This is the attempt that turned the block green (PRD E4's 已自动化
+            change). The transition is already in `state`; this says it happened
+            *now*, which is what a celebration needs.
+        asr_text:
+          type: string
+          description: |
+            What the judge actually read, shown next to the verdict (PRD E2:
+            判定前展示 ASR 识别文本) so a learner who was misheard can see that
+            instead of guessing.
     UndeleteUserRequest:
       type: object
       required: [user_id]
@@ -1521,11 +1548,12 @@ components:
         generator: { type: string }
     PhraseBlock:
       type: object
-      required: [id, intent_zh, expression_en, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, is_favorite, created_at, updated_at]
+      required: [id, intent_zh, expression_en, expression_version, anchor_user_said, scene_tag, function_tag, state, success_streak, next_due_at, ease_factor, real_use_count, is_favorite, created_at, updated_at]
       properties:
         id: { type: string }
         intent_zh: { type: string }
         expression_en: { type: string }
+        expression_version: { type: integer }
         anchor_user_said: { type: string }
         scene_tag:
           type: string
@@ -1618,9 +1646,15 @@ components:
                 enum: [object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit]
     BatchAcceptBlocksResponse:
       type: object
-      required: [accepted_count, items]
+      required: [accepted_count, merged_count, items]
       properties:
         accepted_count: { type: integer }
+        merged_count:
+          type: integer
+          description: |
+            Incoming blocks that matched an expression the learner already owned:
+            they were not inserted, and they come back inside `items` as the
+            existing block (86_ M5).
         items:
           type: array
           items:
@@ -1775,7 +1809,7 @@ components:
             $ref: "#/components/schemas/TopicCard"
     TopicCard:
       type: object
-      required: [id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, valid_until, created_at, updated_at]
+      required: [id, for_date, title, prompt_en, prompt_zh, card_type, seed_tags, block_ids, valid_until, created_at, updated_at]
       properties:
         id: { type: string }
         for_date: { type: string, format: date-time }
@@ -1788,16 +1822,60 @@ components:
         seed_tags:
           type: array
           items: { type: string }
+        block_ids:
+          type: array
+          items: { type: string }
+          description: |
+            The 可调用话术块清单 (PRD §7.8 H1) as ids: the learner's own blocks
+            this topic can put to work.
+        blocks:
+          type: array
+          description: The same list resolved for display.
+          items:
+            type: object
+            required: [id, expression_en, intent_zh]
+            properties:
+              id: { type: string }
+              expression_en: { type: string }
+              intent_zh: { type: string }
+        source_note:
+          type: string
+          description: |
+            PRD H2's provenance line — which of the learner's materials and tags
+            this card came from. A card without one was one the server could not
+            ground.
         valid_until: { type: string, format: date-time }
         checked_in_at: { type: string, format: date-time }
+        dismissed_at:
+          type: string
+          format: date-time
+          description: |
+            Set when the learner reported not getting to use this card (86_ M11).
+            A dismissal carries no penalty.
+        dismiss_reason:
+          type: string
+          enum: [no_partner, not_confident, no_time, not_relevant]
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     TopicCheckinResult:
       type: object
-      required: [checkin_id, streak_days]
+      required: [checkin_id, streak_days, recorded_use]
       properties:
         checkin_id: { type: string }
         streak_days: { type: integer }
+        recorded_use:
+          type: integer
+          description: |
+            How many of the card's blocks were credited as used in a real
+            conversation (86_ M10). Zero means the learner ticked none or the
+            ledger was not wired — never that the checkin failed.
+        ignored_block_ids:
+          type: array
+          items: { type: string }
+          description: |
+            Ids the client sent that this card never offered. Reported rather
+            than silently dropped: a client sending unknown ids has a bug worth
+            seeing.
     DrillAppealRequest:
       type: object
       required: [record_id]

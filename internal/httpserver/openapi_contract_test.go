@@ -44,12 +44,112 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/FluentWork/fluentwork-backend/internal/corpus"
+	"github.com/FluentWork/fluentwork-backend/internal/drill"
+	"github.com/FluentWork/fluentwork-backend/internal/materials"
+	"github.com/FluentWork/fluentwork-backend/internal/session"
+	"github.com/FluentWork/fluentwork-backend/internal/topic"
 )
+
+// payloads pairs each contract schema with the Go type the server actually
+// serialises into it. The mapping is written out by hand rather than inferred:
+// picked by similarity, `TopicCard` matches `topic.Card`, while the handler
+// returns `topic.CardView` — and the two differ by exactly the field this part
+// of the guard exists to check.
+//
+// Only flat schemas are listed. A schema built from `allOf` (`Recommendation`)
+// or written inline in a path (`POST /topic-cards/{id}/dismiss`'s body) is not
+// checked here; see the file header.
+var payloads = []struct {
+	schema string
+	value  any
+}{
+	{schema: "PhraseBlock", value: corpus.PhraseBlockView{}},
+	{schema: "BatchAcceptBlocksResponse", value: corpus.BatchAcceptResponse{}},
+	{schema: "RecommendationListResponse", value: corpus.RecommendationResponse{}},
+	{schema: "BlockFeedbackResponse", value: corpus.FeedbackResponse{}},
+	{schema: "DrillRound", value: drill.Round{}},
+	{schema: "DrillCard", value: drill.Card{}},
+	{schema: "DrillJudgeResponse", value: drill.JudgeResponse{}},
+	{schema: "DrillAppealRequest", value: drill.AppealRequest{}},
+	{schema: "DrillAppealResponse", value: drill.AppealResponse{}},
+	{schema: "TopicCard", value: topic.CardView{}},
+	{schema: "TopicCardList", value: topic.ListResponse{}},
+	{schema: "TopicCheckinResult", value: topic.CheckinResult{}},
+	{schema: "TopicDismissResult", value: topic.DismissResult{}},
+	{schema: "TopicPracticeStats", value: topic.PracticeStats{}},
+	{schema: "Material", value: materials.Material{}},
+	{schema: "CreateMaterialResponse", value: materials.CreateResponse{}},
+	{schema: "CreateSessionResponse", value: session.CreateResponse{}},
+}
+
+// contractProperties returns, per schema, the property names it declares. Only
+// a flat `properties:` block is read, which is why the table above lists flat
+// schemas only.
+func contractProperties(spec string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	var (
+		inSchemas bool
+		current   string
+		inProps   bool
+	)
+	for _, line := range strings.Split(spec, "\n") {
+		if !inSchemas {
+			if line == "  schemas:" {
+				inSchemas = true
+			}
+			continue
+		}
+		if line != "" && !strings.HasPrefix(line, " ") {
+			break
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		switch {
+		case indent == 4:
+			current = keyName(line)
+			out[current] = map[string]bool{}
+			inProps = false
+		case indent == 6:
+			inProps = keyName(line) == "properties"
+		case indent == 8 && inProps && current != "":
+			out[current][keyName(line)] = true
+		}
+	}
+	return out
+}
+
+// jsonFields returns the JSON member names a value serialises to, flattening
+// embedded structs and dropping everything tagged `-`.
+func jsonFields(value any) map[string]bool {
+	out := map[string]bool{}
+	typ := reflect.TypeOf(value)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" { // unexported
+			continue
+		}
+		if field.Anonymous {
+			embedded := reflect.New(field.Type).Elem().Interface()
+			for name := range jsonFields(embedded) {
+				out[name] = true
+			}
+			continue
+		}
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		out[name] = true
+	}
+	return out
+}
 
 // httpMethods are the method names both sides spell in upper case.
 var httpMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -292,6 +392,82 @@ func TestTheContractCoversEveryRouteThisServerServes(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("payload fields", func(t *testing.T) {
+		t.Run("json fields", func(t *testing.T) {
+			card := jsonFields(topic.CardView{})
+			if !card["blocks"] {
+				t.Errorf("CardView's own field is missing: %v", card)
+			}
+			if !card["id"] {
+				t.Errorf("an embedded struct's field is not flattened: %v", card)
+			}
+			material := jsonFields(materials.Material{})
+			if material["user_id"] || material["deleted_at"] {
+				t.Errorf("a field tagged `-` is being treated as sent: %v", material)
+			}
+		})
+
+		t.Run("contract properties", func(t *testing.T) {
+			spec := "components:\n" +
+				"  securitySchemes:\n    bearerAuth:\n      type: http\n" +
+				"  schemas:\n" +
+				"    Flat:\n      type: object\n      properties:\n" +
+				"        one: { type: string }\n" +
+				"        two:\n          type: object\n          properties:\n" +
+				"            nested: { type: string }\n" +
+				"    Built:\n      allOf:\n" +
+				"        - $ref: \"#/components/schemas/Flat\"\n" +
+				"        - type: object\n          properties:\n            three: { type: integer }\n"
+			got := contractProperties(spec)
+			if want := map[string]bool{"one": true, "two": true}; !reflect.DeepEqual(got["Flat"], want) {
+				t.Errorf("a flat schema = %v, want %v", got["Flat"], want)
+			}
+			if len(got["Built"]) != 0 {
+				t.Errorf("an allOf schema reports properties of its own: %v", got["Built"])
+			}
+			if len(got["bearerAuth"]) != 0 {
+				t.Errorf("securitySchemes is being read as a schema: %v", got["bearerAuth"])
+			}
+		})
+
+		t.Run("repository", func(t *testing.T) {
+			root := repoRoot(t)
+			spec, err := os.ReadFile(filepath.Join(root, "api", "openapi-v1.yaml"))
+			if err != nil {
+				t.Fatalf("read the contract: %v", err)
+			}
+			declared := contractProperties(string(spec))
+
+			// Anti-silence: an empty table or an empty schema set would report
+			// the same clean result as a contract that agrees with the server.
+			const minPayloads = 15
+			if len(payloads) < minPayloads {
+				t.Fatalf("only %d payloads are mapped, expected at least %d — this check is not looking at the surface it claims to", len(payloads), minPayloads)
+			}
+			for _, payload := range payloads {
+				props, ok := declared[payload.schema]
+				if !ok {
+					t.Errorf("%s: no schema of that name in the contract", payload.schema)
+					continue
+				}
+				fields := jsonFields(payload.value)
+				if len(fields) == 0 {
+					t.Fatalf("%s: reflecting over %T found no JSON fields — this check proved nothing", payload.schema, payload.value)
+				}
+				for name := range fields {
+					if !props[name] {
+						t.Errorf("%s.%s: the server sends it and the contract never declares it", payload.schema, name)
+					}
+				}
+				for name := range props {
+					if !fields[name] {
+						t.Errorf("%s.%s: the contract declares it and the server never sends it", payload.schema, name)
+					}
+				}
+			}
+		})
 	})
 
 	t.Run("repo", func(t *testing.T) {
