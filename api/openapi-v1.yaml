@@ -558,6 +558,96 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /corpus/recommendations:
+    get:
+      summary: Recommend phrase blocks worth putting to work in a session
+      operationId: listCorpusRecommendations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scene
+          in: query
+          required: false
+          schema: { type: string }
+        - name: func
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Recommended blocks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationListResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /corpus/blocks/{id}/feedback:
+    post:
+      summary: Report a rewritten block as not good enough
+      description: |
+        The signal prompt iteration reads when deciding whether a rewrite rule
+        landed (83 §2.2 risk 1). Idempotent per (block, reason): a repeated tap
+        answers `recorded: false` instead of counting twice.
+      operationId: postBlockFeedback
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [not_idiomatic, not_useful, wrong_meaning]
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockFeedbackResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /corpus/feedback:
+    get:
+      summary: Summarise reported block problems by reason
+      operationId: getCorpusFeedbackSummary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: One bucket per reason
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorpusFeedbackSummary"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /daily-reads/today:
     get:
       summary: Get or generate today's daily read
@@ -657,6 +747,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DrillJudgeResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /drill/appeal:
+    post:
+      summary: Appeal a drill verdict the learner disagrees with
+      description: |
+        PRD E2's one-tap appeal, offered next to the ASR text before the verdict
+        is accepted. Puts back the schedule the attempt overwrote. Once per
+        attempt: a second appeal changes nothing and answers with the block's
+        current state. Per 48 §1.5.
+      operationId: appealDrillAttempt
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrillAppealRequest"
+      responses:
+        "200":
+          description: Appeal outcome and the block's state afterwards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DrillAppealResponse"
         default:
           description: Error
           content:
@@ -794,6 +914,75 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /topic-cards/stats:
+    get:
+      summary: Topic-card practice stats over a window
+      description: |
+        Counts self-reported check-ins and in-app hits together, and says so: a
+        real meeting cannot be observed by the server (86_ M9). Both halves are
+        reported apart so a conversion rate never mixes observation with
+        self-report.
+      operationId: getTopicCardStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Window summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicPracticeStats"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /topic-cards/{id}/dismiss:
+    post:
+      summary: Dismiss a topic card with the reason it went unused
+      description: |
+        The reason distribution is what says where the last mile breaks:
+        no_partner → in-app simulated partners; not_confident → a lower first
+        step; no_time → shorter cards; not_relevant → topic generation (86_ M11).
+        Idempotent: a second dismissal answers `already_dismissed: true`.
+      operationId: dismissTopicCard
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [no_partner, not_confident, no_time, not_relevant]
+      responses:
+        "200":
+          description: Dismissal recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicDismissResult"
         default:
           description: Error
           content:
@@ -1609,6 +1798,101 @@ components:
       properties:
         checkin_id: { type: string }
         streak_days: { type: integer }
+    DrillAppealRequest:
+      type: object
+      required: [record_id]
+      properties:
+        record_id: { type: integer, format: int64 }
+    DrillAppealResponse:
+      type: object
+      required: [record_id, block_id, restored, already_appealed, state, success_streak, next_due_at]
+      properties:
+        record_id: { type: integer, format: int64 }
+        block_id: { type: string }
+        restored:
+          type: boolean
+          description: The schedule the attempt overwrote was put back.
+        already_appealed:
+          type: boolean
+          description: This attempt was appealed before; nothing changed.
+        state:
+          type: string
+          enum: [new, training, automated]
+        success_streak: { type: integer }
+        next_due_at: { type: string, format: date-time }
+        note: { type: string }
+    RecommendationListResponse:
+      type: object
+      required: [items]
+      properties:
+        scene_tag: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+    Recommendation:
+      allOf:
+        - $ref: "#/components/schemas/PhraseBlock"
+        - type: object
+          required: [reason, stale]
+          properties:
+            reason: { type: string }
+            stale:
+              type: boolean
+              description: A green block past its review window.
+    BlockFeedbackResponse:
+      type: object
+      required: [block_id, reason, recorded]
+      properties:
+        block_id: { type: string }
+        reason:
+          type: string
+          enum: [not_idiomatic, not_useful, wrong_meaning]
+        recorded:
+          type: boolean
+          description: False when this reason was already reported for this block.
+    CorpusFeedbackSummary:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [reason, count]
+            properties:
+              reason: { type: string }
+              count: { type: integer }
+    TopicPracticeStats:
+      type: object
+      required: [window_days, checkins, cards_served, blocks_total, blocks_used, green_blocks, green_used, conversion_rate, checkin_rate, real_uses_hit, real_uses_checkin, dismiss_rate]
+      properties:
+        window_days: { type: integer }
+        checkins: { type: integer }
+        cards_served: { type: integer }
+        blocks_total: { type: integer }
+        blocks_used: { type: integer }
+        green_blocks: { type: integer }
+        green_used: { type: integer }
+        conversion_rate: { type: number }
+        checkin_rate: { type: number }
+        real_uses_hit: { type: integer }
+        real_uses_checkin: { type: integer }
+        dismiss_reasons:
+          type: object
+          additionalProperties: { type: integer }
+        dismiss_rate: { type: number }
+    TopicDismissResult:
+      type: object
+      required: [card_id, reason, already_dismissed]
+      properties:
+        card_id: { type: string }
+        reason:
+          type: string
+          enum: [no_partner, not_confident, no_time, not_relevant]
+        already_dismissed:
+          type: boolean
+          description: False the first time this card was dismissed.
     Error:
       type: object
       required: [code, message, request_id]
