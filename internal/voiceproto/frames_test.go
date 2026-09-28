@@ -127,8 +127,14 @@ func TestSchemaV2AddsTTSFrames(t *testing.T) {
 	}
 }
 
-func TestTTSCodecFieldsAreAllDeclaredInTheMirroredSchema(t *testing.T) {
-	t.Parallel()
+// mirroredSchemaDefs decodes the shared schema mirror and returns its $defs.
+//
+// There is no minimum-count floor here on purpose: the assertions below compare
+// set equality against the table that is written out, so a walk that stopped
+// seeing the file fails by naming every def it can no longer find. A magic
+// number would only say "something is off".
+func mirroredSchemaDefs(t *testing.T) map[string]any {
+	t.Helper()
 
 	var doc map[string]any
 	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
@@ -138,38 +144,152 @@ func TestTTSCodecFieldsAreAllDeclaredInTheMirroredSchema(t *testing.T) {
 	if !ok {
 		t.Fatal("schema missing $defs")
 	}
+	return defs
+}
 
-	cases := []struct {
-		def string
-		typ reflect.Type
-	}{
-		{"aiTTSStart", reflect.TypeOf(voiceproto.AITTSStart{})},
-		{"aiTTSEnd", reflect.TypeOf(voiceproto.AITTSEnd{})},
+// schemaOneOf returns the $defs names the schema's oneOf admits.
+func schemaOneOf(t *testing.T) map[string]bool {
+	t.Helper()
+
+	var doc map[string]any
+	if err := json.Unmarshal(sharedschemas.WSSControlFramesV2, &doc); err != nil {
+		t.Fatalf("schema json: %v", err)
 	}
-	for _, tc := range cases {
-		def, ok := defs[tc.def].(map[string]any)
-		if !ok {
-			t.Fatalf("schema missing $defs.%s", tc.def)
+	items, ok := doc["oneOf"].([]any)
+	if !ok {
+		t.Fatal("schema missing oneOf")
+	}
+	out := map[string]bool{}
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		ref, _ := m["$ref"].(string)
+		if ref == "" {
+			t.Fatalf("oneOf entry is not a $ref: %#v", item)
 		}
-		if def["additionalProperties"] != false {
-			t.Fatalf("$defs.%s must set additionalProperties:false, otherwise an undeclared field is not a defect", tc.def)
-		}
-		props, ok := def["properties"].(map[string]any)
-		if !ok {
-			t.Fatalf("$defs.%s missing properties", tc.def)
-		}
-		for i := 0; i < tc.typ.NumField(); i++ {
-			tag := tc.typ.Field(i).Tag.Get("json")
-			name, _, _ := strings.Cut(tag, ",")
-			if name == "" || name == "-" {
+		out[strings.TrimPrefix(ref, "#/$defs/")] = true
+	}
+	if len(out) == 0 {
+		t.Fatal("oneOf is empty — this guard proved nothing")
+	}
+	return out
+}
+
+// frameDefs pairs each JSON control frame with the Go type that writes it.
+//
+// Written out rather than derived, because the pairing is not a rule: a frame's
+// type constant is assigned at construction and never declared on the struct,
+// so nothing in the type says which $def it belongs to — and one def does not
+// even share its Go type's name (`error` / ErrorFrame). Matching by similarity
+// is how you end up pairing clientASRTranscription with whatever it resembles.
+var frameDefs = []struct {
+	def string
+	typ reflect.Type
+}{
+	{"auth", reflect.TypeOf(voiceproto.Auth{})},
+	{"sessionReady", reflect.TypeOf(voiceproto.SessionReady{})},
+	{"sessionStart", reflect.TypeOf(voiceproto.SessionStart{})},
+	{"userSpeechStart", reflect.TypeOf(voiceproto.UserSpeechStart{})},
+	{"userSpeechEnd", reflect.TypeOf(voiceproto.UserSpeechEnd{})},
+	{"clientTurnAbort", reflect.TypeOf(voiceproto.ClientTurnAbort{})},
+	{"clientRescueRequest", reflect.TypeOf(voiceproto.ClientRescueRequest{})},
+	{"clientASRTranscription", reflect.TypeOf(voiceproto.ClientASRTranscription{})},
+	{"aiTextDelta", reflect.TypeOf(voiceproto.AITextDelta{})},
+	{"aiTTSStart", reflect.TypeOf(voiceproto.AITTSStart{})},
+	{"aiTTSEnd", reflect.TypeOf(voiceproto.AITTSEnd{})},
+	{"aiRescueLadder", reflect.TypeOf(voiceproto.RescueLadder{})},
+	{"aiTurnEnd", reflect.TypeOf(voiceproto.AITurnEnd{})},
+	{"interrupt", reflect.TypeOf(voiceproto.Interrupt{})},
+	{"feedbackBadge", reflect.TypeOf(voiceproto.FeedbackBadge{})},
+	{"sessionEnd", reflect.TypeOf(voiceproto.SessionEnd{})},
+	{"error", reflect.TypeOf(voiceproto.ErrorFrame{})},
+	{"ping", reflect.TypeOf(voiceproto.Ping{})},
+	{"pong", reflect.TypeOf(voiceproto.Pong{})},
+}
+
+// defsWithNoGoWriter is the other half of the coverage assertion: every def
+// this guard cannot check against a struct, and why. An unmapped def has to
+// land here deliberately, with a reason, rather than be quietly skipped —
+// otherwise a new frame could be added to the schema and never be looked at.
+var defsWithNoGoWriter = map[string]string{
+	"aiAudioChunk": "type + seq, but no Go type writes it: ai.audio.chunk has no producer (BE-S1-5)",
+	"aiTTSAudio":   "a WebSocket binary message, not a JSON frame — deliberately absent from oneOf",
+}
+
+// TestEveryFrameGoCanEmitIsDeclaredInTheMirroredSchema is the backend's half of
+// a two-sided rule: the schema mirror is a copy of fluentwork-infra's v2
+// control-frame contract, and every frame this package can put on the wire has
+// to be declared in it.
+//
+// It exists because of the way the drift fails: every def here is
+// additionalProperties:false, so a field the server sends but the schema does
+// not declare makes the frame **invalid**, and a client that validates its own
+// frames — or is written from the schema — is wrong exactly where it followed
+// the contract. Neither side noticed while it was broken: session_start was
+// missing continue_from_session_id (which iOS sends and the gateway reads) and
+// B14's client.asr.transcription had no def at all. Both were invisible because
+// the only check was hand-written per-field pins.
+func TestEveryFrameGoCanEmitIsDeclaredInTheMirroredSchema(t *testing.T) {
+	t.Parallel()
+
+	defs := mirroredSchemaDefs(t)
+	oneOf := schemaOneOf(t)
+
+	t.Run("every frame is declared", func(t *testing.T) {
+		for _, tc := range frameDefs {
+			def, ok := defs[tc.def].(map[string]any)
+			if !ok {
+				t.Errorf("%s: %s can be sent, but the mirrored schema has no $defs.%s — with oneOf exhaustive, that frame is unrepresentable",
+					tc.def, tc.typ.Name(), tc.def)
 				continue
 			}
-			if _, ok := props[name]; !ok {
-				t.Fatalf("$defs.%s does not declare %q, which %s can emit; with additionalProperties:false every frame carrying it is invalid",
-					tc.def, name, tc.typ.Name())
+			if def["additionalProperties"] != false {
+				t.Errorf("$defs.%s must set additionalProperties:false, otherwise an undeclared field is not a defect", tc.def)
+			}
+			if !oneOf[tc.def] {
+				t.Errorf("$defs.%s is not reachable from oneOf, so no frame can validate against it", tc.def)
+			}
+			props, ok := def["properties"].(map[string]any)
+			if !ok {
+				t.Errorf("$defs.%s missing properties", tc.def)
+				continue
+			}
+			for i := 0; i < tc.typ.NumField(); i++ {
+				tag := tc.typ.Field(i).Tag.Get("json")
+				name, _, _ := strings.Cut(tag, ",")
+				if name == "" || name == "-" {
+					continue
+				}
+				if _, ok := props[name]; !ok {
+					t.Errorf("$defs.%s does not declare %q, which %s can emit; with additionalProperties:false every frame carrying it is invalid",
+						tc.def, name, tc.typ.Name())
+				}
 			}
 		}
-	}
+	})
+
+	t.Run("no def is left unwatched", func(t *testing.T) {
+		mapped := map[string]bool{}
+		for _, tc := range frameDefs {
+			mapped[tc.def] = true
+		}
+		for def := range defs {
+			if mapped[def] {
+				continue
+			}
+			if reason, ok := defsWithNoGoWriter[def]; ok {
+				if reason == "" {
+					t.Errorf("$defs.%s is exempted without a reason; an unexplained hole is indistinguishable from an oversight", def)
+				}
+				continue
+			}
+			t.Errorf("$defs.%s is neither paired with a Go type in frameDefs nor listed in defsWithNoGoWriter — add it to one of the two", def)
+		}
+		for def := range defsWithNoGoWriter {
+			if _, ok := defs[def]; !ok {
+				t.Errorf("defsWithNoGoWriter names $defs.%s, which the mirrored schema does not have", def)
+			}
+		}
+	})
 }
 
 func TestSchemaV2IncludesClientTurnAbort(t *testing.T) {

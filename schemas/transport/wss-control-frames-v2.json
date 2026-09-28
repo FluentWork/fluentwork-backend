@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/userSpeechEnd" },
     { "$ref": "#/$defs/clientTurnAbort" },
     { "$ref": "#/$defs/clientRescueRequest" },
+    { "$ref": "#/$defs/clientASRTranscription" },
     { "$ref": "#/$defs/aiTextDelta" },
     { "$ref": "#/$defs/aiAudioChunk" },
     { "$ref": "#/$defs/aiTTSStart" },
@@ -52,7 +53,11 @@
         "type": { "const": "session.start" },
         "material_id": { "type": "string" },
         "scene_type": { "type": "string" },
-        "voice": { "type": "string" }
+        "voice": { "type": "string" },
+        "continue_from_session_id": {
+          "type": "string",
+          "description": "Open this session with the tail of an earlier one instead of from zero. An id, not content: the client cannot write the provider's instructions with it. The gateway resolves the id through app-server's internal API before opening the provider — app-server is what checks the transcript belongs to the caller — and an id that does not resolve leaves the session exactly as it would have been otherwise, so this cannot be used to probe for someone else's session. Absent means start fresh. Deliberately no minLength: the gateway trims the value and treats empty as absent, so an empty string is a frame the server accepts, and declaring it invalid here would put the contract at odds with the server in the other direction."
+        }
       }
     },
     "userSpeechStart": {
@@ -94,6 +99,17 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "client.rescue.request" }
+      }
+    },
+    "clientASRTranscription": {
+      "description": "B14: gateway→client transcript of the user's audio turn. It comes off the same real-time stream that drives the AI response, so it is authoritative and always consistent with what the model actually heard. Clients that used to run on-device ASR should consume this frame and stop their local transcriber — running both produces two transcripts of one utterance, and the one the model was answering is this one.",
+      "type": "object",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "client.asr.transcription" },
+        "text": { "type": "string" },
+        "turn_id": { "type": "string", "minLength": 1 }
       }
     },
     "aiTextDelta": {
