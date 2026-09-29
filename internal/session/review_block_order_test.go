@@ -79,3 +79,36 @@ func reviewgenResultWithBlocks(blocks ...string) reviewgen.Result {
 		Generator: "fake",
 	}
 }
+
+// 卡壳优先要能**到用户手上**：iOS 读的不是 `refine.blocks`，而是服务层展开出来的
+// `refine_cards`（`service.go:693` ← `buildRefineCardsView`，`APIModels.swift` 的
+// `RefineCard`）。这一环如果重排、排序或重建，前两笔的工作在客户端就是零 —— 而它是
+// **第三个**「按序遍历」的实现，契约横跨三层却不写在任何一处。
+//
+// 判据用**位置**断言，并且带一条坏条目：`buildRefineCardsView` 会跳过不是 map 的条目
+// —— 跳过可以，但**不许**因为它改变其余条目的相对顺序。
+func TestBuildRefineCardsView_KeepsTheBlockOrder(t *testing.T) {
+	refine := map[string]any{"blocks": []any{
+		map[string]any{
+			"intent_zh": "乙", "expression_en": "The deploy is blocked.",
+			"anchor_user_said": "the deploy is",
+		},
+		nil,
+		map[string]any{
+			"intent_zh": "甲", "expression_en": "plain one",
+			"anchor_user_said": "plain one",
+		},
+	}}
+
+	cards := buildRefineCardsView(refine)
+
+	if len(cards) != 2 {
+		t.Fatalf("cards = %+v, want the two well-formed ones", cards)
+	}
+	if cards[0]["anchor_user_said"] != "the deploy is" || cards[1]["anchor_user_said"] != "plain one" {
+		t.Fatalf(
+			"order = %v, %v — 卡壳块必须还在前面（iOS 读的就是这个字段）",
+			cards[0]["anchor_user_said"], cards[1]["anchor_user_said"],
+		)
+	}
+}
