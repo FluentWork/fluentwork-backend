@@ -286,11 +286,34 @@ func (s *Service) buildReviewArtifacts(ctx context.Context, session Session, utt
 	// the same call — two ledger rows per review — and its task_type
 	// ("review.eval") collided with B18's per-utterance eval, so the two kinds of
 	// call were indistinguishable in the ledger.
+	// D1（PRD §7.2）：卡壳点来的块排在最前。放在这里而不是 reviewgen 内部，是因为
+	// 两半的输入**只在这里同时到手** —— 模型给的 refine 文档，加上本会话的卡壳 anchor。
+	//
+	// 两份产出都用重排后的那一份：`buildReviewPayload` 会把 refine 嵌进 review JSON，
+	// 而 `RefineJSON` 是另一份副本 —— 传不同的值就会让同一份产出存在两种顺序。
+	refineJSON := reviewgen.StuckFirstBlocks(result.Refine, stuckAnchors(stuckEvents))
 	return reviewArtifacts{
-		ReviewJSON: buildReviewPayload(result.Review, result.Refine, session, result.Generator),
-		RefineJSON: append([]byte(nil), result.Refine...),
+		ReviewJSON: buildReviewPayload(result.Review, refineJSON, session, result.Generator),
+		RefineJSON: append([]byte(nil), refineJSON...),
 		Generator:  result.Generator,
 	}, nil
+}
+
+// stuckAnchors is the anchors of this session's stuck points, in ladder order.
+//
+// Empty anchors are skipped here as well as in StuckFirstBlocks: the silent
+// path's events carry none (§5.2.2 — the user never spoke, so the event produces
+// no block), and passing "" through would make every anchorless block look
+// stuck-sourced.
+func stuckAnchors(events []reviewgen.StuckEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		if strings.TrimSpace(event.Anchor) == "" {
+			continue
+		}
+		out = append(out, event.Anchor)
+	}
+	return out
 }
 
 // failureKind names the generator failure for logs and dashboards; unknown
