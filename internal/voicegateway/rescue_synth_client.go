@@ -36,21 +36,33 @@ type HTTPRescueSynthesizer struct {
 	timeout time.Duration
 }
 
-// DefaultRescueSynthTimeout bounds one synthesis, and it is sized against the
-// rung's budget rather than picked round.
+// DefaultRescueSynthTimeout bounds one synthesis.
 //
 // Measured on 2026-09-18 with the configured ladder voice: 565 ms to first audio,
-// 951 ms to the last byte, for a 12-word English rung. The orchestrator wraps the
-// whole rung — text generation *and* synthesis — in one DefaultRescueLevel1After
-// (3s) deadline, and text generation alone measures ~2s. One second for audio
-// therefore fits inside what is left with a little room to spare; exceeding it
-// costs the rung its voice and never its text, which is already on the wire by
-// the time this call is made.
+// 951 ms to the last byte, for a 12-word English rung. The first value here was
+// 1000 ms — a 5% margin over that one measurement, which is a coincidence rather
+// than a budget, and 2026-09-30 真机 collected on it: the middle rung's synthesis
+// came back `context deadline exceeded` and that rung lost its voice (and, since
+// the client does not render ladder text, the rung itself).
 //
-// Configurable through VOICE_RESCUE_SYNTH_TIMEOUT. Config.Validate refuses a
-// value that does not fit inside the configured rung spacing, so this default is
-// only the answer for an unset environment.
-const DefaultRescueSynthTimeout = 1000 * time.Millisecond
+// Two facts size this number, and both changed with that fix:
+//
+//   - the frame no longer waits for the audio (see
+//     RescueOrchestrator.GenerateAndSynthesize), so a generous budget costs the
+//     learner nothing in prompt latency — only "the voice lands later";
+//   - what actually bounds it is the rung spacing: past the next rung's
+//     threshold the ladder is due anyway. So it is sized as **twice the measured
+//     worst case**, not as "whatever is left over".
+//
+// It is **not** wrapped in the rung's deadline. Generation has its own budget
+// (RescueOrchestrator.generateText) and this call has its own; an earlier
+// revision of this comment claimed the orchestrator wrapped both in one 3s rung
+// deadline, which was never true and is what produced the 5% margin above.
+//
+// Configurable through VOICE_RESCUE_SYNTH_TIMEOUT. Keep it inside the rung
+// spacing (3s by default) or the next rung is due before this rung's audio has
+// landed.
+const DefaultRescueSynthTimeout = 2000 * time.Millisecond
 
 // NewHTTPRescueSynthesizer constructs the client. A timeout of zero or less uses
 // DefaultRescueSynthTimeout.

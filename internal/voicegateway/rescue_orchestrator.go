@@ -107,21 +107,35 @@ func NewRescueOrchestrator(
 	}
 }
 
-// GenerateAndSynthesize generates rescue text and, when a synthesizer is wired,
-// speaks it. Both halves degrade rather than fail: text generation falls back to
-// a fixed library (docs/78 §8.1), and a failed synthesis returns the frame with
+// GenerateAndSynthesize generates rescue text, hands the frame to `deliverText`
+// **before** synthesizing anything, and speaks the rung when a synthesizer is
+// wired.
+//
+// Both halves degrade rather than fail: text generation falls back to a fixed
+// library (docs/78 §8.1), and a failed synthesis returns the frame with
 // no audio. In neither case does the ladder go unsent — a prompt the user can
 // read beats no prompt, and the text is the payload that makes the feature work.
 //
-// Audio never delays text. The caller sends the frame first and the audio after
-// (see handler_rescue.emitRescue): waiting for a model to speak before showing
-// the learner what to say would spend the rung's whole budget on the half that
-// is optional.
+// **Text first is not a convenience, it is the contract.** PRD §5.4 硬约束 #2
+// requires the skeleton and the hint to be *spoken* — 「骨架与提示走 TTS 说出来，
+// 不弹卡片」— so the frame is the only thing on the wire that can carry them, and
+// waiting for a model to speak before showing the learner what to say spends the
+// rung's whole budget on the half that is optional.
+//
+// It used to: synthesis ran inline and the frame was written afterwards, so a
+// slow synthesis delayed the prompt itself. On 2026-09-30 a real device showed
+// the cost — the middle rung's synthesis timed out and that rung arrived late
+// *and* silent, which (the client does not render ladder text) means it never
+// happened at all.
+//
+// `deliverText` returning an error aborts the rung: there is nothing to speak
+// for if the prompt never landed.
 func (o *RescueOrchestrator) GenerateAndSynthesize(
 	ctx context.Context,
 	level int,
 	turnID string,
 	convCtx conversation.ConversationContext,
+	deliverText func(*voiceproto.RescueLadder) error,
 ) (RescueDelivery, error) {
 	if !voiceproto.ValidRescueLevel(level) {
 		return RescueDelivery{}, fmt.Errorf("invalid rescue level: %d", level)
@@ -145,6 +159,12 @@ func (o *RescueOrchestrator) GenerateAndSynthesize(
 		TS:     time.Now().UnixMilli(),
 	}
 	delivery := RescueDelivery{Frame: frame}
+
+	if deliverText != nil {
+		if err := deliverText(frame); err != nil {
+			return delivery, err
+		}
+	}
 
 	if o.synth == nil {
 		o.logger.Warn("B8 rescue audio unavailable; emitting text-only ladder",

@@ -3,6 +3,8 @@ package voicegateway
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +53,70 @@ func (f *fakeSynthesizer) Synthesize(_ context.Context, text, turnID string) (Re
 	return RescueAudio{PCM: pcm, SampleRate: 16000, Codec: "pcm", VoiceID: "test-voice"}, nil
 }
 
+// **发帧排在合成之前** —— A 的契约，用调用**顺序**钉住，而不是延迟。
+//
+// 为什么不看延迟：合成快的时候先发后发看起来一模一样（2026-09-30 真机三层里两层
+// 正常，唯一丢声的那层才暴露出来）。顺序是确定的，延迟不是。
+func TestRescueOrchestrator_TextIsDeliveredBeforeSynthesis(t *testing.T) {
+	var order []string
+
+	gen := &mockRescueGenerator{
+		generateFunc: func(context.Context, conversation.RescueLevel, conversation.ConversationContext) (string, error) {
+			order = append(order, "generate")
+			return "I think the main risk is...", nil
+		},
+	}
+	synth := &orderRecordingSynthesizer{order: &order}
+	orch := NewRescueOrchestrator(gen, synth, 0, slog.New(slog.DiscardHandler))
+
+	delivery, err := orch.GenerateAndSynthesize(
+		context.Background(), 1, "t_order", conversation.ConversationContext{},
+		func(frame *voiceproto.RescueLadder) error {
+			if frame.Text == "" {
+				t.Error("deliverText got an empty text")
+			}
+			order = append(order, "deliver")
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("GenerateAndSynthesize failed: %v", err)
+	}
+	if delivery.Audio == nil {
+		t.Fatal("no audio on the delivery")
+	}
+	if want := []string{"generate", "deliver", "synth"}; !slices.Equal(order, want) {
+		t.Fatalf("order = %v, want %v — 发帧必须排在合成之前（PRD §5.4 硬约束 #2：骨架与提示走 TTS 说出来）", order, want)
+	}
+
+	// 发帧失败 ⇒ **不许**合成：提示没落地，就没有要说的东西。
+	boom := errors.New("wire is gone")
+	failing := &orderRecordingSynthesizer{order: &order}
+	failingOrch := NewRescueOrchestrator(gen, failing, 0, slog.New(slog.DiscardHandler))
+	if _, err := failingOrch.GenerateAndSynthesize(
+		context.Background(), 1, "t_order_fail", conversation.ConversationContext{},
+		func(*voiceproto.RescueLadder) error { return boom },
+	); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want %v", err, boom)
+	}
+	if failing.calls != 0 {
+		t.Errorf("synthesizer ran %d times after the prompt failed to land, want 0", failing.calls)
+	}
+}
+
+// orderRecordingSynthesizer appends to a shared order slice so a test can assert
+// where synthesis sat relative to the other two steps.
+type orderRecordingSynthesizer struct {
+	order *[]string
+	calls int
+}
+
+func (s *orderRecordingSynthesizer) Synthesize(context.Context, string, string) (RescueAudio, error) {
+	s.calls++
+	*s.order = append(*s.order, "synth")
+	return RescueAudio{PCM: []byte{1, 2, 3, 4}, SampleRate: 16000, Codec: "pcm"}, nil
+}
+
 func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 	mockGen := &mockRescueGenerator{
 		generateFunc: func(_ context.Context, level conversation.RescueLevel, _ conversation.ConversationContext) (string, error) {
@@ -70,7 +136,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level1(t *testing.T) {
 		UserRole:        "Backend Engineer",
 	}
 
-	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_123", convCtx)
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_123", convCtx, nil)
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
@@ -127,7 +193,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level2(t *testing.T) {
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_456", conversation.ConversationContext{
 		LastAIMessage: "Why do you prefer this approach?",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
@@ -155,7 +221,7 @@ func TestRescueOrchestrator_GenerateAndSynthesize_Level3(t *testing.T) {
 
 	delivery, err := orch.GenerateAndSynthesize(context.Background(), 3, "t_789", conversation.ConversationContext{
 		LastAIMessage: "How should we handle the deployment?",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
@@ -173,7 +239,7 @@ func TestRescueOrchestrator_InvalidLevel(t *testing.T) {
 	orch := NewRescueOrchestrator(&mockRescueGenerator{}, &fakeSynthesizer{}, 0, nil)
 
 	for _, level := range []int{-1, 0, 4, 99} {
-		if _, err := orch.GenerateAndSynthesize(context.Background(), level, "t_invalid", conversation.ConversationContext{}); err == nil {
+		if _, err := orch.GenerateAndSynthesize(context.Background(), level, "t_invalid", conversation.ConversationContext{}, nil); err == nil {
 			t.Errorf("Expected error for invalid level %d, got nil", level)
 		}
 	}
@@ -188,7 +254,7 @@ func TestRescueOrchestrator_FallbackOnGenerationError(t *testing.T) {
 
 	orch := NewRescueOrchestrator(mockGen, &fakeSynthesizer{}, 0, nil)
 
-	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_fallback", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_fallback", conversation.ConversationContext{}, nil)
 	if err != nil {
 		t.Fatalf("Expected fallback to succeed, got error: %v", err)
 	}
@@ -231,7 +297,7 @@ func TestRescueOrchestrator_NilSynthesizerEmitsTextOnlyLadder(t *testing.T) {
 		},
 	}, nil, 0, nil)
 
-	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_textonly", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_textonly", conversation.ConversationContext{}, nil)
 	if err != nil {
 		t.Fatalf("Expected text-only ladder to succeed, got error: %v", err)
 	}
@@ -258,7 +324,7 @@ func TestRescueOrchestrator_SynthesisFailureStillEmitsLadder(t *testing.T) {
 		},
 	}, synth, 0, nil)
 
-	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_synthfail", conversation.ConversationContext{})
+	delivery, err := orch.GenerateAndSynthesize(context.Background(), 2, "t_synthfail", conversation.ConversationContext{}, nil)
 	if err != nil {
 		t.Fatalf("Expected ladder despite synthesis failure, got error: %v", err)
 	}
@@ -292,7 +358,7 @@ func TestRescueOrchestrator_GenerationDeadlineIsInsideRungSpacing(t *testing.T) 
 		},
 	}, &fakeSynthesizer{}, 0, nil)
 
-	if _, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_deadline", conversation.ConversationContext{}); err != nil {
+	if _, err := orch.GenerateAndSynthesize(context.Background(), 1, "t_deadline", conversation.ConversationContext{}, nil); err != nil {
 		t.Fatalf("GenerateAndSynthesize failed: %v", err)
 	}
 }

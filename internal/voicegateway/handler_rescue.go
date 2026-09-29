@@ -163,7 +163,30 @@ func (h *Handler) emitRescue(
 ) {
 	convCtx, turnID := rt.rescueSnapshot(session)
 
-	delivery, err := rt.rescueOrchestrator.GenerateAndSynthesize(ctx, level, turnID, convCtx)
+	delivery, err := rt.rescueOrchestrator.GenerateAndSynthesize(
+		ctx, level, turnID, convCtx,
+		func(frame *voiceproto.RescueLadder) error {
+			// Text first, always — and now structurally, not by convention: the
+			// orchestrator hands the frame over **before** it synthesizes, so a
+			// slow synthesizer cannot delay the prompt. This comment used to
+			// claim that while the code did the opposite; 2026-09-30 真机 showed
+			// what it cost (那一层的提示与声音一起晚了，而客户端不显示 ladder 文本
+			// ⇒ 那一层对学员完全不存在).
+			if err := rt.sendOutbound(ctx, conn, []ProviderOutbound{{Control: frame}}); err != nil {
+				h.logWarn(rt, "rescue_send_failed",
+					"B8 rescue ladder write failed",
+					"session_id", session.SessionID,
+					"level", level,
+					"err", err,
+				)
+				return err
+			}
+			// Only a delivered rung counts: a failed generation was never a prompt
+			// the user could have been stuck on.
+			rt.rescueLog.noteLadder(frame.TurnID, frame.Level, frame.Text)
+			return nil
+		},
+	)
 	if err != nil {
 		h.logWarn(rt, "rescue_generate_failed",
 			"B8 rescue ladder generation failed; no prompt sent",
@@ -174,23 +197,6 @@ func (h *Handler) emitRescue(
 		return
 	}
 	frame := delivery.Frame
-
-	// Text first, always. The learner is sitting in silence and the text is the
-	// payload; the audio is how it lands. Sending them in one batch keeps the
-	// rung's cost off the client's critical path either way, and guarantees that
-	// a slow synthesis cannot delay the prompt.
-	if err := rt.sendOutbound(ctx, conn, []ProviderOutbound{{Control: frame}}); err != nil {
-		h.logWarn(rt, "rescue_send_failed",
-			"B8 rescue ladder write failed",
-			"session_id", session.SessionID,
-			"level", level,
-			"err", err,
-		)
-		return
-	}
-	// Only a delivered rung counts: a failed generation was never a prompt the
-	// user could have been stuck on.
-	rt.rescueLog.noteLadder(frame.TurnID, frame.Level, frame.Text)
 
 	token, turnRef := rt.beginRescueSpeech(frame.TurnID)
 	spoken := false

@@ -643,6 +643,55 @@ func TestHandler_Rescue_SilentUserReceivesWholeLadder(t *testing.T) {
 	}
 }
 
+// **文本先落地，语音慢慢来。**
+//
+// PRD §5.4 硬约束 #2：「骨架与提示**走 TTS 说出来**，不弹卡片、不切页面」——
+// 帧是梯子唯一的载体，所以它的到达**不许**被合成拖住。
+//
+// 2026-09-30 真机：三层里中间那层（`spoken=false`）不只是丢了声音 —— 文本也晚了整整
+// 一个合成周期（失败 12.353 → 发帧 12.354 看着只差 1ms，是因为**失败之后**才发），
+// 而客户端不显示 ladder 文本，所以那一层对学员**完全不存在**。
+//
+// 判据的写法：把合成冻住（它永远不会返回），然后要求文本帧照样到。修复前会红在
+// 「2 秒内没有等到 ai.rescue.ladder」。
+func TestHandler_Rescue_RungTextIsNotHeldBackBySynthesis(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	synth := &rescueAudioSynthesizer{frozen: release}
+	rig := newRescueRig(t, rescueAITurn{ttsEnd: true, turnEnd: true}, synth)
+	conn, _ := rig.connect(t)
+
+	readCtx, cancel := context.WithTimeout(context.Background(), rescueTestWait)
+	defer cancel()
+
+	rig.speakTurn(readCtx, t, conn, "t-user-1")
+	rig.clock.advance(rescueTestLevel1)
+
+	// 合成还冻着，文本必须先到。
+	promptCtx, cancelPrompt := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelPrompt()
+	frame := rescueWaitForType(promptCtx, t, conn, voiceproto.TypeRescueLadder)
+
+	if got := rescueLevelOf(t, frame); got != 1 {
+		t.Fatalf("level = %d, want 1 (%#v)", got, frame)
+	}
+	if got, _ := frame["text"].(string); got == "" {
+		t.Fatalf("text = %v, want the rung's text — 文本是梯子唯一的载体", frame["text"])
+	}
+
+	// 放开合成：语音随后在**同一个** turn 上到（docs/92）。
+	close(release)
+	start := rescueReadFrame(readCtx, t, conn)
+	frames, end := rescueReadAudioStream(readCtx, t, conn, start)
+	if len(frames) == 0 {
+		t.Fatalf("no audio frames after the synthesizer was released")
+	}
+	if got := end["completion_status"]; got != "ok" {
+		t.Errorf("ai.tts.end status = %v, want ok", got)
+	}
+}
+
 // The AI's own words and the session's scene must reach the generator: a ladder
 // generated against no context is generic encouragement, which is the failure
 // mode the level-3 example exists to avoid.
