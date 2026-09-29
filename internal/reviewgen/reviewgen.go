@@ -170,6 +170,8 @@ Rules:
 - path=silent with an anchor: anchor_user_said is that anchor (the user's first sentence after the ladder), and expression_en is the level-3 complete expression
 - path=silent with no anchor (the user never spoke): emit no block for it, and never invent an anchor
 - do not emit a block whose anchor is not in the transcript
+- refine blocks: aim for 3-5 blocks (the product target); a near miss is fine, an invented anchor is not
+- order refine blocks so those derived from rescue_events first, then the rest
 - scene_tag must be one of: standup, review, 1on1, interview, casual; prefer the provided scene_type when it is one of these
 - function_tag must be one of: object, clarify, report, propose, agree, disagree, ask, summarize, defer, commit
 - keep every string concise
@@ -190,7 +192,9 @@ Example:
   },
   "refine": {
     "blocks": [
-      {"intent_zh": "同步进度", "expression_en": "I'll touch base with the team tomorrow.", "anchor_user_said": "sync up with the team", "scene_tag": "standup", "function_tag": "report"}
+      {"intent_zh": "同步进度", "expression_en": "I'll touch base with the team tomorrow.", "anchor_user_said": "sync up with the team", "scene_tag": "standup", "function_tag": "report"},
+      {"intent_zh": "报告阻塞", "expression_en": "I'm blocked waiting on the API review.", "anchor_user_said": "I am blocked on the API review", "scene_tag": "standup", "function_tag": "report"},
+      {"intent_zh": "约定时间", "expression_en": "I'll touch base tomorrow morning.", "anchor_user_said": "tomorrow", "scene_tag": "standup", "function_tag": "commit"}
     ]
   }
 }

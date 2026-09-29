@@ -213,6 +213,20 @@ func TestUserPrompt_OmitsRescueSectionWithoutEvents(t *testing.T) {
 	}
 }
 
+// D1 的两个**目标**必须写进 prompt —— 它们是软目标（PRD §7.2 D1），不是硬门：
+// 块数越界判失败，会为了一对目标区间丢掉**整份回顾**，而 D1 的 P0 口径是
+// 「练习要留下能带走的东西」。
+//
+// 硬的那一半（卡壳点优先）不靠 prompt 祈祷，另有确定性重排。
+func TestSystemPrompt_StatesTheRefineTargets(t *testing.T) {
+	prompt := systemPrompt()
+	for _, want := range []string{"aim for 3-5", "rescue_events first"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("system prompt does not state %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestSystemPrompt_StatesRescueAnchorRules(t *testing.T) {
 	prompt := systemPrompt()
 	for _, want := range []string{
