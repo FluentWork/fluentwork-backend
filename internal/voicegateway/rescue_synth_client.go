@@ -50,19 +50,22 @@ type HTTPRescueSynthesizer struct {
 //   - the frame no longer waits for the audio (see
 //     RescueOrchestrator.GenerateAndSynthesize), so a generous budget costs the
 //     learner nothing in prompt latency — only "the voice lands later";
-//   - what actually bounds it is the rung spacing: past the next rung's
-//     threshold the ladder is due anyway. So it is sized as **twice the measured
-//     worst case**, not as "whatever is left over".
+//   - what actually caps it is `Config.validateRescueTiming`: the synth budget
+//     must stay **under** `VOICE_RESCUE_LEVEL1_AFTER`, because audio that
+//     outlives the rung spacing lands after the next rung is due. A shortened
+//     ladder (the test's 2s rungs) is legitimate, so the default has to clear
+//     the *shortest* spacing the config treats as sane. 1500 ms does, at ~1.6×
+//     the measured worst case — the number is set by that invariant, not by
+//     taste. (An earlier revision of this fix used 2000 ms and broke
+//     `TestValidateRescueTimingsAllowShorteningRungsAlone`.)
 //
 // It is **not** wrapped in the rung's deadline. Generation has its own budget
 // (RescueOrchestrator.generateText) and this call has its own; an earlier
 // revision of this comment claimed the orchestrator wrapped both in one 3s rung
 // deadline, which was never true and is what produced the 5% margin above.
 //
-// Configurable through VOICE_RESCUE_SYNTH_TIMEOUT. Keep it inside the rung
-// spacing (3s by default) or the next rung is due before this rung's audio has
-// landed.
-const DefaultRescueSynthTimeout = 2000 * time.Millisecond
+// Configurable through VOICE_RESCUE_SYNTH_TIMEOUT.
+const DefaultRescueSynthTimeout = 1500 * time.Millisecond
 
 // NewHTTPRescueSynthesizer constructs the client. A timeout of zero or less uses
 // DefaultRescueSynthTimeout.
