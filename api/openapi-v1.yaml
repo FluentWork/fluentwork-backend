@@ -895,6 +895,25 @@ paths:
                 reflection:
                   type: string
                   maxLength: 500
+                  description: |
+                    Optional note the learner writes after checking in.
+                    **Enforced in UTF-8 bytes, not characters**: the server
+                    rejects anything over the cap with 400
+                    (`internal/topic/service.go`, `MaxReflectionLen`), and 500
+                    bytes is only ~166 Chinese characters. `maxLength` is the
+                    JSON-Schema spelling of the same limit — JSON Schema counts
+                    characters, so a client that counts characters will pass its
+                    own check and still be rejected here on Chinese text.
+                used_block_ids:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Which of this card's `block_ids` the learner actually put to
+                    work with a real person (86_ M10) — the product's only
+                    first-hand evidence that practice turned into speech.
+                    Ids the card never offered are reported back in
+                    `TopicCheckinResult.ignored_block_ids` rather than silently
+                    dropped, so a client sending unknown ids can be seen.
       responses:
         "200":
           description: Checkin recorded
