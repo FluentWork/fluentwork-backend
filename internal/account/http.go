@@ -30,6 +30,10 @@ func NewHandler(svc *Service) *Handler {
 func RegisterRoutes(rg gin.IRouter, h *Handler) {
 	rg.POST("/auth/guest", h.PostGuest)
 	rg.POST("/auth/refresh", h.PostRefresh)
+	// 账号密码（email + 口令）。**不套 RequireRegistered** —— 它的全部意义就是
+	// 「让一个人第一次成为注册用户」，而那时候他手上只有游客令牌。
+	rg.POST("/auth/register", h.PostRegister)
+	rg.POST("/auth/login", h.PostLogin)
 	rg.POST("/account/merge", h.RequireRegistered(), h.PostMerge)
 	if h != nil && h.privacy != nil {
 		rg.DELETE("/account/data", h.RequireAuth(), h.DeleteData)

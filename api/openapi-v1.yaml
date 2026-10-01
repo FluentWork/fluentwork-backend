@@ -63,6 +63,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /auth/register:
+    post:
+      summary: Create a registered identity with an email and a password
+      description: |
+        Returns a token pair immediately — registering signs you in
+        (`is_guest=false`). The email is normalized to lower case and stored
+        that way, so case variants are the same account. Per 49_ A1.
+      operationId: registerEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  minLength: 3
+                  maxLength: 255
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+      responses:
+        "200":
+          description: Token pair for the new registered identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        default:
+          description: Error — 409 when the email is already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/login:
+    post:
+      summary: Exchange an email and a password for a token pair
+      description: |
+        Both failures — unknown email and wrong password — return the **same**
+        UNAUTHENTICATED error. Telling them apart would make this endpoint a
+        free account enumerator. Per 49_ A1.
+      operationId: loginEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 72
+      responses:
+        "200":
+          description: Token pair for the registered identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /account/merge:
     post:
       summary: Merge guest data onto the authenticated registered account

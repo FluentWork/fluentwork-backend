@@ -68,7 +68,9 @@ func TestDiscoveryListsEveryMountedRoute(t *testing.T) {
 		"GET /healthz",
 		"POST /api/v1/account/merge",
 		"POST /api/v1/auth/guest",
+		"POST /api/v1/auth/login",
 		"POST /api/v1/auth/refresh",
+		"POST /api/v1/auth/register",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("discovery endpoints = %v, want %v", got, want)
