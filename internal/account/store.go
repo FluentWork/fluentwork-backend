@@ -20,12 +20,22 @@ var ErrNotFound = errors.New("account: not found")
 // ErrDuplicateDeviceID is returned when a guest insert races on device_id.
 var ErrDuplicateDeviceID = errors.New("account: duplicate device_id")
 
+// ErrDuplicateEmail is returned when a registered insert hits the email unique key.
+//
+// 它与 `ErrDuplicateDeviceID` 分开，不是为了好看：两个唯一键撞了之后的**处理不同** ——
+// 设备号撞了是并发重试（再查一次沿用），邮箱撞了是**注册失败**（这个人已经在了）。
+var ErrDuplicateEmail = errors.New("account: duplicate email")
+
 // Store persists users and refresh tokens.
 type Store interface {
 	Ping(ctx context.Context) error
 	CreateUser(ctx context.Context, user User) error
 	GetUser(ctx context.Context, id string) (User, error)
 	GetActiveByDeviceID(ctx context.Context, deviceID string) (User, error)
+	// GetActiveByEmail 按邮箱取活跃用户（账号密码登录用）。
+	//
+	// 邮箱**以小写存储**（注册与登录都先 normalize），所以这里不需要大小写不敏感的排序规则。
+	GetActiveByEmail(ctx context.Context, email string) (User, error)
 	MarkMerged(ctx context.Context, guestID, targetID, deviceID string, at time.Time) error
 	FindGuestMergedInto(ctx context.Context, targetID string) (User, error)
 	ReplaceRefreshToken(ctx context.Context, token RefreshToken) error

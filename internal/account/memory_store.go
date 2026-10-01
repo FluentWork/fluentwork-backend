@@ -12,6 +12,7 @@ type MemoryStore struct {
 	mu         sync.Mutex
 	users      map[string]User
 	byDevice   map[string]string
+	byEmail    map[string]string
 	tokens     map[string]RefreshToken
 	tombstones []Tombstone
 	audits     []AuditLog
@@ -22,6 +23,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		users:    make(map[string]User),
 		byDevice: make(map[string]string),
+		byEmail:  make(map[string]string),
 		tokens:   make(map[string]RefreshToken),
 	}
 }
@@ -44,8 +46,31 @@ func (s *MemoryStore) CreateUser(_ context.Context, user User) error {
 		}
 		s.byDevice[*user.DeviceID] = user.ID
 	}
+	// 邮箱与库里的唯一键同义：**注册时撞了要能被挡住**，
+	// 不能等 MySQL 抛 1062 才发现（那样内存存储与真库的行为就不一样了）。
+	if user.Email != nil && *user.Email != "" {
+		if _, exists := s.byEmail[*user.Email]; exists {
+			return ErrDuplicateEmail
+		}
+		s.byEmail[*user.Email] = user.ID
+	}
 	s.users[user.ID] = cloneUser(user)
 	return nil
+}
+
+// GetActiveByEmail returns the active user holding this email.
+func (s *MemoryStore) GetActiveByEmail(_ context.Context, email string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.byEmail[email]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	user, ok := s.users[id]
+	if !ok || user.Status != UserStatusActive {
+		return User{}, ErrNotFound
+	}
+	return cloneUser(user), nil
 }
 
 // GetUser returns a user by id.

@@ -59,6 +59,16 @@ func (s *MySQLStore) GetActiveByDeviceID(ctx context.Context, deviceID string) (
 	`, deviceID, UserStatusActive))
 }
 
+// GetActiveByEmail returns the active user holding this email.
+func (s *MySQLStore) GetActiveByEmail(ctx context.Context, email string) (User, error) {
+	return scanUser(s.db.QueryRowContext(ctx, `
+		SELECT `+userColumns+`
+		FROM users
+		WHERE email = ? AND status = ?
+		LIMIT 1
+	`, email, UserStatusActive))
+}
+
 // MarkMerged transfers device_id onto the registered user and archives the guest.
 func (s *MySQLStore) MarkMerged(ctx context.Context, guestID, targetID, deviceID string, at time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
